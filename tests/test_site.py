@@ -130,3 +130,33 @@ async def test_update_site_requires_admin(
     assert msg["error"]["code"] == "unauthorized"
     msg = await _call(client, type="spatial/site")
     assert msg["success"], msg
+
+
+@pytest.mark.parametrize(
+    "legacy_site",
+    [None, {"lon": 4.9, "lat": 52.0, "bearing_deg": 20.0}],
+    ids=["null", "with_origin"],
+)
+async def test_legacy_stored_site_loads(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    hass_storage: dict[str, Any],
+    setup_integration: MockConfigEntry,
+    legacy_site: dict[str, float] | None,
+) -> None:
+    """Test data stored by earlier versions loads and its origin is ignored."""
+    hass_storage[DOMAIN] = {
+        "version": 1,
+        "key": DOMAIN,
+        "data": {"areas": {}, "floors": {}, "site": legacy_site},
+    }
+    assert await hass.config_entries.async_reload(setup_integration.entry_id)
+    await hass.async_block_till_done()
+
+    client = await hass_ws_client(hass)
+    msg = await _call(client, type="spatial/site")
+    assert msg["result"] == {
+        "lon": hass.config.longitude,
+        "lat": hass.config.latitude,
+        "bearing_deg": legacy_site["bearing_deg"] if legacy_site else 0.0,
+    }

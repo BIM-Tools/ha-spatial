@@ -48,7 +48,8 @@ class SpatialStore:
         data = await self._store.async_load() or {}
         self.areas = data.get("areas", {})
         self.floors = data.get("floors", {})
-        self.bearing_deg = data.get("site", {}).get("bearing_deg", 0.0)
+        # Earlier versions stored null, or an origin besides the bearing; keep the bearing only.
+        self.bearing_deg = (data.get("site") or {}).get("bearing_deg", 0.0)
 
     def _data(self) -> dict[str, Any]:
         """Return the data to persist.
