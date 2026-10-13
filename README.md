@@ -39,7 +39,7 @@ Early version. The API and storage format can still change. There is no editor y
 | Adjacency | Derived from shared edges on the same floor, never stored |
 | Measurements | Computed by the integration in metres, never from the map projection |
 | Building, sub-spaces | Home Assistant labels |
-| Site anchor | One origin and bearing per installation, for aligning views only |
+| Site anchor | One bearing per installation; the centre follows all footprints; aligns views only |
 | Finding the building | OSM buildings from Home Assistant's own map tiles |
 | Dependencies | Pure Python |
 | Concepts | Structure of the W3C Building Topology Ontology (BOT), Home Assistant naming |

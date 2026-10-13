@@ -140,16 +140,14 @@ def ws_update_floor(
 def ws_site(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Return the site anchor."""
+    """Return the site centre and bearing."""
     connection.send_result(msg["id"], _coordinator(hass).get_site())
 
 
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "spatial/site/update",
-        vol.Required("lon"): vol.All(vol.Coerce(float), vol.Range(min=-180, max=180)),
-        vol.Required("lat"): vol.All(vol.Coerce(float), vol.Range(min=-90, max=90)),
-        vol.Optional("bearing_deg", default=0.0): vol.All(
+        vol.Required("bearing_deg"): vol.All(
             vol.Coerce(float), vol.Range(min=0, max=360, max_included=False)
         ),
     }
@@ -159,6 +157,6 @@ def ws_site(
 def ws_update_site(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Set the site anchor: origin and the bearing of its x-axis, clockwise from north."""
-    _coordinator(hass).async_set_site(msg["lon"], msg["lat"], msg["bearing_deg"])
+    """Set the bearing of the site's x-axis, clockwise from north."""
+    _coordinator(hass).async_set_site_bearing(msg["bearing_deg"])
     connection.send_result(msg["id"])

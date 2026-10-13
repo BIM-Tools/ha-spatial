@@ -96,8 +96,8 @@
   }
 
   // Pick house: click a building near one of its walls. The building comes from
-  // the OSM buildings in Home Assistant's vector tiles; the nearest edge becomes
-  // the site anchor (origin = edge start, bearing = edge direction).
+  // the OSM buildings in Home Assistant's vector tiles; the nearest edge sets
+  // the site direction (bearing = edge direction); the centre follows the footprints.
   let picking = false;
   const buildingLayers = style.layers.filter((l) => l["source-layer"] === "buildings").map((l) => l.id);
   map.addSource("picked", { type: "geojson", data: turf.featureCollection([]) });
@@ -134,12 +134,12 @@
     ]));
 
     const button = document.createElement("button");
-    button.textContent = `Set as site anchor (bearing ${bearing}°)`;
+    button.textContent = `Set as site direction (bearing ${bearing}°)`;
     button.onclick = async () => {
-      await call("spatial/site/update", { lon: start[0], lat: start[1], bearing_deg: bearing });
+      await call("spatial/site/update", { bearing_deg: bearing });
       popup.remove();
       pickButton.click();
-      map.easeTo({ center: start, bearing });
+      map.easeTo({ bearing });
     };
     const popup = new maplibregl.Popup().setLngLat(e.lngLat).setDOMContent(button).addTo(map);
   });

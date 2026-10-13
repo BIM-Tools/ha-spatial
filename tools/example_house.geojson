@@ -1,8 +1,6 @@
 {
  "type": "FeatureCollection",
  "site": {
-  "lon": 5.1214,
-  "lat": 52.0907,
   "bearing_deg": 20.0
  },
  "floors": [
