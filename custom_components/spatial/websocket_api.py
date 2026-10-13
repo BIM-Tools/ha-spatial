@@ -24,8 +24,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_geojson)
     websocket_api.async_register_command(hass, ws_query_point)
     websocket_api.async_register_command(hass, ws_adjacent_areas)
-    websocket_api.async_register_command(hass, ws_update_area_geometry)
-    websocket_api.async_register_command(hass, ws_remove_area_geometry)
+    websocket_api.async_register_command(hass, ws_update_area_geometries)
     websocket_api.async_register_command(hass, ws_update_floor)
     websocket_api.async_register_command(hass, ws_site)
     websocket_api.async_register_command(hass, ws_update_site)
@@ -91,33 +90,27 @@ def ws_adjacent_areas(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "spatial/area/update_geometry",
-        vol.Required("area_id"): str,
-        vol.Required("polygon"): validate_polygon,
+        vol.Required("type"): "spatial/area/update_geometries",
+        vol.Required("areas"): vol.All({str: vol.Any(None, validate_polygon)}, vol.Length(min=1)),
     }
 )
 @websocket_api.require_admin
 @websocket_api.async_response
-async def ws_update_area_geometry(
+async def ws_update_area_geometries(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Set the footprint of an area."""
-    if _area_exists(hass, connection, msg):
-        area_m2 = await _coordinator(hass).async_set_area_geometry(msg["area_id"], msg["polygon"])
-        connection.send_result(msg["id"], {"area_m2": area_m2})
+    """Set (polygon) or remove (null) the footprints of several areas at once.
 
-
-@websocket_api.websocket_command(
-    {vol.Required("type"): "spatial/area/remove_geometry", vol.Required("area_id"): str}
-)
-@websocket_api.require_admin
-@websocket_api.async_response
-async def ws_remove_area_geometry(
-    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
-) -> None:
-    """Remove the footprint of an area."""
-    await _coordinator(hass).async_remove_area_geometry(msg["area_id"])
-    connection.send_result(msg["id"])
+    Everything is validated first: if any area is unknown, nothing changes.
+    """
+    area_registry = ar.async_get(hass)
+    if missing := sorted(a for a in msg["areas"] if area_registry.async_get_area(a) is None):
+        connection.send_error(
+            msg["id"], websocket_api.ERR_NOT_FOUND, f"Areas not found: {', '.join(missing)}"
+        )
+        return
+    area_m2 = _coordinator(hass).async_set_area_geometries(msg["areas"])
+    connection.send_result(msg["id"], {"area_m2": area_m2})
 
 
 @websocket_api.websocket_command(
@@ -137,9 +130,7 @@ async def ws_update_floor(
     if fr.async_get(hass).async_get_floor(msg["floor_id"]) is None:
         connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND, "Floor not found")
         return
-    await _coordinator(hass).async_set_floor(
-        msg["floor_id"], msg.get("elevation_m"), msg.get("height_m")
-    )
+    _coordinator(hass).async_set_floor(msg["floor_id"], msg.get("elevation_m"), msg.get("height_m"))
     connection.send_result(msg["id"])
 
 
@@ -168,5 +159,5 @@ async def ws_update_site(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Set the site anchor: origin and the bearing of its x-axis, clockwise from north."""
-    await _coordinator(hass).async_set_site(msg["lon"], msg["lat"], msg["bearing_deg"])
+    _coordinator(hass).async_set_site(msg["lon"], msg["lat"], msg["bearing_deg"])
     connection.send_result(msg["id"])

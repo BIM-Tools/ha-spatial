@@ -83,6 +83,8 @@ async def import_file(path: str, url: str, token: str) -> None:
             spatial = {k: floor[k] for k in ("elevation_m", "height_m") if k in floor}
             await client.call("spatial/floor/update_spatial", floor_id=floors[key], **spatial)
 
+        footprints: dict[str, Any] = {}
+        names: dict[str, str] = {}
         for feature in collection["features"]:
             name = feature["properties"]["area"]
             key = normalize_name(name)
@@ -97,10 +99,12 @@ async def import_file(path: str, url: str, token: str) -> None:
                 await client.call(
                     "config/area_registry/update", area_id=areas[key], floor_id=floor_id
                 )
-            result = await client.call(
-                "spatial/area/update_geometry", area_id=areas[key], polygon=feature["geometry"]
-            )
-            print(f"{name}: {result['area_m2']} m²")
+            footprints[areas[key]] = feature["geometry"]
+            names[areas[key]] = name
+
+        result = await client.call("spatial/area/update_geometries", areas=footprints)
+        for area_id, area_m2 in result["area_m2"].items():
+            print(f"{names[area_id]}: {area_m2} m²")
 
         if site := collection.get("site"):
             await client.call("spatial/site/update", **site)

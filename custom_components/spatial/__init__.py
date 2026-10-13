@@ -36,5 +36,5 @@ async def async_setup_entry(hass: HomeAssistant, entry: SpatialConfigEntry) -> b
 
 async def async_unload_entry(hass: HomeAssistant, entry: SpatialConfigEntry) -> bool:
     """Unload a Spatial config entry."""
-    entry.runtime_data.async_teardown()
+    await entry.runtime_data.async_teardown()
     return True

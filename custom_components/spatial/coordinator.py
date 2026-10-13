@@ -35,48 +35,54 @@ class SpatialCoordinator:
             self.hass.bus.async_listen(fr.EVENT_FLOOR_REGISTRY_UPDATED, self._async_floor_updated),
         ]
 
-    @callback
-    def async_teardown(self) -> None:
-        """Stop following the registries."""
+    async def async_teardown(self) -> None:
+        """Stop following the registries and write pending changes."""
         for unsubscribe in self._unsubscribe:
             unsubscribe()
         self._unsubscribe = []
+        await self.store.async_flush()
 
-    async def _async_area_updated(self, event: Event[ar.EventAreaRegistryUpdatedData]) -> None:
+    @callback
+    def _async_area_updated(self, event: Event[ar.EventAreaRegistryUpdatedData]) -> None:
         """Drop the footprint of a removed area."""
         if event.data["action"] == "remove" and event.data["area_id"] in self.store.areas:
             del self.store.areas[event.data["area_id"]]
-            await self._async_save()
+            self._changed()
 
-    async def _async_floor_updated(self, event: Event[fr.EventFloorRegistryUpdatedData]) -> None:
+    @callback
+    def _async_floor_updated(self, event: Event[fr.EventFloorRegistryUpdatedData]) -> None:
         """Drop the dimensions of a removed floor."""
         if event.data["action"] == "remove" and event.data["floor_id"] in self.store.floors:
             del self.store.floors[event.data["floor_id"]]
-            await self._async_save()
+            self._changed()
 
-    async def _async_save(self) -> None:
-        """Persist changes and notify listeners."""
-        await self.store.async_save()
+    def _changed(self) -> None:
+        """Schedule a save and notify listeners."""
+        self.store.async_schedule_save()
         self.hass.bus.async_fire(EVENT_SPATIAL_UPDATED)
 
-    async def async_set_area_geometry(self, area_id: str, polygon: dict[str, Any]) -> float:
-        """Set the footprint of an area and return its size in m²."""
-        area_m2 = round(polygon_area_m2(polygon), 2)
-        self.store.areas[area_id] = {"polygon": polygon, "area_m2": area_m2}
-        await self._async_save()
-        return area_m2
+    @callback
+    def async_set_area_geometries(
+        self, polygons: dict[str, dict[str, Any] | None]
+    ) -> dict[str, float]:
+        """Set or remove (None) footprints in one change; return the m² of those set."""
+        sizes: dict[str, float] = {}
+        for area_id, polygon in polygons.items():
+            if polygon is None:
+                self.store.areas.pop(area_id, None)
+                continue
+            sizes[area_id] = round(polygon_area_m2(polygon), 2)
+            self.store.areas[area_id] = {"polygon": polygon, "area_m2": sizes[area_id]}
+        self._changed()
+        return sizes
 
-    async def async_remove_area_geometry(self, area_id: str) -> None:
-        """Remove the footprint of an area."""
-        if self.store.areas.pop(area_id, None) is not None:
-            await self._async_save()
-
-    async def async_set_floor(
+    @callback
+    def async_set_floor(
         self, floor_id: str, elevation_m: float | None, height_m: float | None
     ) -> None:
         """Set the elevation and height of a floor."""
         self.store.floors[floor_id] = {"elevation_m": elevation_m, "height_m": height_m}
-        await self._async_save()
+        self._changed()
 
     def get_site(self) -> Site:
         """Return the site anchor, defaulting to the home location facing north."""
@@ -86,10 +92,11 @@ class SpatialCoordinator:
             "bearing_deg": 0.0,
         }
 
-    async def async_set_site(self, lon: float, lat: float, bearing_deg: float) -> None:
+    @callback
+    def async_set_site(self, lon: float, lat: float, bearing_deg: float) -> None:
         """Set the site anchor."""
         self.store.site = {"lon": lon, "lat": lat, "bearing_deg": bearing_deg}
-        await self._async_save()
+        self._changed()
 
     def _floor_of(self, area_id: str) -> str | None:
         """Return the floor_id of an area."""

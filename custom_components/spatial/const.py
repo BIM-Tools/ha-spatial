@@ -7,6 +7,10 @@ DOMAIN: Final = "spatial"
 STORAGE_KEY: Final = DOMAIN
 STORAGE_VERSION: Final = 1
 
+# Writes are delayed so a multi-step edit is saved once. Short enough to lose
+# little if the process is killed; Home Assistant flushes on a normal stop.
+SAVE_DELAY_S: Final = 2
+
 # Fired when spatial data changes.
 EVENT_SPATIAL_UPDATED: Final = "spatial_updated"
 

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.storage import Store
 
-from .const import STORAGE_KEY, STORAGE_VERSION
+from .const import SAVE_DELAY_S, STORAGE_KEY, STORAGE_VERSION
 
 
 class AreaSpatial(TypedDict):
@@ -41,6 +41,7 @@ class SpatialStore:
         self.areas: dict[str, AreaSpatial] = {}
         self.floors: dict[str, FloorSpatial] = {}
         self.site: Site | None = None
+        self._dirty = False
 
     async def async_load(self) -> None:
         """Load data from disk."""
@@ -49,8 +50,21 @@ class SpatialStore:
         self.floors = data.get("floors", {})
         self.site = data.get("site")
 
-    async def async_save(self) -> None:
-        """Save data to disk."""
-        await self._store.async_save(
-            {"areas": self.areas, "floors": self.floors, "site": self.site}
-        )
+    def _data(self) -> dict[str, Any]:
+        """Return the data to persist."""
+        return {"areas": self.areas, "floors": self.floors, "site": self.site}
+
+    @callback
+    def async_schedule_save(self) -> None:
+        """Save soon, so edits that follow each other are written once.
+
+        Home Assistant also writes pending data at shutdown (Store final write).
+        """
+        self._dirty = True
+        self._store.async_delay_save(self._data, SAVE_DELAY_S)
+
+    async def async_flush(self) -> None:
+        """Write pending changes now, for example before the entry unloads."""
+        if self._dirty:
+            self._dirty = False
+            await self._store.async_save(self._data())

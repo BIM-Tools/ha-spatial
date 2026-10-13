@@ -45,6 +45,7 @@ Viewer controls:
 - Names match the way Home Assistant matches them (case and spaces ignored).
 - Missing floors and areas are created with Home Assistant's own registry commands.
 - Existing areas are moved to the floor given in the file.
+- All footprints are sent in one `spatial/area/update_geometries` call.
 
 ### Viewer
 
