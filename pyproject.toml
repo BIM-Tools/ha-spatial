@@ -24,3 +24,18 @@ target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.14"
+files = ["custom_components/spatial"]
+strict = true
+warn_unreachable = true
+implicit_reexport = true
+
+# Home Assistant types its schemas with probatio markers; we still use voluptuous.
+[[tool.mypy.overrides]]
+module = "spatial.websocket_api"
+disable_error_code = ["dict-item"]
+
+[tool.coverage.report]
+fail_under = 99

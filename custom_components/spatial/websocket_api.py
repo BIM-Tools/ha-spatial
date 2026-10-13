@@ -34,7 +34,8 @@ def _coordinator(hass: HomeAssistant) -> SpatialCoordinator:
     """Return the coordinator of the loaded config entry."""
     if not (entries := hass.config_entries.async_loaded_entries(DOMAIN)):
         raise HomeAssistantError("Spatial is not loaded")
-    return entries[0].runtime_data
+    coordinator: SpatialCoordinator = entries[0].runtime_data
+    return coordinator
 
 
 def _area_exists(
