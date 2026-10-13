@@ -95,8 +95,8 @@ def ws_adjacent_areas(
     }
 )
 @websocket_api.require_admin
-@websocket_api.async_response
-async def ws_update_area_geometries(
+@callback
+def ws_update_area_geometries(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Set (polygon) or remove (null) the footprints of several areas at once.
@@ -122,8 +122,8 @@ async def ws_update_area_geometries(
     }
 )
 @websocket_api.require_admin
-@websocket_api.async_response
-async def ws_update_floor(
+@callback
+def ws_update_floor(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Set the elevation and height of a floor."""
@@ -154,8 +154,8 @@ def ws_site(
     }
 )
 @websocket_api.require_admin
-@websocket_api.async_response
-async def ws_update_site(
+@callback
+def ws_update_site(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Set the site anchor: origin and the bearing of its x-axis, clockwise from north."""
