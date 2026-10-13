@@ -1,19 +1,23 @@
 """Tests for the Spatial websocket API."""
 
+from datetime import timedelta
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import floor_registry as fr
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     MockUser,
     async_capture_events,
+    async_fire_time_changed,
 )
 from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
-from custom_components.spatial.const import DOMAIN, EVENT_SPATIAL_UPDATED
+from custom_components.spatial.const import DOMAIN, EVENT_SPATIAL_UPDATED, SAVE_DELAY_S
 
 from .common import lonlat, rect
 
@@ -266,6 +270,22 @@ async def test_data_survives_reload(
 
     msg = await _call(client, type="spatial/geojson")
     assert [feature["id"] for feature in msg["result"]["features"]] == ["kitchen"]
+
+
+async def test_unload_after_the_delayed_save_does_not_write_again(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, setup_integration: MockConfigEntry
+) -> None:
+    """Test a save that already happened is not repeated on unload."""
+    client = await hass_ws_client(hass)
+    await _set_geometry(client, "kitchen", rect(0, 0, 4, 3))
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=SAVE_DELAY_S + 1))
+    await hass.async_block_till_done()
+
+    with patch("homeassistant.helpers.storage.Store.async_save") as save:
+        assert await hass.config_entries.async_unload(setup_integration.entry_id)
+        await hass.async_block_till_done()
+
+    save.assert_not_called()
 
 
 async def test_unload_right_after_a_write_persists_it(

@@ -51,7 +51,12 @@ class SpatialStore:
         self.site = data.get("site")
 
     def _data(self) -> dict[str, Any]:
-        """Return the data to persist."""
+        """Return the data to persist.
+
+        Called by the delayed save at write time, so what it returns is no longer
+        pending; a change made after this sets the flag again.
+        """
+        self._dirty = False
         return {"areas": self.areas, "floors": self.floors, "site": self.site}
 
     @callback
@@ -66,5 +71,4 @@ class SpatialStore:
     async def async_flush(self) -> None:
         """Write pending changes now, for example before the entry unloads."""
         if self._dirty:
-            self._dirty = False
             await self._store.async_save(self._data())

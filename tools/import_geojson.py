@@ -102,9 +102,11 @@ async def import_file(path: str, url: str, token: str) -> None:
             footprints[areas[key]] = feature["geometry"]
             names[areas[key]] = name
 
-        result = await client.call("spatial/area/update_geometries", areas=footprints)
-        for area_id, area_m2 in result["area_m2"].items():
-            print(f"{names[area_id]}: {area_m2} m²")
+        # A file may only set floors or the site; the batch command needs at least one area.
+        if footprints:
+            result = await client.call("spatial/area/update_geometries", areas=footprints)
+            for area_id, area_m2 in result["area_m2"].items():
+                print(f"{names[area_id]}: {area_m2} m²")
 
         if site := collection.get("site"):
             await client.call("spatial/site/update", **site)
