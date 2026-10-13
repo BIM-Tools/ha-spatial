@@ -81,7 +81,8 @@ way".
 
 - `entry.runtime_data`, `single_config_entry`, websocket commands registered once in
   `async_setup`.
-- Write commands: `@websocket_command(...)`, then `@require_admin`, then `@async_response`.
+- Write commands: `@websocket_command(...)`, then `@require_admin`, then `@callback`, or
+  `@async_response` only when the handler awaits.
   Read commands stay open to non-admin users.
 - Unknown registry references return `not_found`; bad input returns `invalid_format`.
 - Tests use the public interface: a config entry plus `hass_ws_client`. No tests of private

@@ -1,21 +1,28 @@
 """Tests for the Spatial websocket API."""
 
+from datetime import timedelta
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import floor_registry as fr
-from pytest_homeassistant_custom_component.common import MockConfigEntry, MockUser
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    MockUser,
+    async_capture_events,
+    async_fire_time_changed,
+)
 from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
-from custom_components.spatial.const import DOMAIN
+from custom_components.spatial.const import DOMAIN, EVENT_SPATIAL_UPDATED, SAVE_DELAY_S
 
 from .common import lonlat, rect
 
 WRITE_COMMANDS: list[dict[str, Any]] = [
-    {"type": "spatial/area/update_geometry", "area_id": "kitchen", "polygon": rect(0, 0, 4, 3)},
-    {"type": "spatial/area/remove_geometry", "area_id": "kitchen"},
+    {"type": "spatial/area/update_geometries", "areas": {"kitchen": rect(0, 0, 4, 3)}},
     {"type": "spatial/floor/update_spatial", "floor_id": "ground_floor"},
 ]
 
@@ -46,7 +53,7 @@ async def _call(client: Any, **command: Any) -> dict[str, Any]:
 
 async def _set_geometry(client: Any, area_id: str, polygon: dict[str, Any]) -> None:
     """Attach a polygon to an area and assert success."""
-    msg = await _call(client, type="spatial/area/update_geometry", area_id=area_id, polygon=polygon)
+    msg = await _call(client, type="spatial/area/update_geometries", areas={area_id: polygon})
     assert msg["success"], msg
 
 
@@ -56,10 +63,10 @@ async def test_set_geometry_and_geojson(
     """Test area footprints appear in the GeoJSON feed, ready for extrusion."""
     client = await hass_ws_client(hass)
     msg = await _call(
-        client, type="spatial/area/update_geometry", area_id="kitchen", polygon=rect(0, 0, 4, 3)
+        client, type="spatial/area/update_geometries", areas={"kitchen": rect(0, 0, 4, 3)}
     )
     assert msg["success"], msg
-    assert msg["result"]["area_m2"] == pytest.approx(12, rel=0.001)
+    assert msg["result"]["area_m2"] == {"kitchen": pytest.approx(12, rel=0.001)}
 
     msg = await _call(
         client,
@@ -163,10 +170,67 @@ async def test_remove_geometry(hass: HomeAssistant, hass_ws_client: WebSocketGen
     client = await hass_ws_client(hass)
     await _set_geometry(client, "kitchen", rect(0, 0, 4, 3))
 
-    msg = await _call(client, type="spatial/area/remove_geometry", area_id="kitchen")
+    msg = await _call(client, type="spatial/area/update_geometries", areas={"kitchen": None})
     assert msg["success"], msg
+    assert msg["result"]["area_m2"] == {}
     msg = await _call(client, type="spatial/geojson")
     assert msg["result"]["features"] == []
+
+
+async def test_update_geometries_applies_a_batch_with_one_event(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test several areas change together: set, replace and remove, one event."""
+    client = await hass_ws_client(hass)
+    await _set_geometry(client, "hallway", rect(4, 0, 6, 3))
+    events = async_capture_events(hass, EVENT_SPATIAL_UPDATED)
+
+    msg = await _call(
+        client,
+        type="spatial/area/update_geometries",
+        areas={"kitchen": rect(0, 0, 4, 3), "hallway": None, "bedroom": rect(0, 0, 2, 2)},
+    )
+    await hass.async_block_till_done()
+
+    assert msg["result"]["area_m2"] == {
+        "kitchen": pytest.approx(12, rel=0.001),
+        "bedroom": pytest.approx(4, rel=0.001),
+    }
+    assert len(events) == 1
+    msg = await _call(client, type="spatial/geojson")
+    assert sorted(f["id"] for f in msg["result"]["features"]) == ["bedroom", "kitchen"]
+
+
+@pytest.mark.parametrize(
+    ("areas", "code"),
+    [
+        ({"kitchen": rect(0, 0, 4, 3), "nowhere": rect(0, 0, 1, 1)}, "not_found"),
+        (
+            {"kitchen": rect(0, 0, 4, 3), "bedroom": {"type": "Point", "coordinates": [5, 52]}},
+            "invalid_format",
+        ),
+        ({}, "invalid_format"),
+    ],
+    ids=["unknown_area", "bad_polygon", "empty"],
+)
+async def test_update_geometries_is_atomic(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, areas: dict[str, Any], code: str
+) -> None:
+    """Test an invalid entry rejects the whole batch and changes nothing."""
+    client = await hass_ws_client(hass)
+    await _set_geometry(client, "hallway", rect(4, 0, 6, 3))
+    events = async_capture_events(hass, EVENT_SPATIAL_UPDATED)
+
+    msg = await _call(client, type="spatial/area/update_geometries", areas=areas)
+    await hass.async_block_till_done()
+
+    assert msg["error"]["code"] == code
+    if code == "not_found":
+        assert "nowhere" in msg["error"]["message"]
+        assert "kitchen" not in msg["error"]["message"]
+    assert events == []
+    msg = await _call(client, type="spatial/geojson")
+    assert [f["id"] for f in msg["result"]["features"]] == ["hallway"]
 
 
 async def test_registry_removal_drops_spatial_data(
@@ -206,6 +270,39 @@ async def test_data_survives_reload(
 
     msg = await _call(client, type="spatial/geojson")
     assert [feature["id"] for feature in msg["result"]["features"]] == ["kitchen"]
+
+
+async def test_unload_after_the_delayed_save_does_not_write_again(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, setup_integration: MockConfigEntry
+) -> None:
+    """Test a save that already happened is not repeated on unload."""
+    client = await hass_ws_client(hass)
+    await _set_geometry(client, "kitchen", rect(0, 0, 4, 3))
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=SAVE_DELAY_S + 1))
+    await hass.async_block_till_done()
+
+    with patch("homeassistant.helpers.storage.Store.async_save") as save:
+        assert await hass.config_entries.async_unload(setup_integration.entry_id)
+        await hass.async_block_till_done()
+
+    save.assert_not_called()
+
+
+async def test_unload_right_after_a_write_persists_it(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    hass_storage: dict[str, Any],
+    setup_integration: MockConfigEntry,
+) -> None:
+    """Test the delayed save is flushed when the entry unloads."""
+    client = await hass_ws_client(hass)
+    await _set_geometry(client, "kitchen", rect(0, 0, 4, 3))
+    assert DOMAIN not in hass_storage
+
+    assert await hass.config_entries.async_unload(setup_integration.entry_id)
+    await hass.async_block_till_done()
+
+    assert list(hass_storage[DOMAIN]["data"]["areas"]) == ["kitchen"]
 
 
 async def test_commands_error_when_unloaded_and_work_after_reload(
@@ -264,29 +361,13 @@ async def test_read_commands_allowed_for_non_admin(
 @pytest.mark.parametrize(
     ("command", "code"),
     [
-        (
-            {
-                "type": "spatial/area/update_geometry",
-                "area_id": "nowhere",
-                "polygon": rect(0, 0, 1, 1),
-            },
-            "not_found",
-        ),
         ({"type": "spatial/floor/update_spatial", "floor_id": "attic"}, "not_found"),
-        (
-            {
-                "type": "spatial/area/update_geometry",
-                "area_id": "kitchen",
-                "polygon": {"type": "Point", "coordinates": [5.0, 52.0]},
-            },
-            "invalid_format",
-        ),
         (
             {"type": "spatial/floor/update_spatial", "floor_id": "ground_floor", "height_m": 0},
             "invalid_format",
         ),
     ],
-    ids=["unknown_area", "unknown_floor", "not_a_polygon", "zero_height"],
+    ids=["unknown_floor", "zero_height"],
 )
 async def test_invalid_writes(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator, command: dict[str, Any], code: str
