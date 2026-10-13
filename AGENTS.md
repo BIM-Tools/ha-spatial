@@ -26,6 +26,8 @@ prefix `docker` commands with `MSYS_NO_PATHCONV=1`.
 | Geometry | `docker compose run --rm test pytest tests/test_geometry.py` |
 | Websocket API and storage | `docker compose run --rm test pytest tests/test_websocket_api.py tests/test_site.py` |
 | Config flow | `docker compose run --rm test pytest tests/test_config_flow.py` |
+| Coverage (fails under 99%) | `docker compose run --rm test pytest --cov=custom_components.spatial` |
+| Type check (mypy strict) | `docker compose run --rm test mypy` |
 | Lint and format | `docker compose run --rm test sh -c "ruff format . && ruff check ."` |
 | hassfest | `docker run --rm -v "$(pwd -W)":/github/workspace:ro ghcr.io/home-assistant/hassfest` |
 | Real Home Assistant | `docker compose up homeassistant` |
@@ -130,7 +132,8 @@ What is and is not checked automatically:
 - On every push and pull request to `main`: the tests (`CI Tests`), and hassfest, HACS, ruff
   and the no-`CLAUDE.md` check (`Validate`).
 - `tools/` has no automated tests; verify changes against a real Home Assistant.
-- No type checker. Coverage is not measured.
+- mypy strict and line coverage (floor 99%) are in the workflow; like the rest, not yet run on
+  GitHub.
 - Ruff reports `EXE002` on every file through the Windows bind mount; it is an artefact of the
   mount and does not occur on Linux.
 
