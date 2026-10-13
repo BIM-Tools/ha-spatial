@@ -1,0 +1,21 @@
+# Usage:
+#   docker compose run --rm test                 # run the test suite
+#   docker compose run --rm test pytest -k area  # any pytest args
+#   docker compose up homeassistant              # real HA at http://localhost:8123
+services:
+  test:
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - .:/workspaces/ha-spatial
+    command: pytest
+
+  homeassistant:
+    # Keep in sync with the homeassistant version pinned by requirements_test.txt.
+    image: ghcr.io/home-assistant/home-assistant:2026.10.1
+    volumes:
+      - ./.ha-config:/config
+      - ./custom_components:/config/custom_components:ro
+    ports:
+      - "8123:8123"

@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Spatial",
+        "description": "Spatial adds optional footprints to your areas and heights to your floors, on the same map as your zones."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Spatial is already configured. Only a single configuration is allowed."
+    }
+  }
+}
