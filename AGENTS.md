@@ -128,9 +128,15 @@ way".
 
 What is and is not checked automatically:
 
-- No GitHub remote yet: the workflows in `.github/workflows/` (tests, hassfest, HACS, ruff)
-  have not run. Until then the gate is the commands above, run locally. HACS validation only
-  runs on GitHub.
+- On every push and pull request to `main`: tests (`CI Tests`), and hassfest, HACS, ruff and
+  the no-`CLAUDE.md` check (`Validate`).
+- HACS fails while the repository is private: it reads `hacs.json` and `manifest.json` from
+  `raw.githubusercontent.com`, and reports them as invalid when it cannot. It also needs
+  repository topics and a brand icon. Judge pull requests on the other jobs until then.
+- `main` has no branch protection and no required checks: GitHub offers neither for private
+  repositories on the free plan. A red job does not block a merge, and nothing technically
+  stops a direct push to `main`; the pull-request rule is a convention until the repository is
+  public.
 - `tools/` has no automated tests; verify changes against a real Home Assistant.
 - No type checker. Coverage is not measured.
 - Ruff reports `EXE002` on every file through the Windows bind mount; it is an artefact of the
@@ -154,3 +160,4 @@ What is and is not checked automatically:
 - Home Assistant's shipped map style uses root-relative sprite and glyph URLs; MapLibre 5
   needs them absolute.
 - hassfest needs the repository root mounted, not the integration folder.
+- HACS reports a valid `hacs.json` as invalid on a private repository (see Real gates).
