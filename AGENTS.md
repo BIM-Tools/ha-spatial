@@ -132,8 +132,7 @@ What is and is not checked automatically:
 - On every push and pull request to `main`: the tests (`CI Tests`), and hassfest, HACS, ruff
   and the no-`CLAUDE.md` check (`Validate`).
 - `tools/` has no automated tests; verify changes against a real Home Assistant.
-- mypy strict and line coverage (floor 99%) are in the workflow; like the rest, not yet run on
-  GitHub.
+- `CI Tests` also runs mypy (strict) and line coverage with a 99% floor.
 - Ruff reports `EXE002` on every file through the Windows bind mount; it is an artefact of the
   mount and does not occur on Linux.
 
