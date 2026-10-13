@@ -1,20 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <!-- Source of custom_components/spatial/brand/icon*.png. A zoning plan seen from above:
        rooms on shared wall centrelines, each with a zone label, drawn like a SketchUp
-       sketch. The house sits in a row on Home Assistant's map; map colours are copied
-       from Home Assistant's shipped map style (static/map/light.json). -->
+       sketch. The house sits centred in a row on Home Assistant's map; map colours are
+       copied from Home Assistant's shipped map style (static/map/light.json). -->
   <defs><clipPath id="tile"><rect width="512" height="512" rx="36"/></clipPath></defs>
   <g clip-path="url(#tile)">
     <rect width="512" height="512" fill="rgb(245,239,229)"/>
-    <rect y="0" width="512" height="40" fill="rgb(159,206,232)"/>
-    <rect y="40" width="512" height="10" fill="rgb(245,239,229)"/>
-    <rect y="50" width="512" height="90" fill="rgb(207,228,188)"/>
-    <rect x="461" y="120" width="160" height="304" fill="rgb(234,222,199)" stroke="rgb(224,205,174)" stroke-width="8"/>
-    <rect x="-109" y="120" width="160" height="304" fill="rgb(234,222,199)" stroke="rgb(224,205,174)" stroke-width="8"/>
-    <rect y="436" width="512" height="70" fill="rgb(233,219,196)"/>
-    <rect y="442" width="512" height="58" fill="rgb(253,252,251)"/>
+    <rect width="512" height="22" fill="rgb(159,206,232)"/>
+    <rect y="32" width="512" height="92" fill="rgb(207,228,188)"/>
+    <g fill="rgb(234,222,199)" stroke="rgb(224,205,174)" stroke-width="8">
+      <rect x="-109" y="104" width="160" height="304"/>
+      <rect x="461" y="104" width="160" height="304"/>
+    </g>
+    <rect y="422" width="512" height="62" fill="rgb(233,219,196)"/>
+    <rect y="428" width="512" height="50" fill="rgb(253,252,251)"/>
   </g>
-  <g transform="translate(69.1 85.0) scale(0.73)">
+  <g transform="translate(69.1 69.1) scale(0.73)">
   <g stroke="none">
     <path fill="#ffffff" d="M36 48 L250 48 L250 280 L36 280 Z"/>
     <path fill="#d6d6d6" d="M250 48 L476 48 L476 200 L250 200 Z"/>
