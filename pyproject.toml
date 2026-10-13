@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ha-spatial"
+version = "0.1.0"
+description = "Room footprints for Home Assistant areas, on the same map as your zones"
+readme = "README.md"
+requires-python = ">=3.14.2"
+license = { text = "MIT" }
+authors = [
+    { name = "Jan Brouwer", email = "jan@brewsky.nl" }
+]
+dependencies = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]

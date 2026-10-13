@@ -1,0 +1,21 @@
+name: CI Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same image as the local devcontainer / `docker compose run --rm test`.
+      - name: Build test image
+        run: docker compose build test
+
+      - name: Run tests
+        run: docker compose run --rm test pytest

@@ -1,0 +1,297 @@
+"""Tests for the Spatial websocket API."""
+
+from typing import Any
+
+import pytest
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import floor_registry as fr
+from pytest_homeassistant_custom_component.common import MockConfigEntry, MockUser
+from pytest_homeassistant_custom_component.typing import WebSocketGenerator
+
+from custom_components.spatial.const import DOMAIN
+
+from .common import lonlat, rect
+
+WRITE_COMMANDS: list[dict[str, Any]] = [
+    {"type": "spatial/area/update_geometry", "area_id": "kitchen", "polygon": rect(0, 0, 4, 3)},
+    {"type": "spatial/area/remove_geometry", "area_id": "kitchen"},
+    {"type": "spatial/floor/update_spatial", "floor_id": "ground_floor"},
+]
+
+
+@pytest.fixture(autouse=True)
+async def setup_integration(hass: HomeAssistant) -> MockConfigEntry:
+    """Set up Spatial with two floors and three areas."""
+    floors = fr.async_get(hass)
+    ground = floors.async_create("Ground floor", level=0)
+    first = floors.async_create("First floor", level=1)
+    areas = ar.async_get(hass)
+    areas.async_create("Kitchen", floor_id=ground.floor_id)
+    areas.async_create("Hallway", floor_id=ground.floor_id)
+    areas.async_create("Bedroom", floor_id=first.floor_id)
+
+    entry = MockConfigEntry(domain=DOMAIN, title="Spatial")
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry
+
+
+async def _call(client: Any, **command: Any) -> dict[str, Any]:
+    """Send a command and return the response message."""
+    await client.send_json_auto_id(command)
+    return await client.receive_json()
+
+
+async def _set_geometry(client: Any, area_id: str, polygon: dict[str, Any]) -> None:
+    """Attach a polygon to an area and assert success."""
+    msg = await _call(client, type="spatial/area/update_geometry", area_id=area_id, polygon=polygon)
+    assert msg["success"], msg
+
+
+async def test_set_geometry_and_geojson(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test area footprints appear in the GeoJSON feed, ready for extrusion."""
+    client = await hass_ws_client(hass)
+    msg = await _call(
+        client, type="spatial/area/update_geometry", area_id="kitchen", polygon=rect(0, 0, 4, 3)
+    )
+    assert msg["success"], msg
+    assert msg["result"]["area_m2"] == pytest.approx(12, rel=0.001)
+
+    msg = await _call(
+        client,
+        type="spatial/floor/update_spatial",
+        floor_id="ground_floor",
+        elevation_m=-0.5,
+        height_m=2.7,
+    )
+    assert msg["success"], msg
+
+    msg = await _call(client, type="spatial/geojson")
+    assert msg["success"], msg
+    [feature] = msg["result"]["features"]
+    assert feature["id"] == "kitchen"
+    assert feature["geometry"] == rect(0, 0, 4, 3)
+    assert feature["properties"] == {
+        "area_id": "kitchen",
+        "name": "Kitchen",
+        "floor_id": "ground_floor",
+        "level": 0,
+        "area_m2": pytest.approx(12, rel=0.001),
+        "base_height": -0.5,
+        "height": pytest.approx(2.2),
+    }
+
+
+async def test_floor_defaults_stack_by_level(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test floors without spatial data stack 3 m per level."""
+    client = await hass_ws_client(hass)
+    await _set_geometry(client, "bedroom", rect(0, 0, 4, 3))
+
+    msg = await _call(client, type="spatial/geojson", floor_id="first_floor")
+    [feature] = msg["result"]["features"]
+    assert feature["properties"]["base_height"] == 3.0
+    assert feature["properties"]["height"] == 6.0
+
+
+async def test_query_point(hass: HomeAssistant, hass_ws_client: WebSocketGenerator) -> None:
+    """Test point lookup, filtered by floor where floors overlap in plan."""
+    client = await hass_ws_client(hass)
+    await _set_geometry(client, "kitchen", rect(0, 0, 4, 3))
+    await _set_geometry(client, "bedroom", rect(0, 0, 4, 3))
+    lon, lat = lonlat(1, 1)
+
+    msg = await _call(client, type="spatial/query_point", lon=lon, lat=lat, floor_id="first_floor")
+    assert msg["result"] == {"area_id": "bedroom"}
+
+    msg = await _call(client, type="spatial/query_point", lon=lon, lat=lat, floor_id="ground_floor")
+    assert msg["result"] == {"area_id": "kitchen"}
+
+    lon, lat = lonlat(10, 10)
+    msg = await _call(client, type="spatial/query_point", lon=lon, lat=lat)
+    assert msg["result"] == {"area_id": None}
+
+
+async def test_query_point_prefers_smallest_area(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test overlapping areas on a floor resolve to the smallest one."""
+    client = await hass_ws_client(hass)
+    await _set_geometry(client, "hallway", rect(0, 0, 10, 10))
+    await _set_geometry(client, "kitchen", rect(1, 1, 3, 3))
+
+    msg = await _call(client, type="spatial/query_point", lon=lonlat(2, 2)[0], lat=lonlat(2, 2)[1])
+    assert msg["result"] == {"area_id": "kitchen"}
+
+
+async def test_adjacent_areas_from_shared_edges(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test adjacency is derived from shared centreline edges on the same floor."""
+    client = await hass_ws_client(hass)
+    await _set_geometry(client, "kitchen", rect(0, 0, 4, 3))
+    await _set_geometry(client, "hallway", rect(4, 0, 6, 3))
+    # Same footprint as the hallway's neighbour, but on another floor.
+    await _set_geometry(client, "bedroom", rect(-4, 0, 0, 3))
+
+    msg = await _call(client, type="spatial/area/adjacent", area_id="kitchen")
+    assert msg["result"] == {"area_ids": ["hallway"]}
+
+    msg = await _call(client, type="spatial/area/adjacent", area_id="bedroom")
+    assert msg["result"] == {"area_ids": []}
+
+
+async def test_adjacent_unknown_area(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test adjacency of an area without geometry is empty, and unknown areas fail."""
+    client = await hass_ws_client(hass)
+    msg = await _call(client, type="spatial/area/adjacent", area_id="kitchen")
+    assert msg["result"] == {"area_ids": []}
+
+    msg = await _call(client, type="spatial/area/adjacent", area_id="nowhere")
+    assert msg["error"]["code"] == "not_found"
+
+
+async def test_remove_geometry(hass: HomeAssistant, hass_ws_client: WebSocketGenerator) -> None:
+    """Test removing a footprint."""
+    client = await hass_ws_client(hass)
+    await _set_geometry(client, "kitchen", rect(0, 0, 4, 3))
+
+    msg = await _call(client, type="spatial/area/remove_geometry", area_id="kitchen")
+    assert msg["success"], msg
+    msg = await _call(client, type="spatial/geojson")
+    assert msg["result"]["features"] == []
+
+
+async def test_registry_removal_drops_spatial_data(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test deleting an area or floor in Home Assistant removes its spatial data."""
+    client = await hass_ws_client(hass)
+    await _set_geometry(client, "kitchen", rect(0, 0, 4, 3))
+    await _call(client, type="spatial/floor/update_spatial", floor_id="first_floor", elevation_m=9)
+
+    ar.async_get(hass).async_delete("kitchen")
+    fr.async_get(hass).async_delete("first_floor")
+    await hass.async_block_till_done()
+
+    msg = await _call(client, type="spatial/geojson")
+    assert msg["result"]["features"] == []
+
+    # Re-creating the floor starts from defaults again. Deleting the floor
+    # detached the bedroom from it, so attach it to the new floor.
+    floor = fr.async_get(hass).async_create("First floor", level=1)
+    ar.async_get(hass).async_update("bedroom", floor_id=floor.floor_id)
+    await _set_geometry(client, "bedroom", rect(0, 0, 4, 3))
+    msg = await _call(client, type="spatial/geojson")
+    [feature] = msg["result"]["features"]
+    assert feature["properties"]["base_height"] == 3.0
+
+
+async def test_data_survives_reload(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, setup_integration: MockConfigEntry
+) -> None:
+    """Test spatial data is persisted and loaded again after a reload."""
+    client = await hass_ws_client(hass)
+    await _set_geometry(client, "kitchen", rect(0, 0, 4, 3))
+
+    assert await hass.config_entries.async_reload(setup_integration.entry_id)
+    await hass.async_block_till_done()
+
+    msg = await _call(client, type="spatial/geojson")
+    assert [feature["id"] for feature in msg["result"]["features"]] == ["kitchen"]
+
+
+async def test_commands_error_when_unloaded_and_work_after_reload(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, setup_integration: MockConfigEntry
+) -> None:
+    """Test commands return an error while unloaded and work after setup."""
+    client = await hass_ws_client(hass)
+    assert await hass.config_entries.async_unload(setup_integration.entry_id)
+    await hass.async_block_till_done()
+
+    msg = await _call(client, type="spatial/geojson")
+    assert msg["error"]["code"] == "home_assistant_error"
+
+    assert await hass.config_entries.async_setup(setup_integration.entry_id)
+    await hass.async_block_till_done()
+    msg = await _call(client, type="spatial/geojson")
+    assert msg["success"], msg
+
+
+@pytest.mark.parametrize("command", WRITE_COMMANDS, ids=lambda c: c["type"])
+async def test_write_commands_require_admin(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    hass_admin_user: MockUser,
+    command: dict[str, Any],
+) -> None:
+    """Test non-admin users cannot modify spatial data."""
+    hass_admin_user.groups = []
+    client = await hass_ws_client(hass)
+    msg = await _call(client, **command)
+    assert msg["error"]["code"] == "unauthorized"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        {"type": "spatial/geojson"},
+        {"type": "spatial/query_point", "lon": 5.0, "lat": 52.0},
+        {"type": "spatial/area/adjacent", "area_id": "kitchen"},
+    ],
+    ids=lambda c: c["type"],
+)
+async def test_read_commands_allowed_for_non_admin(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    hass_admin_user: MockUser,
+    command: dict[str, Any],
+) -> None:
+    """Test non-admin users can read spatial data."""
+    hass_admin_user.groups = []
+    client = await hass_ws_client(hass)
+    msg = await _call(client, **command)
+    assert msg["success"], msg
+
+
+@pytest.mark.parametrize(
+    ("command", "code"),
+    [
+        (
+            {
+                "type": "spatial/area/update_geometry",
+                "area_id": "nowhere",
+                "polygon": rect(0, 0, 1, 1),
+            },
+            "not_found",
+        ),
+        ({"type": "spatial/floor/update_spatial", "floor_id": "attic"}, "not_found"),
+        (
+            {
+                "type": "spatial/area/update_geometry",
+                "area_id": "kitchen",
+                "polygon": {"type": "Point", "coordinates": [5.0, 52.0]},
+            },
+            "invalid_format",
+        ),
+        (
+            {"type": "spatial/floor/update_spatial", "floor_id": "ground_floor", "height_m": 0},
+            "invalid_format",
+        ),
+    ],
+    ids=["unknown_area", "unknown_floor", "not_a_polygon", "zero_height"],
+)
+async def test_invalid_writes(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, command: dict[str, Any], code: str
+) -> None:
+    """Test writes are validated against the registries and the schema."""
+    client = await hass_ws_client(hass)
+    msg = await _call(client, **command)
+    assert msg["error"]["code"] == code

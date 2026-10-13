@@ -1,0 +1,5 @@
+# Test dependencies. pytest-homeassistant-custom-component pins an exact
+# homeassistant release (and pytest), so bumping this line upgrades the HA
+# version we test against. Keep in sync with the homeassistant image tag in docker-compose.yml.
+pytest-homeassistant-custom-component==0.13.372  # homeassistant==2026.10.1
+ruff

@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Source of custom_components/spatial/brand/icon*.png. A zoning plan seen from above:
+       rooms on shared wall centrelines, each with a zone label, drawn like a SketchUp
+       sketch. The house sits centred in a row on Home Assistant's map; map colours are
+       copied from Home Assistant's shipped map style (static/map/light.json). -->
+  <defs><clipPath id="tile"><rect width="512" height="512" rx="36"/></clipPath></defs>
+  <g clip-path="url(#tile)">
+    <rect width="512" height="512" fill="rgb(245,239,229)"/>
+    <rect width="512" height="22" fill="rgb(159,206,232)"/>
+    <rect y="32" width="512" height="92" fill="rgb(207,228,188)"/>
+    <g fill="rgb(234,222,199)" stroke="rgb(224,205,174)" stroke-width="8">
+      <rect x="-109" y="104" width="160" height="304"/>
+      <rect x="461" y="104" width="160" height="304"/>
+    </g>
+    <rect y="422" width="512" height="62" fill="rgb(233,219,196)"/>
+    <rect y="428" width="512" height="50" fill="rgb(253,252,251)"/>
+  </g>
+  <g transform="translate(69.1 69.1) scale(0.73)">
+  <g stroke="none">
+    <path fill="#ffffff" d="M36 48 L250 48 L250 280 L36 280 Z"/>
+    <path fill="#d6d6d6" d="M250 48 L476 48 L476 200 L250 200 Z"/>
+    <path fill="#ececec" d="M340 200 L476 200 L476 384 L340 384 Z"/>
+    <path fill="#03a9f4" d="M36 280 L250 280 L250 200 L340 200 L340 384 L364 384 L364 464 L36 464 Z"/>
+  </g>
+  <g fill="none" stroke="#1a1a1a" stroke-linecap="round" stroke-linejoin="round" stroke-width="12">
+    <path d="M20 49 Q 250 44 492 48"/>
+    <path d="M37 32 Q 32 250 36 480"/>
+    <path d="M21 463 Q 200 468 380 464"/>
+    <path d="M475 33 Q 480 220 476 400"/>
+    <path d="M330 385 Q 420 381 492 384"/>
+    <path d="M364 368 Q 361 420 365 480"/>
+    <path d="M250 34 Q 247 170 251 294"/>
+    <path d="M22 281 Q 140 278 264 280"/>
+    <path d="M236 200 Q 350 197 490 201"/>
+    <path d="M340 186 Q 343 290 339 398"/>
+  </g>
+  <g>
+    <rect x="101.0" y="142.0" width="84" height="44" rx="10" fill="#ffffff" stroke="#1a1a1a" stroke-width="8"/>
+    <path d="M119.0 164 Q 143 161 167.0 165" stroke="#1a1a1a" stroke-width="9" stroke-linecap="round" fill="none"/>
+    <rect x="321.0" y="102.0" width="84" height="44" rx="10" fill="#ffffff" stroke="#1a1a1a" stroke-width="8"/>
+    <path d="M339.0 124 Q 363 121 387.0 125" stroke="#1a1a1a" stroke-width="9" stroke-linecap="round" fill="none"/>
+    <rect x="366.0" y="270.0" width="84" height="44" rx="10" fill="#ffffff" stroke="#1a1a1a" stroke-width="8"/>
+    <path d="M384.0 292 Q 408 289 432.0 293" stroke="#1a1a1a" stroke-width="9" stroke-linecap="round" fill="none"/>
+    <rect x="148.0" y="358.0" width="84" height="44" rx="10" fill="#ffffff" stroke="#1a1a1a" stroke-width="8"/>
+    <path d="M166.0 380 Q 190 377 214.0 381" stroke="#1a1a1a" stroke-width="9" stroke-linecap="round" fill="none"/>
+  </g>
+  </g>
+</svg>

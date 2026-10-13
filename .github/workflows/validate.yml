@@ -1,0 +1,41 @@
+name: Validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+jobs:
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration
+
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/ruff-action@v3
+
+  agents-file:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Claude Code skips AGENTS.md when one of these exists.
+      - run: |
+          for f in CLAUDE.md .claude/CLAUDE.md CLAUDE.local.md; do
+            if [ -e "$f" ]; then echo "::error::$f must not exist, see AGENTS.md"; exit 1; fi
+          done
