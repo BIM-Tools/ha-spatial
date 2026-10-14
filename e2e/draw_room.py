@@ -110,11 +110,11 @@ def draw_kitchen(websocket):
         panel.get_by_role("button", name="Ground", exact=True).click()
         panel.get_by_role("button", name="Draw", exact=True).click()
         box = panel.locator("#map").bounding_box()
-        x = box["x"] + box["width"] / 2 - 100
-        y = box["y"] + box["height"] / 2 - 100
+        x = box["x"] + box["width"] / 2 - 75
+        y = box["y"] + box["height"] / 2 - 75
         page.mouse.move(x, y)
         page.mouse.down()
-        page.mouse.move(x + 200, y + 200, steps=10)
+        page.mouse.move(x + 150, y + 150, steps=10)
         page.mouse.up()
         deadline = time.monotonic() + 10
         while not (features := kitchen_features(websocket)) and time.monotonic() < deadline:

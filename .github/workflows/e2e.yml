@@ -1,6 +1,9 @@
 # Draws one room in the panel of a fresh Home Assistant, in a real browser.
 name: E2E
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]
@@ -28,6 +31,9 @@ jobs:
         working-directory: frontend
 
       - run: docker compose run --rm e2e
+
+      - if: failure()
+        run: docker compose logs homeassistant-e2e
 
       - if: always()
         run: docker compose down
