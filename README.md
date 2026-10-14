@@ -19,7 +19,7 @@ Early version. The API and storage format can still change. There is no editor y
 | --- | --- | --- |
 | `custom_components/spatial/` | The integration | [README](custom_components/spatial/README.md) |
 | `tools/` | GeoJSON importer, example house, version sync | [README](tools/README.md) |
-| `frontend/` | Map panel source, built into the integration | [README](frontend/README.md) |
+| `frontend/` | Map panel and dashboard card source, built into the integration | [README](frontend/README.md) |
 | `tests/` | Tests against a real Home Assistant | - |
 | `AGENTS.md` | Rules for contributors and coding agents | - |
 
@@ -31,6 +31,7 @@ Early version. The API and storage format can still change. There is no editor y
 3. Create a long-lived access token (profile > Security).
 4. Import the example house, see [tools/README.md](tools/README.md).
 5. Open the panel: Settings > Devices & services > Spatial > Configure.
+6. Optionally add `type: custom:spatial-map-card` to a dashboard, best in a panel view.
 
 ## Design rules
 
