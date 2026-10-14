@@ -55,3 +55,8 @@ test("the panel says so when there are no rooms", async () => {
   const { panel } = mountPanel();
   await vi.waitFor(() => expect(panel.shadowRoot?.textContent).toContain("No rooms yet"));
 });
+
+test("the panel has Home Assistant's menu button for narrow screens", async () => {
+  const { panel } = mountPanel();
+  await vi.waitFor(() => expect(panel.shadowRoot?.querySelector("ha-menu-button")).not.toBeNull());
+});

@@ -90,6 +90,7 @@ class SpatialPanel extends LitElement {
     return html`
       <link rel="stylesheet" href="/static/map/maplibre-gl.css" />
       <div class="bar">
+        <ha-menu-button .hass=${this.hass} .narrow=${this.narrow}></ha-menu-button>
         ${(["all", ...(this._levels ?? [])] as Level[]).map(
           (level) => html`
             <button ?disabled=${level === this._level} @click=${() => this._show(level)}>

@@ -837,6 +837,7 @@ ${n.shaderPreludeCode.vertexSource}`,define:n.shaderDefine},defaultProjectionDat
   `;_map;_started=!1;_darkMode=!1;_token="";_timer;_unsubscribe;_areas={type:"FeatureCollection",features:[]};constructor(){super(),this.narrow=!1,this._level="all"}render(){return Gi`
       <link rel="stylesheet" href="/static/map/maplibre-gl.css" />
       <div class="bar">
+        <ha-menu-button .hass=${this.hass} .narrow=${this.narrow}></ha-menu-button>
         ${["all",...this._levels??[]].map(t=>Gi`
             <button ?disabled=${t===this._level} @click=${()=>this._show(t)}>
               ${t==="all"?"All":t===null?"No floor":`Level ${t}`}
