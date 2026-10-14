@@ -46,6 +46,16 @@
 - Errors: `not_found` (unknown area or floor), `invalid_format` (bad input), `unauthorized`.
 - Event `spatial_updated` fires after every change.
 
+### Panel
+
+Settings > Devices & services > Spatial > Configure opens the admin-only Spatial panel, read-only for now.
+
+- Home Assistant's own map: its shipped light or dark style, following the theme, with tiles from the `map_tiles` proxy.
+- Centred on the site, rotated so the site direction (the picked wall) is horizontal.
+- "All" stacks the floors in 3D; a level button shows that floor as a flat plan with room outlines.
+- Updates on `spatial_updated`; shows "No rooms yet" without footprints.
+- Source in `frontend/` at the repository root; the built bundle and MapLibre's worker are in `frontend/` here.
+
 ### Rules
 
 | Rule | Value |
