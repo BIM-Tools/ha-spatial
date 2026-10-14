@@ -2,13 +2,14 @@ import type { FeatureCollection, MultiPolygon, Polygon } from "geojson";
 import { LitElement, type PropertyValues, css, html, nothing } from "lit";
 import {
   type GeoJSONSource,
+  Marker,
   type MapMouseEvent,
   Map as MapLibreMap,
   type StyleSpecification,
   setWorkerUrl,
 } from "maplibre-gl";
 import { bounds, floors, mapBearing, styleUrl, withMapTilesToken } from "./map-view";
-import { alignOutline, buildingAt } from "./outline";
+import { alignOutline, buildingAt, outlineBearing } from "./outline";
 
 // The parts of Home Assistant's `hass` object this panel uses.
 interface Hass {
@@ -118,6 +119,7 @@ class SpatialPanel extends LitElement {
   private _unsubscribe?: () => Promise<void>;
   private _areas: FeatureCollection = EMPTY;
   private _outline: Polygon | FeatureCollection = EMPTY;
+  private _handles: Marker[] = [];
 
   constructor() {
     super();
@@ -154,8 +156,14 @@ class SpatialPanel extends LitElement {
           : nothing}
         ${this.card
           ? nothing
-          : html`<button ?disabled=${this._picking} @click=${this._startPicking}>Building</button>`}
-        ${this._picking ? html`<span>Click a building near the wall to align with</span>` : nothing}
+          : html`<button @click=${this._toggleBuilding}>Building</button>`}
+        ${this._picking
+          ? html`<span>
+              Click a building near the wall to align with${this._handles.length
+                ? ", or drag a corner"
+                : nothing}
+            </span>`
+          : nothing}
         ${this._message ? html`<span>${this._message}</span>` : nothing}
         ${this._failed ? html`<span>Map could not load</span>` : nothing}
       </div>
@@ -324,19 +332,72 @@ class SpatialPanel extends LitElement {
 
   private _showOutline(outline: Polygon | null) {
     this._outline = outline ?? EMPTY;
+    this._drawOutline();
+  }
+
+  private _drawOutline() {
     this._map?.getSource<GeoJSONSource>("outline")?.setData(this._outline);
+    this._placeHandles();
   }
 
-  private _startPicking() {
-    this._picking = true;
+  private _toggleBuilding() {
+    this._picking = !this._picking;
     this._message = "";
+    this._placeHandles();
   }
 
-  // One tap picks the building under it and the wall nearest to it. The saved site
-  // update comes back through `spatial/subscribe`, which draws the outline and turns the map.
+  // In building mode, one draggable handle per corner of the stored outline; the
+  // closing vertex shares the first.
+  private _placeHandles() {
+    for (const handle of this._handles) handle.remove();
+    this._handles = [];
+    const map = this._map;
+    if (!this._picking || !map || this._outline.type !== "Polygon") return;
+    this._handles = this._outline.coordinates[0].slice(0, -1).map((corner) => {
+      const handle = new Marker({ draggable: true }).setLngLat(corner as [number, number]).addTo(map);
+      handle.on("dragend", this._moveCorner);
+      return handle;
+    });
+  }
+
+  private _moveCorner = () => {
+    const ring = this._handles.map((handle) => {
+      const { lng, lat } = handle.getLngLat();
+      return [lng, lat];
+    });
+    ring.push(ring[0]);
+    const outline: Polygon = { type: "Polygon", coordinates: [ring] };
+    this._map?.getSource<GeoJSONSource>("outline")?.setData(outline);
+    this._save(outline, outlineBearing(outline));
+  };
+
+  // The saved outline comes back through `spatial/subscribe`, which draws it and turns
+  // the map; a rejected save puts the stored outline back.
+  private _save(outline: Polygon, bearingDeg: number) {
+    this.hass!.connection.sendMessagePromise({
+      type: "spatial/site/update",
+      outline,
+      bearing_deg: bearingDeg,
+    }).then(
+      () => {
+        this._message = "";
+      },
+      (err) => {
+        console.error(err);
+        this._message = "Could not save the outline";
+        this._drawOutline();
+      },
+    );
+  }
+
+  // One tap picks the building under it and the wall nearest to it, and ends the mode.
   private _pick(event: MapMouseEvent) {
     if (!this._picking) return;
+    // A click on a handle reaches the map too.
+    const target = event.originalEvent.target as Node | null;
+    if (this._handles.some((handle) => handle.getElement().contains(target))) return;
     this._picking = false;
+    this._placeHandles();
     const map = this._map!;
     const layers = map
       .getStyle()
@@ -356,14 +417,7 @@ class SpatialPanel extends LitElement {
       this._message = "Building too small or irregular";
       return;
     }
-    this.hass!.connection.sendMessagePromise({
-      type: "spatial/site/update",
-      outline: aligned.outline,
-      bearing_deg: aligned.bearingDeg,
-    }).catch((err) => {
-      console.error(err);
-      this._message = "Could not save";
-    });
+    this._save(aligned.outline, aligned.bearingDeg);
   }
 
   private _applyFloor() {

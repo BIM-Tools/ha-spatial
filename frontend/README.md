@@ -14,7 +14,9 @@ The map panel and the dashboard card. Source here, built into `custom_components
 Open Settings > Devices & services > Spatial > Configure. **All** stacks the floors in 3D;
 a floor button shows that floor as a plan with room outlines.
 **Building**, then a click on your building just inside one wall, saves the building outline
-(0.25 m inside the OSM outline) and turns the map so that wall is horizontal. The card shows the
+(0.25 m inside the OSM outline) and turns the map so that wall is horizontal. **Building** again
+shows a handle on every corner; dragging one saves the outline, and moving one of the first
+wall's two corners turns the map. **Building** once more hides the handles. The card shows the
 outline but has no Building button.
 On a dashboard, add a card with `type: custom:spatial-map-card`, best in a panel view; its
 `floor` option (`all` or a `floor_id`) fixes the view, see `custom_components/spatial/README.md`.

@@ -9,9 +9,51 @@ let handlers: Record<string, (event?: object) => void> = {};
 let sources: Record<string, { data: unknown }> = {};
 let layers: { id: string; type: string; source: string }[] = [];
 
+interface FakeMarker {
+  options: object;
+  lngLat: { lng: number; lat: number };
+  handlers: Record<string, () => void>;
+  removed: boolean;
+  element: HTMLElement;
+}
+let markers: FakeMarker[] = [];
+const handles = () => markers.filter((marker) => !marker.removed);
+
 // MapLibre needs WebGL; the panel's own behaviour does not.
 vi.mock("maplibre-gl", () => ({
   setWorkerUrl: vi.fn(),
+  Marker: class implements FakeMarker {
+    options: object;
+    lngLat = { lng: 0, lat: 0 };
+    handlers: Record<string, () => void> = {};
+    removed = false;
+    element = document.createElement("div");
+    constructor(options: object) {
+      this.options = options;
+      markers.push(this);
+    }
+    setLngLat([lng, lat]: [number, number]) {
+      this.lngLat = { lng, lat };
+      return this;
+    }
+    getElement() {
+      return this.element;
+    }
+    getLngLat() {
+      return this.lngLat;
+    }
+    addTo() {
+      return this;
+    }
+    on(event: string, handler: () => void) {
+      this.handlers[event] = handler;
+      return this;
+    }
+    remove() {
+      this.removed = true;
+      return this;
+    }
+  },
   Map: class {
     constructor(options: object) {
       mapCreated(options);
@@ -58,7 +100,7 @@ vi.mock("maplibre-gl", () => ({
   },
 }));
 
-import { alignOutline } from "../src/outline";
+import { alignOutline, outlineBearing } from "../src/outline";
 import "../src/spatial-panel";
 
 const EMPTY = { type: "FeatureCollection", features: [] };
@@ -113,6 +155,7 @@ afterEach(() => {
   fitBounds.mockClear();
   queryRenderedFeatures.mockReset();
   handlers = {};
+  markers = [];
   queryRenderedFeatures.mockReturnValue([]);
 });
 
@@ -319,7 +362,8 @@ const SHED = {
 };
 const SOUTH_WALL = { lng: 5.0001, lat: 52.00001 };
 
-const click = (lngLat = SOUTH_WALL) => handlers.click({ point: { x: 1, y: 2 }, lngLat });
+const click = (lngLat = SOUTH_WALL, target: Node | null = null) =>
+  handlers.click({ point: { x: 1, y: 2 }, lngLat, originalEvent: { target } });
 
 const startPicking = async (panel: HTMLElement) => {
   await vi.waitFor(() => expect(handlers.click).toBeDefined());
@@ -407,4 +451,96 @@ test("in building mode a failed save says so", async () => {
   await startPicking(panel);
   click();
   await vi.waitFor(() => expect(barText(panel)).toContain("Could not save"));
+});
+
+const mountWithOutline = (reply: Reply = answer) =>
+  mountPanel(async (message) =>
+    message.type === "spatial/site"
+      ? { lon: 5, lat: 52, bearing_deg: 90, outline: HOUSE }
+      : reply(message),
+  );
+
+const corners = () => handles().map(({ lngLat }) => [lngLat.lng, lngLat.lat]);
+
+const startEditing = async (panel: HTMLElement) => {
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
+  buildingButton(panel)!.click();
+  await vi.waitFor(() => expect(handles()).toHaveLength(4));
+};
+
+test("in building mode each corner of the stored outline gets a draggable handle", async () => {
+  const { panel } = mountWithOutline();
+  await vi.waitFor(() => expect(handlers.click).toBeDefined());
+  expect(handles()).toEqual([]);
+  buildingButton(panel)!.click();
+  // The closing vertex shares the first handle.
+  await vi.waitFor(() => expect(corners()).toEqual(HOUSE.coordinates[0].slice(0, -1)));
+  expect(handles().map((marker) => marker.options)).toEqual(
+    Array(4).fill(expect.objectContaining({ draggable: true })),
+  );
+  // Pressing Building again leaves the mode.
+  buildingButton(panel)!.click();
+  await vi.waitFor(() => expect(handles()).toEqual([]));
+  // A pick also ends the mode.
+  buildingButton(panel)!.click();
+  await vi.waitFor(() => expect(handles()).toHaveLength(4));
+  click();
+  await vi.waitFor(() => expect(handles()).toEqual([]));
+});
+
+test("in building mode without an outline there are no handles", async () => {
+  const { panel } = mountPanel();
+  await startPicking(panel);
+  await vi.waitFor(() => expect(barText(panel)).toContain("Click a building"));
+  expect(handles()).toEqual([]);
+});
+
+// The expected bearings are plane trigonometry on the local metres per degree at 52 N
+// (111 257 m north, 111 320 cos 52 = 68 535 m east), an independent reference for turf.
+test.each([
+  [0, [5.0001, 51.9999], 31.6],
+  [1, [5.0002, 51.9999], 129.1],
+])("dragging corner %i saves the outline and its first wall's bearing", async (index, to, expected) => {
+  const { panel, connection } = mountWithOutline();
+  await startEditing(panel);
+  const marker = handles()[index];
+  marker.lngLat = { lng: to[0], lat: to[1] };
+  marker.handlers.dragend();
+  const ring = HOUSE.coordinates[0].map((vertex, i) => (i % 4 === index ? to : vertex));
+  const outline = { type: "Polygon", coordinates: [ring] };
+  const [saved] = updates(connection) as unknown as [{ bearing_deg: number }];
+  expect(saved).toEqual({
+    type: "spatial/site/update",
+    outline,
+    bearing_deg: outlineBearing(outline as never),
+  });
+  expect(saved.bearing_deg).toBeCloseTo(expected, 0);
+  expect(sources.outline.data).toEqual(outline);
+});
+
+test("a rejected corner drag restores the stored outline and says so", async () => {
+  const { panel } = mountWithOutline(async (message) => {
+    if (message.type === "spatial/site/update") throw new Error("not allowed");
+    return answer(message);
+  });
+  vi.spyOn(console, "error").mockImplementationOnce(() => {});
+  await startEditing(panel);
+  const marker = handles()[2];
+  marker.lngLat = { lng: 5.0003, lat: 52.0002 };
+  marker.handlers.dragend();
+  await vi.waitFor(() => expect(barText(panel)).toContain("Could not save the outline"));
+  expect(sources.outline.data).toEqual(HOUSE);
+  expect(corners()).toEqual(HOUSE.coordinates[0].slice(0, -1));
+});
+
+test("a click on a handle is not a pick", async () => {
+  const { panel, connection } = mountWithOutline();
+  queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
+  await startEditing(panel);
+  const pin = document.createElement("span");
+  handles()[1].element.append(pin);
+  click(SOUTH_WALL, pin);
+  expect(updates(connection)).toEqual([]);
+  expect(handles()).toHaveLength(4);
 });
