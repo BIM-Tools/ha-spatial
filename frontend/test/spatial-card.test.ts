@@ -55,3 +55,15 @@ test("the panel bundle is loaded from next to the card, with the same version", 
     "http://ha:8123/spatial_static/spatial-panel.js?v=0.1.0",
   );
 });
+
+test("the card passes its floor option to the panel", () => {
+  const card = mountCard();
+  const panel = card.shadowRoot?.querySelector("spatial-panel") as HTMLElement & { floor?: string };
+  expect(panel.floor).toBeUndefined();
+  card.setConfig({ floor: "ground_floor" });
+  expect(panel.floor).toBe("ground_floor");
+});
+
+test("the card refuses a floor option that is not a string", () => {
+  expect(() => mountCard().setConfig({ floor: 1 })).toThrow("floor");
+});

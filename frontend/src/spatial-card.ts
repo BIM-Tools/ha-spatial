@@ -9,7 +9,10 @@ export const panelUrl = (cardUrl: string): string => {
 };
 
 class SpatialMapCard extends HTMLElement {
-  private _panel = document.createElement("spatial-panel") as HTMLElement & { hass?: unknown };
+  private _panel = document.createElement("spatial-panel") as HTMLElement & {
+    hass?: unknown;
+    floor?: string;
+  };
 
   static getStubConfig() {
     return {};
@@ -31,8 +34,12 @@ class SpatialMapCard extends HTMLElement {
     import(/* @vite-ignore */ panelUrl(import.meta.url)).catch(console.error);
   }
 
-  // No options yet.
-  setConfig(_config: object) {}
+  setConfig(config: { floor?: unknown }) {
+    if (config.floor !== undefined && typeof config.floor !== "string") {
+      throw new Error("floor must be a string: all or a floor_id");
+    }
+    this._panel.floor = config.floor;
+  }
 
   getCardSize() {
     return 8;

@@ -13,6 +13,30 @@
 3. Add footprints, for now with `tools/import_geojson.py` (no editor yet).
 4. Show the rooms on a dashboard: add a card with `type: custom:spatial-map-card`, best in a
    view of type Panel so the map fills it. Everyone who can see the dashboard sees the map.
+   The card has one option, in YAML:
+
+   | `floor` | Shows |
+   | --- | --- |
+   | not set | Floor buttons; pan, zoom and rotate |
+   | `all` | All floors in 3D, fixed |
+   | a `floor_id` | That floor as a plan, fixed |
+
+   A fixed view has no buttons, frames its rooms and follows changes. A dashboard view with
+   all three:
+
+   ```yaml
+   title: Floors
+   type: sections
+   sections:
+     - type: grid
+       cards:
+         - type: custom:spatial-map-card
+           floor: all
+         - type: custom:spatial-map-card
+           floor: ground_floor
+         - type: custom:spatial-map-card
+           floor: first_floor
+   ```
 
 ## Architecture
 
@@ -56,7 +80,7 @@ Settings > Devices & services > Spatial > Configure opens the admin-only Spatial
 - Centred on the site, rotated so the site direction (the picked wall) is horizontal.
 - "All" stacks the floors in 3D; a button per floor (named as in Home Assistant, ordered by level) shows that floor as a flat plan with room outlines; "No floor" shows areas without one.
 - Updates through `spatial/subscribe`; shows "No rooms yet" without footprints.
-- The card `custom:spatial-map-card` shows the same view on a dashboard, for every user, without the menu button; it fills a panel view and is 400 px high elsewhere.
+- The card `custom:spatial-map-card` shows the same view on a dashboard, for every user, without the menu button; it fills a panel view and is 400 px high elsewhere. Its `floor` option fixes the view: MapLibre's `interactive: false`, framed with `fitBounds` on every update.
 - Source in `frontend/` at the repository root; it builds the bundles and MapLibre's worker into `frontend/` here. They are not in git; the release zip contains them.
 
 ### Rules

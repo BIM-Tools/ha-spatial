@@ -12,7 +12,8 @@ The map panel and the dashboard card. Source here, built into `custom_components
 
 Open Settings > Devices & services > Spatial > Configure. **All** stacks the floors in 3D;
 a floor button shows that floor as a plan with room outlines.
-On a dashboard, add a card with `type: custom:spatial-map-card`, best in a panel view.
+On a dashboard, add a card with `type: custom:spatial-map-card`, best in a panel view; its
+`floor` option (`all` or a `floor_id`) fixes the view, see `custom_components/spatial/README.md`.
 
 | Task | Command (Git Bash, from the repository root) |
 | --- | --- |
@@ -32,7 +33,7 @@ licences of the bundled MapLibre and Lit code and uploads `spatial.zip`, which H
 | --- | --- |
 | `src/spatial-panel.ts` | The panel element: floor buttons, the MapLibre map, websocket calls |
 | `src/spatial-card.ts` | The card: wraps the panel element, without the menu button; loads the panel bundle when created |
-| `src/map-view.ts` | Pure helpers: map bearing, style URL, map tiles token, floor order |
+| `src/map-view.ts` | Pure helpers: map bearing, style URL, map tiles token, floor order, room bounds |
 | `test/` | Unit tests (vitest) |
 
 ### Serving
