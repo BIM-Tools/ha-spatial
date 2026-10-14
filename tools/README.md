@@ -21,7 +21,7 @@ Viewer controls:
 
 - **All**: floors stacked in 3D. **Level n**: floor plan with room outlines.
 - Click a room: name, m² and neighbours.
-- **Pick house**: click your building near a wall, then **Set as site anchor**.
+- **Pick house**: click your building near a wall, then **Set as site direction**.
 
 ## Architecture
 
@@ -40,7 +40,7 @@ Viewer controls:
 | --- | --- |
 | `features[]` | `Polygon` with properties `area` (name) and `floor` (name) |
 | `floors[]` (optional) | `name`, `level`, `elevation_m`, `height_m` |
-| `site` (optional) | `lon`, `lat`, `bearing_deg` |
+| `site` (optional) | `bearing_deg` (`lon` and `lat` in older files are ignored) |
 
 - Names match the way Home Assistant matches them (case and spaces ignored).
 - Missing floors and areas are created with Home Assistant's own registry commands.

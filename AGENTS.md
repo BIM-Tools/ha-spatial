@@ -44,7 +44,7 @@ Change these only through an issue that names the reason.
 | Footprint | One area has at most one `Polygon`; no MultiPolygon, its parts cannot carry identity |
 | Adjacency | Derived from shared wall-centreline edges on the same floor; never stored |
 | Building, sub-spaces | Home Assistant labels; no code |
-| Site anchor | One per installation; aligns views; stored geometry never moves with it |
+| Site anchor | One direction per installation; the centre follows all footprints; aligns views only; stored geometry never moves with it |
 | Dependencies | Pure Python in the integration; no shapely or other compiled packages |
 | Finding the building | OSM buildings from Home Assistant's map tiles; national datasets are out of scope, users can import their own polygon |
 | Frontend packages | Packages shared with Home Assistant's frontend use the exact version that frontend ships |

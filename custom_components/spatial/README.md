@@ -21,13 +21,13 @@
 | --- | --- | --- | --- |
 | Area footprint | `area_id` | `polygon` (GeoJSON, WGS84), `area_m2` (computed) | Area registry |
 | Floor | `floor_id` | `elevation_m`, `height_m` (both optional) | Floor registry |
-| Site anchor | - | `lon`, `lat`, `bearing_deg` | This integration |
+| Site | - | `bearing_deg` (the centre is derived, not stored) | This integration |
 
 - Stored in `.storage/spatial`, written 2 seconds after the last change, and on unload and shutdown.
 - Names, levels and floor assignment are read from Home Assistant's registries, never copied.
 - Deleting an area or floor in Home Assistant deletes its spatial data.
 - Floors without data stack 3 m per level.
-- No site anchor set: the home location, facing north.
+- Site centre: the middle of the bounding box of all footprints, computed on every read; the home location without footprints. The bearing defaults to north.
 
 ### Websocket API
 
@@ -36,10 +36,10 @@
 | `spatial/geojson` | no | `floor_id`? | FeatureCollection of footprints |
 | `spatial/query_point` | no | `lon`, `lat`, `floor_id`? | `{area_id}` (smallest match, or null) |
 | `spatial/area/adjacent` | no | `area_id` | `{area_ids}` |
-| `spatial/site` | no | - | `{lon, lat, bearing_deg}` |
+| `spatial/site` | no | - | `{lon, lat, bearing_deg}` (centre derived from the footprints) |
 | `spatial/area/update_geometries` | yes | `areas`: `{area_id: polygon or null}` (null removes) | `{area_m2: {area_id: m²}}` |
 | `spatial/floor/update_spatial` | yes | `floor_id`, `elevation_m`?, `height_m`? | - |
-| `spatial/site/update` | yes | `lon`, `lat`, `bearing_deg`? | - |
+| `spatial/site/update` | yes | `bearing_deg` (0 to under 360) | - |
 
 - Feature properties: `area_id`, `name`, `floor_id`, `level`, `area_m2`, `base_height`, `height`
   (ready for MapLibre `fill-extrusion`).

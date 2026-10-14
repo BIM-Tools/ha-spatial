@@ -25,7 +25,7 @@ class FloorSpatial(TypedDict):
 
 
 class Site(TypedDict):
-    """Shared origin and orientation for aligning views and editors."""
+    """Shared centre and orientation for aligning views and editors."""
 
     lon: float
     lat: float
@@ -33,14 +33,14 @@ class Site(TypedDict):
 
 
 class SpatialStore:
-    """Stores spatial data keyed by area_id and floor_id, plus the site anchor."""
+    """Stores spatial data keyed by area_id and floor_id, plus the site bearing."""
 
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the store."""
         self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, STORAGE_KEY)
         self.areas: dict[str, AreaSpatial] = {}
         self.floors: dict[str, FloorSpatial] = {}
-        self.site: Site | None = None
+        self.bearing_deg = 0.0
         self._dirty = False
 
     async def async_load(self) -> None:
@@ -48,7 +48,8 @@ class SpatialStore:
         data = await self._store.async_load() or {}
         self.areas = data.get("areas", {})
         self.floors = data.get("floors", {})
-        self.site = data.get("site")
+        # Earlier versions stored null, or an origin besides the bearing; keep the bearing only.
+        self.bearing_deg = (data.get("site") or {}).get("bearing_deg", 0.0)
 
     def _data(self) -> dict[str, Any]:
         """Return the data to persist.
@@ -57,7 +58,11 @@ class SpatialStore:
         pending; a change made after this sets the flag again.
         """
         self._dirty = False
-        return {"areas": self.areas, "floors": self.floors, "site": self.site}
+        return {
+            "areas": self.areas,
+            "floors": self.floors,
+            "site": {"bearing_deg": self.bearing_deg},
+        }
 
     @callback
     def async_schedule_save(self) -> None:

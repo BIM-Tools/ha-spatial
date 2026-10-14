@@ -85,17 +85,28 @@ class SpatialCoordinator:
         self._changed()
 
     def get_site(self) -> Site:
-        """Return the site anchor, defaulting to the home location facing north."""
-        return self.store.site or {
-            "lon": self.hass.config.longitude,
-            "lat": self.hass.config.latitude,
-            "bearing_deg": 0.0,
-        }
+        """Return the site: the centre of the footprints' bounding box and the bearing.
+
+        Custom code. Computed on read, so it follows every edit. The box is taken in
+        lon/lat degrees, which is accurate enough at building scale but not across
+        the antimeridian. Without footprints the centre is the home location.
+        """
+        points = [
+            position
+            for data in self.store.areas.values()
+            for position in data["polygon"]["coordinates"][0]
+        ]
+        if not points:
+            lon, lat = self.hass.config.longitude, self.hass.config.latitude
+        else:
+            lons, lats = [p[0] for p in points], [p[1] for p in points]
+            lon, lat = (min(lons) + max(lons)) / 2, (min(lats) + max(lats)) / 2
+        return {"lon": lon, "lat": lat, "bearing_deg": self.store.bearing_deg}
 
     @callback
-    def async_set_site(self, lon: float, lat: float, bearing_deg: float) -> None:
-        """Set the site anchor."""
-        self.store.site = {"lon": lon, "lat": lat, "bearing_deg": bearing_deg}
+    def async_set_site_bearing(self, bearing_deg: float) -> None:
+        """Set the bearing of the site's x-axis."""
+        self.store.bearing_deg = bearing_deg
         self._changed()
 
     def _floor_of(self, area_id: str) -> str | None:

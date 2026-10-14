@@ -5,9 +5,9 @@ Usage:
 
 The file is a FeatureCollection of Polygons. Each feature names its area and
 floor in its properties ({"area": "Kitchen", "floor": "Ground floor"}).
-Optional foreign members set floors and the site anchor:
+Optional foreign members set floors and the site direction:
     "floors": [{"name": "Ground floor", "level": 0, "elevation_m": 0, "height_m": 2.8}]
-    "site": {"lon": 5.12, "lat": 52.09, "bearing_deg": 20}
+    "site": {"bearing_deg": 20}
 Missing floors and areas are created with Home Assistant's own registry
 commands. Only the public websocket API is used.
 """
@@ -109,7 +109,8 @@ async def import_file(path: str, url: str, token: str) -> None:
                 print(f"{names[area_id]}: {area_m2} m²")
 
         if site := collection.get("site"):
-            await client.call("spatial/site/update", **site)
+            # Older files also carry lon and lat; the centre is derived now.
+            await client.call("spatial/site/update", bearing_deg=site.get("bearing_deg", 0))
 
 
 def main() -> None:
