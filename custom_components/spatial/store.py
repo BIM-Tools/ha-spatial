@@ -14,7 +14,6 @@ class AreaSpatial(TypedDict):
     """Footprint of an area."""
 
     polygon: dict[str, Any]
-    area_m2: float
 
 
 class FloorSpatial(TypedDict):
@@ -30,10 +29,11 @@ class Site(TypedDict):
     lon: float
     lat: float
     bearing_deg: float
+    outline: dict[str, Any] | None
 
 
 class SpatialStore:
-    """Stores spatial data keyed by area_id and floor_id, plus the site bearing."""
+    """Stores spatial data keyed by area_id and floor_id, plus the site bearing and outline."""
 
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the store."""
@@ -41,6 +41,7 @@ class SpatialStore:
         self.areas: dict[str, AreaSpatial] = {}
         self.floors: dict[str, FloorSpatial] = {}
         self.bearing_deg = 0.0
+        self.outline: dict[str, Any] | None = None
         self._dirty = False
 
     async def async_load(self) -> None:
@@ -48,8 +49,10 @@ class SpatialStore:
         data = await self._store.async_load() or {}
         self.areas = data.get("areas", {})
         self.floors = data.get("floors", {})
-        # Earlier versions stored null, or an origin besides the bearing; keep the bearing only.
-        self.bearing_deg = (data.get("site") or {}).get("bearing_deg", 0.0)
+        # Earlier versions stored null, or an origin besides the bearing, and no outline.
+        site = data.get("site") or {}
+        self.bearing_deg = site.get("bearing_deg", 0.0)
+        self.outline = site.get("outline")
 
     def _data(self) -> dict[str, Any]:
         """Return the data to persist.
@@ -61,7 +64,7 @@ class SpatialStore:
         return {
             "areas": self.areas,
             "floors": self.floors,
-            "site": {"bearing_deg": self.bearing_deg},
+            "site": {"bearing_deg": self.bearing_deg, "outline": self.outline},
         }
 
     @callback

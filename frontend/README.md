@@ -4,7 +4,8 @@ The map panel and the dashboard card. Source here, built into `custom_components
 
 ## Why
 
-- See the floors and rooms on Home Assistant's own map, read-only.
+- See the floors and rooms on Home Assistant's own map.
+- Pick the building and the wall the site aligns to, with one click on the map.
 - The panel opens from the integration, no dashboard needed.
 - The card shows the same view on a dashboard, also for non-admin users.
 
@@ -12,6 +13,11 @@ The map panel and the dashboard card. Source here, built into `custom_components
 
 Open Settings > Devices & services > Spatial > Configure. **All** stacks the floors in 3D;
 a floor button shows that floor as a plan with room outlines.
+**Building**, then a click on your building just inside one wall, saves the building outline
+(0.25 m inside the OSM outline) and turns the map so that wall is horizontal. **Building** again
+shows a handle on every corner; dragging one saves the outline, and moving one of the first
+wall's two corners turns the map. **Building** once more hides the handles. The card shows the
+outline but has no Building button.
 On a dashboard, add a card with `type: custom:spatial-map-card`, best in a panel view; its
 `floor` option (`all` or a `floor_id`) fixes the view, see `custom_components/spatial/README.md`.
 
@@ -23,7 +29,7 @@ On a dashboard, add a card with `type: custom:spatial-map-card`, best in a panel
 
 The build output is not in git. Run a build or the `frontend` service before opening the panel
 locally. On a published GitHub release, `.github/workflows/release.yml` builds it, adds the
-licences of the bundled MapLibre and Lit code and uploads `spatial.zip`, which HACS installs.
+licences of the bundled MapLibre, Lit, turf, JSTS and d3 code and uploads `spatial.zip`, which HACS installs.
 
 ## Architecture
 
@@ -34,6 +40,7 @@ licences of the bundled MapLibre and Lit code and uploads `spatial.zip`, which H
 | `src/spatial-panel.ts` | The panel element: floor buttons, the MapLibre map, websocket calls |
 | `src/spatial-card.ts` | The card: wraps the panel element, without the menu button; loads the panel bundle when created |
 | `src/map-view.ts` | Pure helpers: map bearing, style URL, map tiles token, floor order, room bounds |
+| `src/outline.ts` | Building outline from an OSM building: inset, orientation and start wall, all with turf |
 | `test/` | Unit tests (vitest) |
 
 ### Serving
@@ -45,4 +52,9 @@ licences of the bundled MapLibre and Lit code and uploads `spatial.zip`, which H
 | MapLibre worker and shared chunk | `maplibre-gl-worker.mjs` and `maplibre-gl-shared.mjs` are copied next to the bundle; the shared chunk stays external |
 | Versions | Packages shared with Home Assistant's frontend use its exact versions, set by `tools/sync_frontend_versions.py` |
 
-- Uses only the public websocket API; no geometry code of its own.
+- Uses only the public websocket API. Its only geometry is picking the outline, done with turf;
+  lengths and areas come from the integration.
+- The outline is the outer shell only: courtyards (holes) of the OSM building are dropped, and a
+  click is matched to the outer walls.
+- The OSM building is the `buildings` part under the click, as MapLibre renders it from one
+  tile: a building cut by a tile border gives only the part in that tile.

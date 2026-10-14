@@ -16,9 +16,15 @@ from .const import (
     EVENT_SPATIAL_UPDATED,
     JSONFG_CORE,
     JSONFG_TYPES_SCHEMAS,
+    NET_INSET_M,
 )
-from .geometry import polygon_area_m2, polygon_contains, shared_edge_length_m
+from .geometry import net_area_m2, polygon_contains, shared_edge_length_m
 from .store import Site, SpatialStore
+
+
+def _net_size(polygon: dict[str, Any]) -> float:
+    """Return the net area in m² of a footprint, computed on every read."""
+    return round(net_area_m2(polygon, NET_INSET_M), 2)
 
 
 class SpatialCoordinator:
@@ -74,8 +80,8 @@ class SpatialCoordinator:
             if polygon is None:
                 self.store.areas.pop(area_id, None)
                 continue
-            sizes[area_id] = round(polygon_area_m2(polygon), 2)
-            self.store.areas[area_id] = {"polygon": polygon, "area_m2": sizes[area_id]}
+            sizes[area_id] = _net_size(polygon)
+            self.store.areas[area_id] = {"polygon": polygon}
         self._changed()
         return sizes
 
@@ -88,28 +94,36 @@ class SpatialCoordinator:
         self._changed()
 
     def get_site(self) -> Site:
-        """Return the site: the centre of the footprints' bounding box and the bearing.
+        """Return the site: the centre of the bounding box, the bearing and the outline.
 
-        Custom code. Computed on read, so it follows every edit. The box is taken in
-        lon/lat degrees, which is accurate enough at building scale but not across
-        the antimeridian. Without footprints the centre is the home location.
+        Custom code. Computed on read, so it follows every edit. The box covers the
+        footprints, else the outline, and is taken in lon/lat degrees, which is
+        accurate enough at building scale but not across the antimeridian. Without
+        either the centre is the home location.
         """
-        points = [
-            position
-            for data in self.store.areas.values()
-            for position in data["polygon"]["coordinates"][0]
-        ]
+        rings = [data["polygon"]["coordinates"][0] for data in self.store.areas.values()]
+        if not rings and self.store.outline:
+            rings = [self.store.outline["coordinates"][0]]
+        points = [position for ring in rings for position in ring]
         if not points:
             lon, lat = self.hass.config.longitude, self.hass.config.latitude
         else:
             lons, lats = [p[0] for p in points], [p[1] for p in points]
             lon, lat = (min(lons) + max(lons)) / 2, (min(lats) + max(lats)) / 2
-        return {"lon": lon, "lat": lat, "bearing_deg": self.store.bearing_deg}
+        return {
+            "lon": lon,
+            "lat": lat,
+            "bearing_deg": self.store.bearing_deg,
+            "outline": self.store.outline,
+        }
 
     @callback
-    def async_set_site_bearing(self, bearing_deg: float) -> None:
-        """Set the bearing of the site's x-axis."""
-        self.store.bearing_deg = bearing_deg
+    def async_update_site(self, fields: dict[str, Any]) -> None:
+        """Set the bearing and/or the outline (None removes it) of the site."""
+        if "bearing_deg" in fields:
+            self.store.bearing_deg = fields["bearing_deg"]
+        if "outline" in fields:
+            self.store.outline = fields["outline"]
         self._changed()
 
     def _floor_of(self, area_id: str) -> str | None:
@@ -150,7 +164,7 @@ class SpatialCoordinator:
                         "name": area.name if area else area_id,
                         "floor_id": area_floor_id,
                         "level": floor.level if floor else None,
-                        "area_m2": data["area_m2"],
+                        "area_m2": _net_size(data["polygon"]),
                         "base_height": base,
                         "height": top,
                     },
@@ -165,7 +179,7 @@ class SpatialCoordinator:
     def query_point(self, lon: float, lat: float, floor_id: str | None = None) -> str | None:
         """Return the smallest area containing the point, optionally on one floor."""
         matches = [
-            (data["area_m2"], area_id)
+            (_net_size(data["polygon"]), area_id)
             for area_id, data in self.store.areas.items()
             if (floor_id is None or self._floor_of(area_id) == floor_id)
             and polygon_contains(data["polygon"], lon, lat)

@@ -127,10 +127,29 @@ def validate_polygon(value: Any) -> dict[str, Any]:
     return value
 
 
-def polygon_area_m2(polygon: dict[str, Any]) -> float:
-    """Return the area of a polygon in square metres, with holes subtracted."""
+def _perimeter(ring: Ring) -> float:
+    """Return the length of a closed ring."""
+    return sum(math.hypot(x2 - x1, y2 - y1) for (x1, y1), (x2, y2) in pairwise(ring))
+
+
+def net_area_m2(polygon: dict[str, Any], inset_m: float) -> float:
+    """Return the area in square metres of a polygon shrunk by inset_m on every side.
+
+    Custom, from Steiner's formula for a parallel body: shrinking a polygon with
+    area A and perimeter P by d leaves A - P * d + 4 * d * d (convex minus reflex
+    corners is always four for a simple ring; the d² term is exact for right
+    angles). A hole grows by d, so it takes away A + P * d + 4 * d * d. Exact for
+    right-angled polygons; with diagonal walls the corner term is an approximation.
+    A shape thinner than twice inset_m has no net area: the result is clamped to zero.
+    A part narrower than twice inset_m within a larger shape is miscounted, because the
+    formula assumes the shape keeps its topology.
+    """
     exterior, *holes = _rings_m(polygon, *_origin(polygon))
-    return _shoelace_area(exterior) - sum(_shoelace_area(hole) for hole in holes)
+    corners = 4 * inset_m * inset_m
+    area = _shoelace_area(exterior) - _perimeter(exterior) * inset_m + corners
+    for hole in holes:
+        area -= _shoelace_area(hole) + _perimeter(hole) * inset_m + corners
+    return max(area, 0.0)
 
 
 def polygon_contains(polygon: dict[str, Any], lon: float, lat: float) -> bool:

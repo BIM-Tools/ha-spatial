@@ -1,17 +1,20 @@
-import type { FeatureCollection } from "geojson";
+import type { FeatureCollection, MultiPolygon, Polygon } from "geojson";
 import { LitElement, type PropertyValues, css, html, nothing } from "lit";
 import {
   type GeoJSONSource,
+  Marker,
+  type MapMouseEvent,
   Map as MapLibreMap,
   type StyleSpecification,
   setWorkerUrl,
 } from "maplibre-gl";
 import { bounds, floors, mapBearing, styleUrl, withMapTilesToken } from "./map-view";
+import { alignOutline, buildingAt, outlineBearing } from "./outline";
 
 // The parts of Home Assistant's `hass` object this panel uses.
 interface Hass {
   connection: {
-    sendMessagePromise<T>(message: { type: string }): Promise<T>;
+    sendMessagePromise<T>(message: { type: string; [key: string]: unknown }): Promise<T>;
     subscribeMessage(callback: () => void, message: { type: string }): Promise<() => Promise<void>>;
     addEventListener(eventType: "ready", listener: () => void): void;
     removeEventListener(eventType: "ready", listener: () => void): void;
@@ -27,7 +30,10 @@ interface Site {
   lon: number;
   lat: number;
   bearing_deg: number;
+  outline: Polygon | null;
 }
+
+const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 
 // Core rotates the map tiles token every 30 minutes and keeps two live; this
 // is the interval Home Assistant's own frontend refreshes at.
@@ -57,6 +63,8 @@ class SpatialPanel extends LitElement {
     _floors: { state: true },
     _floor: { state: true },
     _failed: { state: true },
+    _picking: { state: true },
+    _message: { state: true },
   };
 
   static styles = css`
@@ -97,6 +105,8 @@ class SpatialPanel extends LitElement {
   declare _floors: (string | null)[] | undefined;
   declare _floor: Floor;
   declare _failed: boolean;
+  declare _picking: boolean;
+  declare _message: string;
 
   private _map?: MapLibreMap;
   private _started = false;
@@ -107,13 +117,17 @@ class SpatialPanel extends LitElement {
   private _bearing = 0;
   private _timer?: ReturnType<typeof setInterval>;
   private _unsubscribe?: () => Promise<void>;
-  private _areas: FeatureCollection = { type: "FeatureCollection", features: [] };
+  private _areas: FeatureCollection = EMPTY;
+  private _outline: Polygon | FeatureCollection = EMPTY;
+  private _handles: Marker[] = [];
 
   constructor() {
     super();
     this.narrow = false;
     this.card = false;
     this._floor = "all";
+    this._picking = false;
+    this._message = "";
   }
 
   render() {
@@ -140,6 +154,17 @@ class SpatialPanel extends LitElement {
           : this._floors.length === 0)
           ? html`<span>No rooms yet</span>`
           : nothing}
+        ${this.card
+          ? nothing
+          : html`<button @click=${this._toggleBuilding}>Building</button>`}
+        ${this._picking
+          ? html`<span>
+              Click a building near the wall to align with${this._handles.length
+                ? ", or drag a corner"
+                : nothing}
+            </span>`
+          : nothing}
+        ${this._message ? html`<span>${this._message}</span>` : nothing}
         ${this._failed ? html`<span>Map could not load</span>` : nothing}
       </div>
       <div id="map"></div>
@@ -149,7 +174,8 @@ class SpatialPanel extends LitElement {
   updated(changed: PropertyValues<this>) {
     // MapLibre fixes interactivity at creation, so a new option rebuilds the map.
     if (changed.has("floor") && this._started) this._stop();
-    if (!this.hass) return;
+    // A render queued by _stop must not start a map for a panel that has left.
+    if (!this.hass || !this.isConnected) return;
     if (!this._started) {
       this._started = true;
       this._failed = false;
@@ -174,6 +200,9 @@ class SpatialPanel extends LitElement {
     this.hass?.connection.removeEventListener("ready", this._keepToken);
     clearInterval(this._timer);
     this._unsubscribe?.();
+    for (const handle of this._handles) handle.remove();
+    this._handles = [];
+    this._picking = false;
     this._map?.remove();
     this._map = undefined;
     this._started = false;
@@ -214,7 +243,8 @@ class SpatialPanel extends LitElement {
     // the user looks around. A static map has no user, so it frames again.
     const onUpdate = async () => {
       await loadAreas();
-      const { bearing_deg } = await call<Site>("spatial/site");
+      const { bearing_deg, outline } = await call<Site>("spatial/site");
+      this._showOutline(outline);
       if (this.floor) {
         this._bearing = bearing_deg;
         this._fit();
@@ -235,6 +265,7 @@ class SpatialPanel extends LitElement {
 
     const site = await call<Site>("spatial/site");
     this._bearing = site.bearing_deg;
+    this._outline = site.outline ?? EMPTY;
     this._darkMode = hass.themes.darkMode;
     const style = await loadStyle(this._darkMode);
     if (left()) return;
@@ -250,6 +281,7 @@ class SpatialPanel extends LitElement {
       interactive: !this.floor,
     });
     this._map.on("style.load", () => this._addAreas());
+    this._map.on("click", (event) => this._pick(event));
     if (this.floor) this._fit();
   }
 
@@ -292,7 +324,112 @@ class SpatialPanel extends LitElement {
       source: "areas",
       paint: { "line-color": "#212121", "line-width": 2 },
     });
+    map.addSource("outline", { type: "geojson", data: this._outline });
+    map.addLayer({
+      id: "spatial-outline",
+      type: "line",
+      source: "outline",
+      paint: { "line-color": "#ff9800", "line-width": 3 },
+    });
     this._applyFloor();
+  }
+
+  private _showOutline(outline: Polygon | null) {
+    this._outline = outline ?? EMPTY;
+    this._drawOutline();
+  }
+
+  private _drawOutline() {
+    this._map?.getSource<GeoJSONSource>("outline")?.setData(this._outline);
+    this._placeHandles();
+  }
+
+  private _toggleBuilding() {
+    this._picking = !this._picking;
+    this._message = "";
+    this._placeHandles();
+  }
+
+  // In building mode, one draggable handle per corner of the stored outline; the
+  // closing vertex shares the first.
+  private _placeHandles() {
+    for (const handle of this._handles) handle.remove();
+    this._handles = [];
+    // The hint offers a corner drag only while there are handles; the render runs after this.
+    this.requestUpdate();
+    const map = this._map;
+    if (!this._picking || !map || this._outline.type !== "Polygon") return;
+    this._handles = this._outline.coordinates[0].slice(0, -1).map((corner) => {
+      const handle = new Marker({ draggable: true }).setLngLat(corner as [number, number]).addTo(map);
+      handle.on("dragend", this._moveCorner);
+      return handle;
+    });
+  }
+
+  private _moveCorner = () => {
+    if (!this._handles.length) return;
+    const ring = this._handles.map((handle) => {
+      const { lng, lat } = handle.getLngLat();
+      return [lng, lat];
+    });
+    ring.push(ring[0]);
+    const holes = this._outline.type === "Polygon" ? this._outline.coordinates.slice(1) : [];
+    // Interior rings (courtyards) of the stored outline stay as they are.
+    const outline: Polygon = {
+      type: "Polygon",
+      coordinates: [ring, ...holes],
+    };
+    this._map?.getSource<GeoJSONSource>("outline")?.setData(outline);
+    this._save(outline, outlineBearing(outline));
+  };
+
+  // The saved outline comes back through `spatial/subscribe`, which draws it and turns
+  // the map; a rejected save puts the stored outline back.
+  private _save(outline: Polygon, bearingDeg: number) {
+    this.hass!.connection.sendMessagePromise({
+      type: "spatial/site/update",
+      outline,
+      bearing_deg: bearingDeg,
+    }).then(
+      () => {
+        this._message = "";
+      },
+      (err) => {
+        console.error(err);
+        this._message = "Could not save the outline";
+        this._drawOutline();
+      },
+    );
+  }
+
+  // One tap picks the building under it and the wall nearest to it, and ends the mode.
+  private _pick(event: MapMouseEvent) {
+    if (!this._picking) return;
+    // A click on a handle reaches the map too.
+    const target = event.originalEvent.target as Node | null;
+    if (this._handles.some((handle) => handle.getElement().contains(target))) return;
+    this._picking = false;
+    this._placeHandles();
+    const map = this._map!;
+    const layers = map
+      .getStyle()
+      .layers.filter((layer) => "source-layer" in layer && layer["source-layer"] === "buildings")
+      .map((layer) => layer.id);
+    const at: [number, number] = [event.lngLat.lng, event.lngLat.lat];
+    const building = map
+      .queryRenderedFeatures(event.point, { layers })
+      .map((feature) => buildingAt(feature.geometry as Polygon | MultiPolygon, at))
+      .find(Boolean);
+    if (!building) {
+      this._message = "No building here";
+      return;
+    }
+    const aligned = alignOutline(building, at);
+    if (!aligned) {
+      this._message = "Building too small or irregular";
+      return;
+    }
+    this._save(aligned.outline, aligned.bearingDeg);
   }
 
   private _applyFloor() {

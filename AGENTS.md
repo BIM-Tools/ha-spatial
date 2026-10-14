@@ -45,9 +45,10 @@ Change these only through an issue that names the reason.
 | Coordinates | WGS84 GeoJSON, the same world as Home Assistant zones |
 | Measurement | In the integration, local tangent plane with exact WGS84 radii; never UTM, national grids, Mercator or screen space |
 | Footprint | One area has at most one `Polygon`; no MultiPolygon, its parts cannot carry identity |
-| Adjacency | Derived from shared wall-centreline edges on the same floor; never stored |
+| Adjacency | Derived from shared edges on the same floor, never stored; interior walls on centrelines, exterior walls on the outline 0.25 m inside the facade |
+| Area | `area_m2` is net: the drawn polygon shrunk by 50 mm on every side |
 | Building, sub-spaces | Home Assistant labels; no code |
-| Site anchor | One direction per installation; the centre follows all footprints; aligns views only; stored geometry never moves with it |
+| Site anchor | One direction per installation; the centre follows all footprints, else the outline; aligns views only; stored geometry never moves with it |
 | Dependencies | Pure Python in the integration; no shapely or other compiled packages |
 | Finding the building | OSM buildings from Home Assistant's map tiles; national datasets are out of scope, users can import their own polygon |
 | Frontend packages | Packages shared with Home Assistant's frontend use the exact version that frontend ships |
@@ -71,7 +72,7 @@ way".
 
 ## Single implementations
 
-- All geometry is in `custom_components/spatial/geometry.py`.
+- All measurement geometry is in `custom_components/spatial/geometry.py`; the panel only picks the outline, with turf (`frontend/src/outline.ts`).
 - Tools, bridges and frontends use only the websocket API; nothing else reads
   `.storage/spatial` or imports the integration.
 - Home Assistant owns areas and floors. Data is keyed by `area_id` and `floor_id`; names,
