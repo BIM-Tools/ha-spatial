@@ -1,3 +1,5 @@
+// The space editor panel; the dashboard card embeds it to show the rooms on the map.
+
 import type { FeatureCollection, MultiPolygon, Polygon } from "geojson";
 import { LitElement, type PropertyValues, css, html, nothing } from "lit";
 import {
@@ -8,7 +10,7 @@ import {
   type StyleSpecification,
   setWorkerUrl,
 } from "maplibre-gl";
-import { bounds, floors, mapBearing, styleUrl, withMapTilesToken } from "./map-view";
+import { bounds, floorsByLevel, mapBearing, styleUrl, withMapTilesToken } from "./map-view";
 import { alignOutline, buildingAt, outlineBearing } from "./outline";
 
 // The parts of Home Assistant's `hass` object this panel uses.
@@ -43,9 +45,9 @@ const loadStyle = async (darkMode: boolean): Promise<StyleSpecification> => {
   const style = await (await fetch(styleUrl(darkMode))).json();
   // The shipped style is root-relative; MapLibre needs absolute sprite and
   // glyph URLs. Glyphs are concatenated so `{fontstack}` is not encoded.
-  style.sprite = style.sprite.map((s: { url: string }) => ({
-    ...s,
-    url: new URL(s.url, location.origin).href,
+  style.sprite = style.sprite.map((sprite: { url: string }) => ({
+    ...sprite,
+    url: new URL(sprite.url, location.origin).href,
   }));
   style.glyphs = location.origin + style.glyphs;
   return style;
@@ -115,7 +117,7 @@ class SpatialPanel extends LitElement {
   private _darkMode = false;
   private _token = "";
   private _bearing = 0;
-  private _timer?: ReturnType<typeof setInterval>;
+  private _tokenTimer?: ReturnType<typeof setInterval>;
   private _unsubscribe?: () => Promise<void>;
   private _areas: FeatureCollection = EMPTY;
   private _outline: Polygon | FeatureCollection = EMPTY;
@@ -198,7 +200,7 @@ class SpatialPanel extends LitElement {
   private _stop() {
     this._run++;
     this.hass?.connection.removeEventListener("ready", this._keepToken);
-    clearInterval(this._timer);
+    clearInterval(this._tokenTimer);
     this._unsubscribe?.();
     for (const handle of this._handles) handle.remove();
     this._handles = [];
@@ -224,21 +226,21 @@ class SpatialPanel extends LitElement {
 
   private async _start(hass: Hass) {
     const run = this._run;
-    const left = () => run !== this._run;
+    const stopped = () => run !== this._run;
     const call = <T>(type: string) => hass.connection.sendMessagePromise<T>({ type });
     this._floor = this.floor ?? "all";
     await this._refreshToken();
-    if (left()) return;
-    this._timer = setInterval(this._keepToken, TOKEN_REFRESH_MS);
+    if (stopped()) return;
+    this._tokenTimer = setInterval(this._keepToken, TOKEN_REFRESH_MS);
     hass.connection.addEventListener("ready", this._keepToken);
 
     const loadAreas = async () => {
       this._areas = await call<FeatureCollection>("spatial/geojson");
-      this._floors = floors(this._areas);
+      this._floors = floorsByLevel(this._areas);
       this._map?.getSource<GeoJSONSource>("areas")?.setData(this._areas);
     };
     await loadAreas();
-    if (left()) return;
+    if (stopped()) return;
     // Only a new bearing is applied; re-centring would move the camera while
     // the user looks around. A static map has no user, so it frames again.
     const onUpdate = async () => {
@@ -257,7 +259,7 @@ class SpatialPanel extends LitElement {
     const unsubscribe = await hass.connection.subscribeMessage(onUpdate, {
       type: "spatial/subscribe",
     });
-    if (left()) {
+    if (stopped()) {
       unsubscribe();
       return;
     }
@@ -268,7 +270,7 @@ class SpatialPanel extends LitElement {
     this._outline = site.outline ?? EMPTY;
     this._darkMode = hass.themes.darkMode;
     const style = await loadStyle(this._darkMode);
-    if (left()) return;
+    if (stopped()) return;
     setWorkerUrl("/spatial_static/maplibre-gl-worker.mjs");
     this._map = new MapLibreMap({
       container: this.renderRoot.querySelector<HTMLElement>("#map")!,
@@ -307,8 +309,8 @@ class SpatialPanel extends LitElement {
       source: "areas",
       paint: {
         "fill-extrusion-color": "#03a9f4",
-        "fill-extrusion-base": ["get", "base_height"],
-        "fill-extrusion-height": ["get", "height"],
+        "fill-extrusion-base": ["get", "base_m"],
+        "fill-extrusion-height": ["get", "top_m"],
         "fill-extrusion-opacity": 0.7,
       },
     });

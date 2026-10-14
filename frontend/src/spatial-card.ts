@@ -1,5 +1,5 @@
-// Home Assistant loads this module on every page, so it stays small: the panel
-// bundle, with MapLibre, loads only when a card is created.
+// Puts the rooms map on dashboards. Home Assistant loads this on every page, so it stays
+// small: the panel bundle, with MapLibre, loads only when a card is created.
 
 /** The panel bundle next to the card, with the same `?v=` as its registration, so both share one module. */
 export const panelUrl = (cardUrl: string): string => {

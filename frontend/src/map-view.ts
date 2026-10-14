@@ -1,3 +1,5 @@
+// Map logic that needs no map, so it can be tested without MapLibre or a browser.
+
 import type { Feature, FeatureCollection, Polygon } from "geojson";
 
 /** MapLibre bearing that puts the site's x-axis (the picked wall) horizontal, pointing right. */
@@ -44,19 +46,19 @@ export const withMapTilesToken = (
  * level after those with one, `null` (no floor) last. Several floors may share
  * a level; they keep feed order.
  */
-export const floors = (fc: FeatureCollection): (string | null)[] => {
-  const level = new Map<string | null, number | null>();
-  for (const f of fc.features) {
-    level.set(f.properties?.floor_id ?? null, f.properties?.level ?? null);
+export const floorsByLevel = (collection: FeatureCollection): (string | null)[] => {
+  const levelOf = new Map<string | null, number | null>();
+  for (const feature of collection.features) {
+    levelOf.set(feature.properties?.floor_id ?? null, feature.properties?.level ?? null);
   }
-  const key = (id: string | null) => {
-    const l = level.get(id) ?? null;
-    return [id === null ? 2 : l === null ? 1 : 0, l ?? 0];
+  const sortKey = (floorId: string | null) => {
+    const level = levelOf.get(floorId) ?? null;
+    return [floorId === null ? 2 : level === null ? 1 : 0, level ?? 0];
   };
-  return [...level.keys()].sort((a, b) => {
-    const [ga, la] = key(a);
-    const [gb, lb] = key(b);
-    return ga - gb || la - lb;
+  return [...levelOf.keys()].sort((a, b) => {
+    const [groupA, levelA] = sortKey(a);
+    const [groupB, levelB] = sortKey(b);
+    return groupA - groupB || levelA - levelB;
   });
 };
 

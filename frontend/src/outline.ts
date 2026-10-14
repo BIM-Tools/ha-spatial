@@ -1,3 +1,5 @@
+// Turns a building in Home Assistant's map tiles into the site outline and its bearing.
+
 import bearing from "@turf/bearing";
 import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
 import buffer from "@turf/buffer";
