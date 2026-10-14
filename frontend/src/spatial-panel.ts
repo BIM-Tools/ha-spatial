@@ -174,7 +174,8 @@ class SpatialPanel extends LitElement {
   updated(changed: PropertyValues<this>) {
     // MapLibre fixes interactivity at creation, so a new option rebuilds the map.
     if (changed.has("floor") && this._started) this._stop();
-    if (!this.hass) return;
+    // A render queued by _stop must not start a map for a panel that has left.
+    if (!this.hass || !this.isConnected) return;
     if (!this._started) {
       this._started = true;
       this._failed = false;
@@ -199,6 +200,9 @@ class SpatialPanel extends LitElement {
     this.hass?.connection.removeEventListener("ready", this._keepToken);
     clearInterval(this._timer);
     this._unsubscribe?.();
+    for (const handle of this._handles) handle.remove();
+    this._handles = [];
+    this._picking = false;
     this._map?.remove();
     this._map = undefined;
     this._started = false;
@@ -351,6 +355,8 @@ class SpatialPanel extends LitElement {
   private _placeHandles() {
     for (const handle of this._handles) handle.remove();
     this._handles = [];
+    // The hint offers a corner drag only while there are handles; the render runs after this.
+    this.requestUpdate();
     const map = this._map;
     if (!this._picking || !map || this._outline.type !== "Polygon") return;
     this._handles = this._outline.coordinates[0].slice(0, -1).map((corner) => {
@@ -361,6 +367,7 @@ class SpatialPanel extends LitElement {
   }
 
   private _moveCorner = () => {
+    if (!this._handles.length) return;
     const ring = this._handles.map((handle) => {
       const { lng, lat } = handle.getLngLat();
       return [lng, lat];

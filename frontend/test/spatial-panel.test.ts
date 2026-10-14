@@ -370,6 +370,13 @@ const startPicking = async (panel: HTMLElement) => {
   buildingButton(panel)!.click();
 };
 
+// A second tap does nothing once the mode has ended, so the map is not queried again.
+const expectModeEnded = async () => {
+  const queried = queryRenderedFeatures.mock.calls.length;
+  click();
+  expect(queryRenderedFeatures).toHaveBeenCalledTimes(queried);
+};
+
 const updates = (connection: { sendMessagePromise: { mock: { calls: [{ type: string }][] } } }) =>
   connection.sendMessagePromise.mock.calls
     .map(([message]) => message)
@@ -408,6 +415,7 @@ test("in building mode a click without a building saves nothing", async () => {
   await startPicking(panel);
   click();
   await vi.waitFor(() => expect(barText(panel)).toContain("No building here"));
+  await expectModeEnded();
   expect(updates(connection)).toEqual([]);
 });
 
@@ -417,6 +425,7 @@ test("in building mode a building too small to inset saves nothing", async () =>
   await startPicking(panel);
   click({ lng: 5.0000005, lat: 52.0000005 });
   await vi.waitFor(() => expect(barText(panel)).toContain("Building too small or irregular"));
+  await expectModeEnded();
   expect(updates(connection)).toEqual([]);
 });
 
@@ -543,4 +552,45 @@ test("a click on a handle is not a pick", async () => {
   click(SOUTH_WALL, pin);
   expect(updates(connection)).toEqual([]);
   expect(handles()).toHaveLength(4);
+});
+
+test("removing the panel removes the corner handles", async () => {
+  const { panel } = mountWithOutline();
+  await startEditing(panel);
+  panel.remove();
+  expect(handles()).toEqual([]);
+});
+
+test("a removed panel does not start again", async () => {
+  const { panel } = mountWithOutline();
+  await startEditing(panel);
+  panel.remove();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(mapCreated).toHaveBeenCalledTimes(1);
+});
+
+test("an outline that arrives during building mode offers the corner drag", async () => {
+  let outline: object | null = null;
+  const { panel, connection } = mountPanel(async (message) =>
+    message.type === "spatial/site" ? { lon: 5, lat: 52, bearing_deg: 0, outline } : answer(message),
+  );
+  await startPicking(panel);
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
+  await vi.waitFor(() => expect(barText(panel)).toContain("Click a building"));
+  expect(barText(panel)).not.toContain("drag a corner");
+  outline = HOUSE;
+  const [[onUpdate]] = connection.subscribeMessage.mock.calls as unknown as [[() => Promise<void>]];
+  await onUpdate();
+  await vi.waitFor(() => expect(barText(panel)).toContain("drag a corner"));
+});
+
+test("a drag that ends after the handles are gone saves nothing", async () => {
+  const { panel, connection } = mountWithOutline();
+  await startEditing(panel);
+  const { dragend } = handles()[0].handlers;
+  buildingButton(panel)!.click();
+  await vi.waitFor(() => expect(handles()).toEqual([]));
+  dragend();
+  expect(updates(connection)).toEqual([]);
 });
