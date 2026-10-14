@@ -49,6 +49,8 @@ class SpatialPanel extends LitElement {
   static properties = {
     hass: { attribute: false },
     narrow: { type: Boolean },
+    // Set by the dashboard card.
+    card: { type: Boolean },
     panel: { attribute: false },
     _floors: { state: true },
     _floor: { state: true },
@@ -63,6 +65,10 @@ class SpatialPanel extends LitElement {
       height: 100dvh;
       background: var(--primary-background-color);
       color: var(--primary-text-color);
+    }
+    :host([card]) {
+      height: 100%;
+      background: none;
     }
     .bar {
       display: flex;
@@ -79,6 +85,7 @@ class SpatialPanel extends LitElement {
   // `declare` keeps class fields from shadowing Lit's accessors.
   declare hass: Hass | undefined;
   declare narrow: boolean;
+  declare card: boolean;
   declare panel: object | undefined;
   declare _floors: (string | null)[] | undefined;
   declare _floor: Floor;
@@ -98,6 +105,7 @@ class SpatialPanel extends LitElement {
   constructor() {
     super();
     this.narrow = false;
+    this.card = false;
     this._floor = "all";
   }
 
@@ -105,7 +113,9 @@ class SpatialPanel extends LitElement {
     return html`
       <link rel="stylesheet" href="/static/map/maplibre-gl.css" />
       <div class="bar">
-        <ha-menu-button .hass=${this.hass} .narrow=${this.narrow}></ha-menu-button>
+        ${this.card
+          ? nothing
+          : html`<ha-menu-button .hass=${this.hass} .narrow=${this.narrow}></ha-menu-button>`}
         ${(["all", ...(this._floors ?? [])] as Floor[]).map(
           (floor) => html`
             <button ?disabled=${floor === this._floor} @click=${() => this._show(floor)}>

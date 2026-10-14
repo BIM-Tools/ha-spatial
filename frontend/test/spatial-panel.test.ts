@@ -33,7 +33,7 @@ const answer: Reply = async ({ type }) => {
   throw new Error(type);
 };
 
-const mountPanel = (reply: Reply = answer, floors = {}) => {
+const mountPanel = (reply: Reply = answer, floors = {}, card = false) => {
   const sendMessagePromise = vi.fn(reply);
   const unsubscribe = vi.fn(async () => {});
   const listeners: Record<string, () => void> = {};
@@ -49,6 +49,7 @@ const mountPanel = (reply: Reply = answer, floors = {}) => {
   };
   const panel = document.createElement("spatial-panel") as HTMLElement & { hass: object };
   panel.hass = { connection, floors, themes: { darkMode: false } };
+  panel.toggleAttribute("card", card);
   document.body.append(panel);
   const tokenCalls = () =>
     sendMessagePromise.mock.calls.filter(([m]) => m.type === "map_tiles/access_token").length;
@@ -160,4 +161,10 @@ test("the panel follows changes through spatial/subscribe, open to non-admin use
   expect(connection.subscribeMessage).toHaveBeenCalledWith(expect.any(Function), {
     type: "spatial/subscribe",
   });
+});
+
+test("inside a card the panel has no menu button", async () => {
+  const { panel } = mountPanel(answer, {}, true);
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
+  expect(panel.shadowRoot?.querySelector("ha-menu-button")).toBeNull();
 });
