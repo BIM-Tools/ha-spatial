@@ -24,10 +24,12 @@ export function buildingAt(geometry: Polygon | MultiPolygon, at: [number, number
 export function alignOutline(
   building: Polygon,
   at: [number, number],
-): { outline: Polygon; bearingDeg: number } {
+): { outline: Polygon; bearingDeg: number } | undefined {
   const inset = buffer(building, -OUTLINE_OFFSET_M, { units: "meters" });
-  // Buffer returns the first Polygon part; a building too small to inset has no outline.
-  const shell = (rewind(inset!.geometry as Polygon) as Polygon).coordinates[0];
+  // Buffer gives nothing for a building narrower than twice the offset, and a MultiPolygon
+  // when the inset splits a concave building; neither has one outline.
+  if (inset?.geometry.type !== "Polygon") return undefined;
+  const shell = (rewind(inset.geometry) as Polygon).coordinates[0];
   const closed = shell.slice(0, -1);
   const nearest = nearestPointOnLine(lineString(shell), point(at));
   const start = nearest.properties.index;

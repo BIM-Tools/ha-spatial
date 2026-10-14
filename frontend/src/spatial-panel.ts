@@ -1,17 +1,19 @@
-import type { FeatureCollection } from "geojson";
+import type { FeatureCollection, MultiPolygon, Polygon } from "geojson";
 import { LitElement, type PropertyValues, css, html, nothing } from "lit";
 import {
   type GeoJSONSource,
+  type MapMouseEvent,
   Map as MapLibreMap,
   type StyleSpecification,
   setWorkerUrl,
 } from "maplibre-gl";
 import { bounds, floors, mapBearing, styleUrl, withMapTilesToken } from "./map-view";
+import { alignOutline, buildingAt } from "./outline";
 
 // The parts of Home Assistant's `hass` object this panel uses.
 interface Hass {
   connection: {
-    sendMessagePromise<T>(message: { type: string }): Promise<T>;
+    sendMessagePromise<T>(message: { type: string; [key: string]: unknown }): Promise<T>;
     subscribeMessage(callback: () => void, message: { type: string }): Promise<() => Promise<void>>;
     addEventListener(eventType: "ready", listener: () => void): void;
     removeEventListener(eventType: "ready", listener: () => void): void;
@@ -27,7 +29,10 @@ interface Site {
   lon: number;
   lat: number;
   bearing_deg: number;
+  outline: Polygon | null;
 }
+
+const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 
 // Core rotates the map tiles token every 30 minutes and keeps two live; this
 // is the interval Home Assistant's own frontend refreshes at.
@@ -57,6 +62,8 @@ class SpatialPanel extends LitElement {
     _floors: { state: true },
     _floor: { state: true },
     _failed: { state: true },
+    _picking: { state: true },
+    _message: { state: true },
   };
 
   static styles = css`
@@ -97,6 +104,8 @@ class SpatialPanel extends LitElement {
   declare _floors: (string | null)[] | undefined;
   declare _floor: Floor;
   declare _failed: boolean;
+  declare _picking: boolean;
+  declare _message: string;
 
   private _map?: MapLibreMap;
   private _started = false;
@@ -107,13 +116,16 @@ class SpatialPanel extends LitElement {
   private _bearing = 0;
   private _timer?: ReturnType<typeof setInterval>;
   private _unsubscribe?: () => Promise<void>;
-  private _areas: FeatureCollection = { type: "FeatureCollection", features: [] };
+  private _areas: FeatureCollection = EMPTY;
+  private _outline: Polygon | FeatureCollection = EMPTY;
 
   constructor() {
     super();
     this.narrow = false;
     this.card = false;
     this._floor = "all";
+    this._picking = false;
+    this._message = "";
   }
 
   render() {
@@ -140,6 +152,11 @@ class SpatialPanel extends LitElement {
           : this._floors.length === 0)
           ? html`<span>No rooms yet</span>`
           : nothing}
+        ${this.card
+          ? nothing
+          : html`<button ?disabled=${this._picking} @click=${this._startPicking}>Building</button>`}
+        ${this._picking ? html`<span>Click a building near the wall to align with</span>` : nothing}
+        ${this._message ? html`<span>${this._message}</span>` : nothing}
         ${this._failed ? html`<span>Map could not load</span>` : nothing}
       </div>
       <div id="map"></div>
@@ -214,7 +231,8 @@ class SpatialPanel extends LitElement {
     // the user looks around. A static map has no user, so it frames again.
     const onUpdate = async () => {
       await loadAreas();
-      const { bearing_deg } = await call<Site>("spatial/site");
+      const { bearing_deg, outline } = await call<Site>("spatial/site");
+      this._showOutline(outline);
       if (this.floor) {
         this._bearing = bearing_deg;
         this._fit();
@@ -235,6 +253,7 @@ class SpatialPanel extends LitElement {
 
     const site = await call<Site>("spatial/site");
     this._bearing = site.bearing_deg;
+    this._outline = site.outline ?? EMPTY;
     this._darkMode = hass.themes.darkMode;
     const style = await loadStyle(this._darkMode);
     if (left()) return;
@@ -250,6 +269,7 @@ class SpatialPanel extends LitElement {
       interactive: !this.floor,
     });
     this._map.on("style.load", () => this._addAreas());
+    this._map.on("click", (event) => this._pick(event));
     if (this.floor) this._fit();
   }
 
@@ -292,7 +312,58 @@ class SpatialPanel extends LitElement {
       source: "areas",
       paint: { "line-color": "#212121", "line-width": 2 },
     });
+    map.addSource("outline", { type: "geojson", data: this._outline });
+    map.addLayer({
+      id: "spatial-outline",
+      type: "line",
+      source: "outline",
+      paint: { "line-color": "#ff9800", "line-width": 3 },
+    });
     this._applyFloor();
+  }
+
+  private _showOutline(outline: Polygon | null) {
+    this._outline = outline ?? EMPTY;
+    this._map?.getSource<GeoJSONSource>("outline")?.setData(this._outline);
+  }
+
+  private _startPicking() {
+    this._picking = true;
+    this._message = "";
+  }
+
+  // One tap picks the building under it and the wall nearest to it. The saved site
+  // update comes back through `spatial/subscribe`, which draws the outline and turns the map.
+  private _pick(event: MapMouseEvent) {
+    if (!this._picking) return;
+    this._picking = false;
+    const map = this._map!;
+    const layers = map
+      .getStyle()
+      .layers.filter((layer) => "source-layer" in layer && layer["source-layer"] === "buildings")
+      .map((layer) => layer.id);
+    const at: [number, number] = [event.lngLat.lng, event.lngLat.lat];
+    const building = map
+      .queryRenderedFeatures(event.point, { layers })
+      .map((feature) => buildingAt(feature.geometry as Polygon | MultiPolygon, at))
+      .find(Boolean);
+    if (!building) {
+      this._message = "No building here";
+      return;
+    }
+    const aligned = alignOutline(building, at);
+    if (!aligned) {
+      this._message = "Building too small or irregular";
+      return;
+    }
+    this.hass!.connection.sendMessagePromise({
+      type: "spatial/site/update",
+      outline: aligned.outline,
+      bearing_deg: aligned.bearingDeg,
+    }).catch((err) => {
+      console.error(err);
+      this._message = "Could not save";
+    });
   }
 
   private _applyFloor() {

@@ -4,6 +4,10 @@ import { afterEach, expect, test, vi } from "vitest";
 const mapCreated = vi.fn();
 const setBearing = vi.fn();
 const fitBounds = vi.fn();
+const queryRenderedFeatures = vi.fn((): object[] => []);
+let handlers: Record<string, (event?: object) => void> = {};
+let sources: Record<string, { data: unknown }> = {};
+let layers: { id: string; type: string; source: string }[] = [];
 
 // MapLibre needs WebGL; the panel's own behaviour does not.
 vi.mock("maplibre-gl", () => ({
@@ -11,10 +15,40 @@ vi.mock("maplibre-gl", () => ({
   Map: class {
     constructor(options: object) {
       mapCreated(options);
+      handlers = {};
+      sources = {};
+      layers = [];
     }
-    on() {}
+    on(event: string, handler: () => void) {
+      handlers[event] = handler;
+    }
     remove() {}
-    getSource() {}
+    addSource(id: string, source: { data: unknown }) {
+      sources[id] = { data: source.data };
+    }
+    getSource(id: string) {
+      const source = sources[id];
+      return source && { setData: (data: unknown) => (source.data = data) };
+    }
+    addLayer(layer: { id: string; type: string; source: string }) {
+      layers.push(layer);
+    }
+    getLayer(id: string) {
+      return layers.find((layer) => layer.id === id);
+    }
+    setLayoutProperty() {}
+    setFilter() {}
+    getStyle() {
+      return {
+        layers: [
+          { id: "water", type: "fill", "source-layer": "water" },
+          { id: "building-3d", type: "fill-extrusion", "source-layer": "buildings" },
+        ],
+      };
+    }
+    queryRenderedFeatures(...args: unknown[]) {
+      return (queryRenderedFeatures as (...a: unknown[]) => object[])(...args);
+    }
     setBearing(bearing: number) {
       setBearing(bearing);
     }
@@ -24,6 +58,7 @@ vi.mock("maplibre-gl", () => ({
   },
 }));
 
+import { alignOutline } from "../src/outline";
 import "../src/spatial-panel";
 
 const EMPTY = { type: "FeatureCollection", features: [] };
@@ -32,7 +67,8 @@ type Reply = (message: { type: string }) => Promise<unknown>;
 
 const answer: Reply = async ({ type }) => {
   if (type === "map_tiles/access_token") return { token: "t" };
-  if (type === "spatial/site") return { lon: 5, lat: 52, bearing_deg: 0 };
+  if (type === "spatial/site") return { lon: 5, lat: 52, bearing_deg: 0, outline: null };
+  if (type === "spatial/site/update") return null;
   if (type === "spatial/geojson") return EMPTY;
   throw new Error(type);
 };
@@ -75,6 +111,9 @@ afterEach(() => {
   mapCreated.mockClear();
   setBearing.mockClear();
   fitBounds.mockClear();
+  queryRenderedFeatures.mockReset();
+  handlers = {};
+  queryRenderedFeatures.mockReturnValue([]);
 });
 
 test("the panel refreshes the map tiles token every 20 minutes", async () => {
@@ -149,7 +188,9 @@ test("the panel has one button per floor, named by Home Assistant", async () => 
     [...(panel.shadowRoot?.querySelectorAll(".bar > button") ?? [])].map((b) =>
       b.textContent?.trim(),
     );
-  await vi.waitFor(() => expect(buttons()).toEqual(["All", "Ground floor", "annex", "Loft", "No floor"]));
+  await vi.waitFor(() =>
+    expect(buttons()).toEqual(["All", "Ground floor", "annex", "Loft", "No floor", "Building"]),
+  );
 });
 
 test("an update with a new site bearing turns the map", async () => {
@@ -258,4 +299,112 @@ test("a new floor option rebuilds the map, as interactivity is fixed at creation
   panel.floor = undefined;
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalledTimes(2));
   expect(mapCreated.mock.calls[1][0]).not.toHaveProperty("interactive", false);
+});
+
+const barText = (panel: HTMLElement) => panel.shadowRoot?.querySelector(".bar")?.textContent ?? "";
+
+const buildingButton = (panel: HTMLElement) =>
+  [...(panel.shadowRoot?.querySelectorAll("button") ?? [])].find(
+    (b) => b.textContent?.trim() === "Building",
+  );
+
+// About 14 m x 11 m, counter-clockwise.
+const HOUSE = {
+  type: "Polygon",
+  coordinates: [[[5, 52], [5.0002, 52], [5.0002, 52.0001], [5, 52.0001], [5, 52]]],
+};
+const SHED = {
+  type: "Polygon",
+  coordinates: [[[5, 52], [5.000001, 52], [5.000001, 52.000001], [5, 52.000001], [5, 52]]],
+};
+const SOUTH_WALL = { lng: 5.0001, lat: 52.00001 };
+
+const click = (lngLat = SOUTH_WALL) => handlers.click({ point: { x: 1, y: 2 }, lngLat });
+
+const startPicking = async (panel: HTMLElement) => {
+  await vi.waitFor(() => expect(handlers.click).toBeDefined());
+  buildingButton(panel)!.click();
+};
+
+const updates = (connection: { sendMessagePromise: { mock: { calls: [{ type: string }][] } } }) =>
+  connection.sendMessagePromise.mock.calls
+    .map(([message]) => message)
+    .filter((message) => message.type === "spatial/site/update");
+
+test("the panel has a Building button, the card does not", async () => {
+  const { panel } = mountPanel();
+  await vi.waitFor(() => expect(buildingButton(panel)).toBeDefined());
+  const card = mountPanel(answer, {}, true).panel;
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalledTimes(2));
+  expect(buildingButton(card)).toBeUndefined();
+});
+
+test("in building mode a click on a building saves its outline, aligned to the nearest wall", async () => {
+  const { panel, connection } = mountPanel();
+  // The buildings layer is one MultiPolygon per tile.
+  const tile = { type: "MultiPolygon", coordinates: [SHED.coordinates, HOUSE.coordinates] };
+  queryRenderedFeatures.mockReturnValue([{ geometry: tile }]);
+  await vi.waitFor(() => expect(handlers.click).toBeDefined());
+  click();
+  expect(updates(connection)).toEqual([]);
+  await startPicking(panel);
+  click();
+  expect(queryRenderedFeatures).toHaveBeenLastCalledWith({ x: 1, y: 2 }, { layers: ["building-3d"] });
+  const { outline, bearingDeg } = alignOutline(HOUSE as never, [SOUTH_WALL.lng, SOUTH_WALL.lat])!;
+  expect(updates(connection)).toEqual([
+    { type: "spatial/site/update", outline, bearing_deg: bearingDeg },
+  ]);
+  // One tap ends the mode.
+  click();
+  expect(updates(connection)).toHaveLength(1);
+});
+
+test("in building mode a click without a building saves nothing", async () => {
+  const { panel, connection } = mountPanel();
+  await startPicking(panel);
+  click();
+  await vi.waitFor(() => expect(barText(panel)).toContain("No building here"));
+  expect(updates(connection)).toEqual([]);
+});
+
+test("in building mode a building too small to inset saves nothing", async () => {
+  const { panel, connection } = mountPanel();
+  queryRenderedFeatures.mockReturnValue([{ geometry: SHED }]);
+  await startPicking(panel);
+  click({ lng: 5.0000005, lat: 52.0000005 });
+  await vi.waitFor(() => expect(barText(panel)).toContain("Building too small or irregular"));
+  expect(updates(connection)).toEqual([]);
+});
+
+test.each([false, true])("the stored outline is drawn on start and after updates (card %s)", async (card) => {
+  let outline: object | null = HOUSE;
+  const { connection } = mountPanel(
+    async (message) =>
+      message.type === "spatial/site" ? { lon: 5, lat: 52, bearing_deg: 0, outline } : answer(message),
+    {},
+    card,
+  );
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
+  expect(layers.find((layer) => layer.id === "spatial-outline")).toMatchObject({
+    type: "line",
+    source: "outline",
+  });
+  expect(sources.outline.data).toEqual(HOUSE);
+  outline = null;
+  const [[onUpdate]] = connection.subscribeMessage.mock.calls as unknown as [[() => Promise<void>]];
+  await onUpdate();
+  expect(sources.outline.data).toEqual(EMPTY);
+});
+
+test("in building mode a failed save says so", async () => {
+  const { panel } = mountPanel(async (message) => {
+    if (message.type === "spatial/site/update") throw new Error("connection lost");
+    return answer(message);
+  });
+  queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
+  vi.spyOn(console, "error").mockImplementationOnce(() => {});
+  await startPicking(panel);
+  click();
+  await vi.waitFor(() => expect(barText(panel)).toContain("Could not save"));
 });

@@ -32,7 +32,7 @@ test("buildingAt returns the part containing the point", () => {
 });
 
 test("alignOutline insets, rewinds and starts at the clicked wall", () => {
-  const { outline, bearingDeg } = alignOutline(building, mid(ring[0], ring[1]));
+  const { outline, bearingDeg } = alignOutline(building, mid(ring[0], ring[1]))!;
   const out = outline.coordinates[0] as Pos[];
   expect(OUTLINE_OFFSET_M).toBe(0.25);
   expect(booleanClockwise(out)).toBe(false);
@@ -54,8 +54,30 @@ test("alignOutline insets, rewinds and starts at the clicked wall", () => {
 });
 
 test("alignOutline on the east wall turns the bearing 90 degrees left, as the ring runs counter-clockwise", () => {
-  const south = alignOutline(building, mid(ring[0], ring[1]));
-  const east = alignOutline(building, mid(ring[1], ring[2]));
+  const south = alignOutline(building, mid(ring[0], ring[1]))!;
+  const east = alignOutline(building, mid(ring[1], ring[2]))!;
   expect(Math.abs(east.bearingDeg - (south.bearingDeg - 90))).toBeLessThan(0.5);
   expect(outlineBearing(east.outline)).toBeCloseTo(east.bearingDeg, 6);
+});
+
+// A position x metres east and y metres north of the south-west corner.
+const at = (x: number, y: number): Pos => {
+  const east = destination(sw, x, 90, { units: "meters" });
+  return destination(east, y, 0, { units: "meters" }).geometry.coordinates as Pos;
+};
+
+test("alignOutline has no outline for a building smaller than the inset", () => {
+  const shed = polygon([[at(0, 0), at(0.4, 0), at(0.4, 0.4), at(0, 0.4), at(0, 0)]]).geometry;
+  expect(alignOutline(shed, at(0.2, 0))).toBeUndefined();
+});
+
+test("alignOutline has no outline when the inset splits the building", () => {
+  // Two 5 m squares joined by a 0.3 m wide passage, narrower than twice the inset.
+  const dumbbell = polygon([
+    [
+      at(0, 0), at(5, 0), at(5, 2.35), at(7, 2.35), at(7, 0), at(12, 0),
+      at(12, 5), at(7, 5), at(7, 2.65), at(5, 2.65), at(5, 5), at(0, 5), at(0, 0),
+    ],
+  ]).geometry;
+  expect(alignOutline(dumbbell, at(2.5, 0))).toBeUndefined();
 });

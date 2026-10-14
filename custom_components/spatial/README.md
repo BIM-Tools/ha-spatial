@@ -74,13 +74,14 @@
 
 ### Panel
 
-Settings > Devices & services > Spatial > Configure opens the admin-only Spatial panel, read-only for now.
+Settings > Devices & services > Spatial > Configure opens the admin-only Spatial panel.
 
 - Home Assistant's own map: its shipped light or dark style, following the theme, with tiles from the `map_tiles` proxy.
 - Centred on the site, rotated so the site direction (the picked wall) is horizontal.
 - "All" stacks the floors in 3D; a button per floor (named as in Home Assistant, ordered by level) shows that floor as a flat plan with room outlines; "No floor" shows areas without one.
 - Updates through `spatial/subscribe`; shows "No rooms yet" without footprints.
-- The card `custom:spatial-map-card` shows the same view on a dashboard, for every user, without the menu button; it fills a panel view and is 400 px high elsewhere. Its `floor` option fixes the view: MapLibre's `interactive: false`, framed with `fitBounds` on every update.
+- **Building**: one click on an OSM building from the map tiles, near a wall, saves the outline (0.25 m inside the OSM outline, starting at that wall) and its bearing with one `spatial/site/update`. Without a building it says "No building here"; when the inset leaves nothing or splits the building, "Building too small or irregular". The outline is drawn on the map in the panel and the card.
+- The card `custom:spatial-map-card` shows the same view on a dashboard, for every user, without the menu button and the Building button; it fills a panel view and is 400 px high elsewhere. Its `floor` option fixes the view: MapLibre's `interactive: false`, framed with `fitBounds` on every update.
 - Source in `frontend/` at the repository root; it builds the bundles and MapLibre's worker into `frontend/` here. They are not in git; the release zip contains them.
 
 ### Rules
