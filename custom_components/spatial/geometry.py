@@ -141,6 +141,8 @@ def net_area_m2(polygon: dict[str, Any], inset_m: float) -> float:
     angles). A hole grows by d, so it takes away A + P * d + 4 * d * d. Exact for
     right-angled polygons; with diagonal walls the corner term is an approximation.
     A shape thinner than twice inset_m has no net area: the result is clamped to zero.
+    A part narrower than twice inset_m within a larger shape is miscounted, because the
+    formula assumes the shape keeps its topology.
     """
     exterior, *holes = _rings_m(polygon, *_origin(polygon))
     corners = 4 * inset_m * inset_m

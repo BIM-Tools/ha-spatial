@@ -21,6 +21,10 @@ export function buildingAt(geometry: Polygon | MultiPolygon, at: [number, number
   return hit && { type: "Polygon", coordinates: hit };
 }
 
+/**
+ * The outline of a building: its OSM footprint shrunk by OUTLINE_OFFSET_M, wound so the wall
+ * nearest `at` comes first. Only the outer shell is kept, so courtyards (holes) are dropped.
+ */
 export function alignOutline(
   building: Polygon,
   at: [number, number],

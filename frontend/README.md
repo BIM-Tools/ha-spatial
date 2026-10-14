@@ -54,5 +54,7 @@ licences of the bundled MapLibre, Lit, turf, JSTS and d3 code and uploads `spati
 
 - Uses only the public websocket API. Its only geometry is picking the outline, done with turf;
   lengths and areas come from the integration.
+- The outline is the outer shell only: courtyards (holes) of the OSM building are dropped, and a
+  click is matched to the outer walls.
 - The OSM building is the `buildings` part under the click, as MapLibre renders it from one
   tile: a building cut by a tile border gives only the part in that tile.
