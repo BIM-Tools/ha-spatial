@@ -42,6 +42,7 @@ Early version. The API and storage format can still change. There is no editor y
 | Drawing convention | Rooms are drawn to wall centrelines, so neighbours share edges |
 | Adjacency | Derived from shared edges on the same floor, never stored |
 | Measurements | Computed by the integration in metres, never from the map projection |
+| Area | `area_m2` is net: the drawn polygon shrunk by 50 mm on every side |
 | Building, sub-spaces | Home Assistant labels |
 | Site anchor | One bearing per installation; the centre follows all footprints; aligns views only |
 | Finding the building | OSM buildings from Home Assistant's own map tiles |

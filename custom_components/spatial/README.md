@@ -89,7 +89,7 @@ Settings > Devices & services > Spatial > Configure opens the admin-only Spatial
 | --- | --- |
 | Polygon | RFC 7946 `Polygon`, closed rings, at least 4 positions, holes allowed |
 | Adjacency | Same floor, edges within 0.05 m over at least 0.3 m |
-| Area | Local tangent plane with exact WGS84 radii, holes subtracted |
+| Area | `area_m2` is the net area: local tangent plane with exact WGS84 radii, holes subtracted, shrunk by 50 mm on every side (exact for right angles) |
 | Point in polygon | PNPOLY; a point exactly on an edge may fall either way |
 | Overlaps | `query_point` returns the smallest containing area |
 

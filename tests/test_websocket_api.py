@@ -87,7 +87,7 @@ async def test_set_geometry_and_geojson(
         client, type="spatial/area/update_geometries", areas={"kitchen": rect(0, 0, 4, 3)}
     )
     assert msg["success"], msg
-    assert msg["result"]["area_m2"] == {"kitchen": pytest.approx(12, rel=0.001)}
+    assert msg["result"]["area_m2"] == {"kitchen": pytest.approx(11.31, rel=0.001)}
 
     msg = await _call(
         client,
@@ -108,7 +108,7 @@ async def test_set_geometry_and_geojson(
         "name": "Kitchen",
         "floor_id": "ground_floor",
         "level": 0,
-        "area_m2": pytest.approx(12, rel=0.001),
+        "area_m2": pytest.approx(11.31, rel=0.001),
         "base_height": -0.5,
         "height": pytest.approx(2.2),
     }
@@ -214,8 +214,8 @@ async def test_update_geometries_applies_a_batch_with_one_event(
     await hass.async_block_till_done()
 
     assert msg["result"]["area_m2"] == {
-        "kitchen": pytest.approx(12, rel=0.001),
-        "bedroom": pytest.approx(4, rel=0.001),
+        "kitchen": pytest.approx(11.31, rel=0.001),
+        "bedroom": pytest.approx(3.61, rel=0.001),
     }
     assert len(events) == 1
     msg = await _call(client, type="spatial/geojson")

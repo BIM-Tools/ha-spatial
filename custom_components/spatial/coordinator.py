@@ -16,8 +16,9 @@ from .const import (
     EVENT_SPATIAL_UPDATED,
     JSONFG_CORE,
     JSONFG_TYPES_SCHEMAS,
+    NET_INSET_M,
 )
-from .geometry import polygon_area_m2, polygon_contains, shared_edge_length_m
+from .geometry import net_area_m2, polygon_contains, shared_edge_length_m
 from .store import Site, SpatialStore
 
 
@@ -74,7 +75,7 @@ class SpatialCoordinator:
             if polygon is None:
                 self.store.areas.pop(area_id, None)
                 continue
-            sizes[area_id] = round(polygon_area_m2(polygon), 2)
+            sizes[area_id] = round(net_area_m2(polygon, NET_INSET_M), 2)
             self.store.areas[area_id] = {"polygon": polygon, "area_m2": sizes[area_id]}
         self._changed()
         return sizes

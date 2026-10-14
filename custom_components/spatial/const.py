@@ -30,3 +30,8 @@ ADJACENCY_MIN_SHARED_M: Final = 0.3
 JSONFG_CORE: Final = "http://www.opengis.net/spec/json-fg-1/1.0/conf/core"
 JSONFG_TYPES_SCHEMAS: Final = "http://www.opengis.net/spec/json-fg-1/1.0/conf/types-schemas"
 BOT_SPACE: Final = "https://w3id.org/bot#Space"
+
+# Reported room areas are net: the drawn polygon shrunk on every side, so an
+# interior centreline loses half of a 100 mm partition and an exterior line
+# (0.25 m inside the facade) loses the rest of a 300 mm wall.
+NET_INSET_M: Final = 0.05
