@@ -29,7 +29,7 @@ On a dashboard, add a card with `type: custom:spatial-map-card`, best in a panel
 
 The build output is not in git. Run a build or the `frontend` service before opening the panel
 locally. On a published GitHub release, `.github/workflows/release.yml` builds it, adds the
-licences of the bundled MapLibre and Lit code and uploads `spatial.zip`, which HACS installs.
+licences of the bundled MapLibre, Lit, turf, JSTS and d3 code and uploads `spatial.zip`, which HACS installs.
 
 ## Architecture
 
