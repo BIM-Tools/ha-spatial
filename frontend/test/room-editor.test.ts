@@ -759,3 +759,24 @@ test("a reload that hangs after a failed save does not block the next box", asyn
   tap(140, 30);
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
 });
+
+test("a refresh held back until after a save is acknowledged keeps the saved footprint", async () => {
+  let release = () => {};
+  let hold = false;
+  const { panel, connection } = mountEditor(async (message) => {
+    if (message.type !== "config/area_registry/list" || !hold) return undefined;
+    hold = false;
+    await new Promise<void>((resolve) => (release = resolve));
+    return undefined;
+  });
+  await startDrawing(panel);
+  hold = true;
+  const refreshed = onUpdateOf(connection)();
+  tap(100, 0);
+  tap(140, 30);
+  await vi.waitFor(() => expect(activeChip(panel)).toBe("Hall"));
+  release();
+  await refreshed;
+  await settle(panel);
+  expect(chipNames(panel)).toContain("● Bath");
+});

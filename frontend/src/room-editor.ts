@@ -62,6 +62,8 @@ export class RoomEditor {
   private _labels: Marker[] = [];
   private _sides: Marker[] = [];
   private _editingSide?: number;
+  // Counts acknowledged saves and started refreshes, so an older refresh cannot undo a newer save.
+  private _changes = 0;
 
   constructor(
     private readonly _connection: Connection,
@@ -107,18 +109,23 @@ export class RoomEditor {
     this._map = undefined;
   }
 
-  /** Takes the footprints from the feed and re-reads the area and floor registries. */
-  async refresh(feed: FeatureCollection) {
-    // On failure the previous lists stay; the next update reads them again.
-    try {
-      const [areas, floors] = await Promise.all([
-        this._connection.sendMessagePromise<AreaEntry[]>({ type: "config/area_registry/list" }),
-        this._connection.sendMessagePromise<FloorEntry[]>({ type: "config/floor_registry/list" }),
-      ]);
-      this._areas = areas;
-      this.floors = [...floors].sort(byLevel);
-    } catch (err) {
+  /** Takes the footprints from the requested feed and re-reads the area and floor registries. */
+  async refresh(feedRequest: Promise<FeatureCollection>) {
+    const started = ++this._changes;
+    const registries = Promise.all([
+      this._connection.sendMessagePromise<AreaEntry[]>({ type: "config/area_registry/list" }),
+      this._connection.sendMessagePromise<FloorEntry[]>({ type: "config/floor_registry/list" }),
+    ]).catch((err) => {
+      // The previous lists stay; the next update reads them again.
       console.error(err);
+      return undefined;
+    });
+    const [feed, lists] = await Promise.all([feedRequest, registries]);
+    // A save acknowledged or a refresh started since then knows newer footprints.
+    if (started !== this._changes) return;
+    if (lists) {
+      this._areas = lists[0];
+      this.floors = [...lists[1]].sort(byLevel);
     }
     this._footprints = new Map(feed.features.map((feature) => [String(feature.id), feature.geometry as Polygon]));
     this._sizesM2 = new Map(feed.features.map((feature) => [String(feature.id), feature.properties?.area_m2]));
@@ -447,6 +454,7 @@ export class RoomEditor {
 
   private async _send(areas: FootprintBatch) {
     await this._connection.sendMessagePromise({ type: "spatial/area/update_geometries", areas });
+    this._changes++;
     for (const [areaId, footprint] of Object.entries(areas)) {
       if (footprint) this._footprints.set(areaId, footprint);
       else this._footprints.delete(areaId);

@@ -258,10 +258,11 @@ class SpatialPanel extends LitElement {
     hass.connection.addEventListener("ready", this._keepToken);
 
     const loadAreas = async () => {
-      this._areas = await call<FeatureCollection>("spatial/geojson");
+      const feed = call<FeatureCollection>("spatial/geojson");
+      await editor?.refresh(feed);
+      this._areas = await feed;
       this._floors = floorsByLevel(this._areas);
       this._map?.getSource<GeoJSONSource>("areas")?.setData(this._areas);
-      await editor?.refresh(this._areas);
     };
     const editor = this.card
       ? undefined
