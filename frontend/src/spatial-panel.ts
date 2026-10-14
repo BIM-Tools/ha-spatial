@@ -12,7 +12,7 @@ import {
 } from "maplibre-gl";
 import { bounds, floorsByLevel, mapBearing, styleUrl, withMapTilesToken } from "./map-view";
 import { alignOutline, buildingAt, outlineBearing } from "./outline";
-import { RoomEditor } from "./room-editor";
+import { RoomEditor, type Tool } from "./room-editor";
 
 // The parts of Home Assistant's `hass` object this panel uses.
 interface Hass {
@@ -128,7 +128,7 @@ class SpatialPanel extends LitElement {
   private _outline: Polygon | FeatureCollection = EMPTY;
   private _handles: Marker[] = [];
   // Only the admin panel edits; the card stays read-only.
-  editor?: RoomEditor;
+  private _editor?: RoomEditor;
 
   constructor() {
     super();
@@ -153,7 +153,7 @@ class SpatialPanel extends LitElement {
                 ? "All"
                 : floor === null
                   ? "No floor"
-                  : (this.editor?.floors.find((entry) => entry.floor_id === floor)?.name ??
+                  : (this._editor?.floors.find((entry) => entry.floor_id === floor)?.name ??
                     this.hass?.floors?.[floor]?.name ??
                     floor)}
             </button>
@@ -165,8 +165,15 @@ class SpatialPanel extends LitElement {
           : this._floors.length === 0)
           ? html`<span>No rooms yet</span>`
           : nothing}
-        ${this.editor
-          ? html`<button aria-pressed=${this.editor.drawing} @click=${this._toggleDrawing}>Draw</button>`
+        ${this._editor
+          ? html`<button aria-pressed=${this._editor.tool === "draw"} @click=${() => this._toggleTool("draw")}>
+                Draw
+              </button>
+              <button aria-pressed=${this._editor.tool === "adjust"} @click=${() => this._toggleTool("adjust")}>
+                Adjust
+              </button>
+              <button ?disabled=${!this._editor.canUndo} @click=${this._editor.undo}>Undo</button>
+              <button ?disabled=${!this._editor.canRedo} @click=${this._editor.redo}>Redo</button>`
           : nothing}
         ${this.card
           ? nothing
@@ -179,10 +186,10 @@ class SpatialPanel extends LitElement {
             </span>`
           : nothing}
         ${this._message ? html`<span>${this._message}</span>` : nothing}
-        ${this.editor?.status ? html`<span>${this.editor.status}</span>` : nothing}
+        ${this._editor?.status ? html`<span>${this._editor.status}</span>` : nothing}
         ${this._failed ? html`<span>Map could not load</span>` : nothing}
       </div>
-      ${this.editor?.render() ?? nothing}
+      ${this._editor?.render() ?? nothing}
       <div id="map"></div>
     `;
   }
@@ -219,8 +226,8 @@ class SpatialPanel extends LitElement {
     for (const handle of this._handles) handle.remove();
     this._handles = [];
     this._picking = false;
-    this.editor?.detach();
-    this.editor = undefined;
+    this._editor?.detach();
+    this._editor = undefined;
     this._map?.remove();
     this._map = undefined;
     this._started = false;
@@ -259,7 +266,7 @@ class SpatialPanel extends LitElement {
     const editor = this.card
       ? undefined
       : new RoomEditor(hass.connection, () => this.requestUpdate(), loadAreas, () => this._bearing);
-    this.editor = editor;
+    this._editor = editor;
     await loadAreas();
     if (stopped()) return;
     // Only a new bearing is applied; re-centring would move the camera while
@@ -355,22 +362,22 @@ class SpatialPanel extends LitElement {
       source: "outline",
       paint: { "line-color": "#ff9800", "line-width": 3 },
     });
-    this.editor?.addLayers(map);
+    this._editor?.addLayers(map);
     this._applyFloor();
   }
 
   // The panel lists every registered floor, so an empty one can be drawn; the card only those with rooms.
   private _floorButtons(): Floor[] {
     if (this.floor) return [];
-    if (this.editor) return ["all", ...this.editor.floors.map((entry) => entry.floor_id), null];
+    if (this._editor) return ["all", ...this._editor.floors.map((entry) => entry.floor_id), null];
     return ["all", ...(this._floors ?? [])];
   }
 
-  private _toggleDrawing() {
+  private _toggleTool(tool: Tool) {
     this._picking = false;
     this._message = "";
     this._placeHandles();
-    this.editor?.setDrawing(!this.editor.drawing);
+    this._editor?.setTool(this._editor.tool === tool ? undefined : tool);
   }
 
   private _showOutline(outline: Polygon | null) {
@@ -386,7 +393,7 @@ class SpatialPanel extends LitElement {
   private _toggleBuilding() {
     this._picking = !this._picking;
     this._message = "";
-    this.editor?.setDrawing(false);
+    this._editor?.setTool(undefined);
     this._placeHandles();
   }
 
@@ -484,7 +491,7 @@ class SpatialPanel extends LitElement {
 
   private _show(floor: Floor) {
     this._floor = floor;
-    this.editor?.setFloor(floor);
+    this._editor?.setFloor(floor);
     // Before the style has loaded, `_addAreas` applies the floor.
     if (!this._map?.getLayer("areas-3d")) return;
     this._applyFloor();
