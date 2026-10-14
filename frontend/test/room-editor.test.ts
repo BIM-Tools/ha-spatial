@@ -13,6 +13,7 @@ import {
   mapCreated,
   mountPanel,
   onUpdateOf,
+  panMap,
   queryRenderedFeatures,
   resetFakes,
   sources,
@@ -779,4 +780,14 @@ test("a refresh held back until after a save is acknowledged keeps the saved foo
   await refreshed;
   await settle(panel);
   expect(chipNames(panel)).toContain("● Bath");
+});
+
+test("a pan between the two taps keeps the box on the first tapped spot", async () => {
+  const { panel, connection } = mountEditor();
+  await startDrawing(panel);
+  tap(100, 0);
+  panMap(30, 20);
+  tap(140, 30);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  expect(area(saves(connection)[0].areas.bath)).toBeCloseTo(35, 1);
 });

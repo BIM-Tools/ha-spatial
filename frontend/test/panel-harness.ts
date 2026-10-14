@@ -1,5 +1,7 @@
 // A fake MapLibre and a scripted Home Assistant connection, shared by the panel tests.
+import bearing from "@turf/bearing";
 import destination from "@turf/destination";
+import distance from "@turf/distance";
 import { vi } from "vitest";
 
 export const mapCreated = vi.fn();
@@ -38,13 +40,22 @@ export let dragPan = handler();
 export let dragRotate = handler();
 export let touchZoomRotate = handler();
 
-// The site centre at pixel (0, 0), 0.1 m per pixel, screen up at the map bearing.
+// Pixels the view has moved since the map was created.
+export let panned = { x: 0, y: 0 };
+export const panMap = (x: number, y: number) => (panned = { x: panned.x + x, y: panned.y + y });
+
+// Before a pan the site centre is at pixel (0, 0); 0.1 m per pixel, screen up at the map bearing.
 export const METRES_PER_PIXEL = 0.1;
 export const SITE: [number, number] = [5, 52];
-export const unprojectPixel = ([x, y]: [number, number], bearing = mapBearingNow): [number, number] => {
-  const east = destination(SITE, x * METRES_PER_PIXEL, bearing + 90, { units: "meters" });
-  return destination(east, y * METRES_PER_PIXEL, bearing + 180, { units: "meters" }).geometry
+export const unprojectPixel = ([x, y]: [number, number], screenUp = mapBearingNow): [number, number] => {
+  const east = destination(SITE, (x + panned.x) * METRES_PER_PIXEL, screenUp + 90, { units: "meters" });
+  return destination(east, (y + panned.y) * METRES_PER_PIXEL, screenUp + 180, { units: "meters" }).geometry
     .coordinates as [number, number];
+};
+const projectLngLat = ({ lng, lat }: { lng: number; lat: number }) => {
+  const pixels = distance(SITE, [lng, lat], { units: "meters" }) / METRES_PER_PIXEL;
+  const turn = ((bearing(SITE, [lng, lat]) - mapBearingNow) * Math.PI) / 180;
+  return { x: pixels * Math.sin(turn) - panned.x, y: -pixels * Math.cos(turn) - panned.y };
 };
 
 // MapLibre needs WebGL; the panel's own behaviour does not.
@@ -141,6 +152,9 @@ export const fakeMapLibre = {
     fitBounds(...args: unknown[]) {
       fitBounds(...args);
     }
+    project(lngLat: { lng: number; lat: number }) {
+      return projectLngLat(lngLat);
+    }
     unproject(point: [number, number]) {
       const [lng, lat] = unprojectPixel(point);
       return { lng, lat, toArray: () => [lng, lat] };
@@ -203,6 +217,7 @@ export const resetFakes = () => {
   queryRenderedFeatures.mockReturnValue([]);
   handlers = {};
   markers = [];
+  panned = { x: 0, y: 0 };
   dragPan = handler();
   dragRotate = handler();
   touchZoomRotate = handler();

@@ -2,7 +2,7 @@
 
 import type { FeatureCollection, Polygon, Position } from "geojson";
 import { html, nothing } from "lit";
-import { type GeoJSONSource, Marker, type MapMouseEvent, type Map as MapLibreMap } from "maplibre-gl";
+import { type GeoJSONSource, type LngLat, Marker, type MapMouseEvent, type Map as MapLibreMap } from "maplibre-gl";
 import { type AreaEntry, NEW_AREA, newAreaName, nextActive, stripOrder } from "./area-strip";
 import { type Change, type FootprintBatch, History } from "./history";
 import { byLevel, mapBearing } from "./map-view";
@@ -54,7 +54,8 @@ export class RoomEditor {
   private _floor: string | null | "all" = "all";
   private _active = NEW_AREA;
   private _map?: MapLibreMap;
-  private _corner?: Pixel;
+  // A spot on the map, so a pan or zoom between the two taps does not move it.
+  private _corner?: LngLat;
   private _press?: Pixel;
   private _dragging = false;
   private _spaceHeld = false;
@@ -273,7 +274,7 @@ export class RoomEditor {
       this._dragging = true;
       this._corner = undefined;
     }
-    const from = this._dragging ? press : this._corner;
+    const from = this._dragging ? press : this._corner && this._map!.project(this._corner);
     if (from) this._preview(this._box(from, event.point));
   };
 
@@ -295,11 +296,11 @@ export class RoomEditor {
     if (!this._canDraw || this._spaceHeld || this._saving) return;
     const corner = this._corner;
     if (!corner) {
-      this._corner = event.point;
+      this._corner = event.lngLat;
       return;
     }
     this._corner = undefined;
-    this._finish(corner, event.point);
+    this._finish(this._map!.project(corner), event.point);
   };
 
   private _cancel() {
