@@ -379,6 +379,29 @@ async def test_read_commands_allowed_for_non_admin(
     assert msg["success"], msg
 
 
+async def test_subscribe_notifies_non_admin_until_unsubscribed(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, hass_admin_user: MockUser
+) -> None:
+    """Test a non-admin user gets an event per change until unsubscribing."""
+    client = await hass_ws_client(hass)
+    await _set_geometry(client, "kitchen", rect(0, 0, 4, 3))
+    await _set_geometry(client, "hallway", rect(4, 0, 6, 3))
+    hass_admin_user.groups = []
+    subscribed = await _call(client, type="spatial/subscribe")
+    assert subscribed["success"], subscribed
+    areas = ar.async_get(hass)
+
+    areas.async_delete("kitchen")
+    msg = await client.receive_json()
+    assert msg == {"id": subscribed["id"], "type": "event", "event": {}}
+
+    msg = await _call(client, type="unsubscribe_events", subscription=subscribed["id"])
+    assert msg["success"], msg
+    areas.async_delete("hallway")
+    msg = await _call(client, type="spatial/site")
+    assert msg["type"] == "result", msg
+
+
 @pytest.mark.parametrize(
     ("command", "code"),
     [
