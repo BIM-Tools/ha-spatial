@@ -32,7 +32,7 @@ export function alignOutline(
   const shell = (rewind(inset.geometry) as Polygon).coordinates[0];
   const closed = shell.slice(0, -1);
   const nearest = nearestPointOnLine(lineString(shell), point(at));
-  const start = nearest.properties.index;
+  const start = nearest.properties.segmentIndex;
   const ring = [...closed.slice(start), ...closed.slice(0, start)];
   ring.push(ring[0]);
   return {
