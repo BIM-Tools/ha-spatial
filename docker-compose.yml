@@ -40,4 +40,5 @@ services:
       HA_URL: http://homeassistant-e2e:8123
     volumes:
       - ./e2e:/e2e:ro
+    # Keep the pip playwright version equal to the image tag.
     command: sh -c "pip install --quiet --break-system-packages --root-user-action=ignore --disable-pip-version-check playwright==1.55.0 websockets==15.0.1 && python /e2e/draw_room.py"

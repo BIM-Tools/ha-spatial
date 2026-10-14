@@ -84,3 +84,7 @@ licences of the bundled MapLibre, Lit, turf, JSTS, d3 and polyclip-ts (with bign
   click is matched to the outer walls.
 - The OSM building is the `buildings` part under the click, as MapLibre renders it from one
   tile: a building cut by a tile border gives only the part in that tile.
+
+Known limits: undo restores this session's footprints, also over changes made elsewhere. An undo for an
+area deleted in Home Assistant keeps failing; reload the panel to clear the history. A feed update
+while a side field is open resets the field.
