@@ -5,7 +5,7 @@ import { html, nothing } from "lit";
 import { type GeoJSONSource, Marker, type MapMouseEvent, type Map as MapLibreMap } from "maplibre-gl";
 import { type AreaEntry, NEW_AREA, newAreaName, nextActive, stripOrder } from "./area-strip";
 import { type Change, type FootprintBatch, History } from "./history";
-import { mapBearing } from "./map-view";
+import { byLevel, mapBearing } from "./map-view";
 import {
   MIN_SIDE_M,
   addToFootprint,
@@ -25,6 +25,7 @@ interface Connection {
 export interface FloorEntry {
   floor_id: string;
   name: string;
+  level: number | null;
 }
 
 export type Tool = "draw" | "adjust";
@@ -49,6 +50,7 @@ export class RoomEditor {
   private _message = "";
   private _areas: AreaEntry[] = [];
   private _footprints = new Map<string, Polygon>();
+  private _sizesM2 = new Map<string, number>();
   private _floor: string | null | "all" = "all";
   private _active = NEW_AREA;
   private _map?: MapLibreMap;
@@ -114,11 +116,12 @@ export class RoomEditor {
         this._connection.sendMessagePromise<FloorEntry[]>({ type: "config/floor_registry/list" }),
       ]);
       this._areas = areas;
-      this.floors = floors;
+      this.floors = [...floors].sort(byLevel);
     } catch (err) {
       console.error(err);
     }
     this._footprints = new Map(feed.features.map((feature) => [String(feature.id), feature.geometry as Polygon]));
+    this._sizesM2 = new Map(feed.features.map((feature) => [String(feature.id), feature.properties?.area_m2]));
     const order = this._order();
     if (this._active !== NEW_AREA && !order.some((area) => area.area_id === this._active)) {
       this._active = order[0]?.area_id ?? NEW_AREA;
@@ -137,6 +140,7 @@ export class RoomEditor {
 
   setTool(tool: Tool | undefined) {
     this.tool = tool;
+    this._message = "";
     this._cancel();
     this._spaceHeld = false;
     if (tool === "draw") {
@@ -339,10 +343,16 @@ export class RoomEditor {
     const areaId = this._active;
     const footprint = this._footprints.get(areaId);
     if (!map || this.tool !== "adjust" || this._floor === "all" || !footprint) return;
+    const sizeM2 = this._sizesM2.get(areaId);
+    if (sizeM2 !== undefined) {
+      const element = Object.assign(document.createElement("span"), { textContent: `${sizeM2.toFixed(1)} m²` });
+      element.style.cssText = LABEL_STYLE;
+      this._sides.push(new Marker({ element }).setLngLat(centreOf(footprint) as [number, number]).addTo(map));
+    }
     if (!isAxisRectangle(footprint, this._siteBearing())) return;
     const lengths = edgeLengths(footprint);
     let field: HTMLInputElement | undefined;
-    this._sides = sideLabels(footprint).map(({ at, edgeIndex, text }) => {
+    this._sides.push(...sideLabels(footprint).map(({ at, edgeIndex, text }) => {
       let control: HTMLElement;
       if (edgeIndex === this._editingSide) {
         field = Object.assign(document.createElement("input"), {
@@ -370,7 +380,7 @@ export class RoomEditor {
       const element = document.createElement("span");
       element.append(control);
       return new Marker({ element }).setLngLat(at as [number, number]).addTo(map);
-    });
+    }));
     field?.focus();
     field?.select();
   }

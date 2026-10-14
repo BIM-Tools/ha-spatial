@@ -171,6 +171,22 @@ test("the panel's floor buttons come from the floor registry, with No floor and 
   );
 });
 
+test("floors out of level order in the registry show in level order", async () => {
+  const { panel } = mountEditor(async (message) =>
+    message.type === "config/floor_registry/list"
+      ? [
+          { floor_id: "loft", name: "Loft", level: 1 },
+          { floor_id: "ground", name: "Ground floor", level: 0 },
+        ]
+      : undefined,
+  );
+  await vi.waitFor(() =>
+    expect(
+      [...(panel.shadowRoot?.querySelectorAll(".bar > button") ?? [])].map((b) => b.textContent?.trim()).slice(0, 4),
+    ).toEqual(["All", "Ground floor", "Loft", "No floor"]),
+  );
+});
+
 test("the strip is shown in the panel and not in the card", async () => {
   const { panel } = mountEditor();
   await showFloor(panel);
@@ -473,11 +489,11 @@ const pixelShape = (...pixels: [number, number][]): Polygon => ({
   coordinates: [[...pixels, pixels[0]].map((p) => unprojectPixel(p, 300))],
 });
 
-const feature = (id: string, geometry: Polygon) => ({
+const feature = (id: string, geometry: Polygon, areaM2?: number) => ({
   type: "Feature",
   id,
   geometry,
-  properties: { floor_id: "ground", level: 0 },
+  properties: { floor_id: "ground", level: 0, area_m2: areaM2 },
 });
 
 const startAdjusting = async (panel: HTMLElement) => {
@@ -547,13 +563,53 @@ test("typing 5 on a side saves the room with that side 5 m long, in one batch", 
   await vi.waitFor(() => expect(barButton(panel, "Undo")!.disabled).toBe(false));
 });
 
-test("a side shorter than 0.2 m or no number saves nothing", async () => {
+test.each(["0.1", ""])("a side typed as %j saves nothing and the bar says a side is at least 0.20 m", async (value) => {
   const { panel, connection } = mountEditor();
   await startAdjusting(panel);
   await tapRoom(panel, "kitchen");
-  typeSide(0, "0.1");
-  typeSide(1, "");
+  typeSide(0, value);
   await settle(panel);
+  expect(saves(connection)).toEqual([]);
+  expect(barText(panel)).toContain("A side is at least 0.20 m");
+  expect(sideField()).toBeDefined();
+});
+
+test("a refusal message is gone once the tool changes", async () => {
+  const { panel } = mountEditor();
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  typeSide(0, "0.1");
+  await settle(panel);
+  barButton(panel, "Adjust")!.click();
+  await settle(panel);
+  expect(barText(panel)).not.toContain("A side is at least");
+});
+
+test("Adjust shows the active room's area from the feed in its centre", async () => {
+  const { panel, connection, setFeed } = mountEditor();
+  await startAdjusting(panel);
+  setFeed([feature("kitchen", KITCHEN, 21.46)]);
+  await onUpdateOf(connection)();
+  await tapRoom(panel, "kitchen");
+  expect(handles().map((marker) => marker.element.textContent)).toContain("21.5 m²");
+});
+
+test("in Adjust taps and drags save nothing, and leaving leaves no side markers", async () => {
+  const { panel, connection } = mountEditor();
+  await startAdjusting(panel);
+  tap(100, 0);
+  drag([100, 0], [160, 40]);
+  await settle(panel);
+  expect(saves(connection)).toEqual([]);
+  const leavers = ["Draw", "Loft", "Adjust"];
+  for (const name of leavers) {
+    await tapRoom(panel, "kitchen");
+    expect(sideButtons()).toHaveLength(4);
+    barButton(panel, name)!.click();
+    await settle(panel);
+    expect(handles()).toEqual([]);
+    if (barButton(panel, "Adjust")!.getAttribute("aria-pressed") !== "true") await startAdjusting(panel);
+  }
   expect(saves(connection)).toEqual([]);
 });
 
