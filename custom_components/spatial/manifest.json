@@ -3,7 +3,7 @@
   "name": "Spatial",
   "codeowners": ["@brewsky"],
   "config_flow": true,
-  "dependencies": ["websocket_api"],
+  "dependencies": ["http", "panel_custom", "websocket_api"],
   "documentation": "https://github.com/BIM-Tools/ha-spatial",
   "integration_type": "service",
   "iot_class": "calculated",

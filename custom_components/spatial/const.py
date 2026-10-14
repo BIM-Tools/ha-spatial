@@ -4,6 +4,10 @@ from typing import Final
 
 DOMAIN: Final = "spatial"
 
+PANEL_URL_PATH: Final = "spatial"
+PANEL_COMPONENT: Final = "spatial-panel"
+STATIC_URL: Final = "/spatial_static"
+
 STORAGE_KEY: Final = DOMAIN
 STORAGE_VERSION: Final = 1
 

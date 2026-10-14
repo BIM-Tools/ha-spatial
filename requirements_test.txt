@@ -4,3 +4,4 @@
 pytest-homeassistant-custom-component==0.13.372  # homeassistant==2026.10.1
 ruff
 mypy
+home-assistant-frontend==20260930.3  # the version homeassistant 2026.10.1 pins; the panel dependency chain loads it

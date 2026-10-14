@@ -60,7 +60,7 @@
 
 | File | Responsibility |
 | --- | --- |
-| `__init__.py` | Setup, `runtime_data`, websocket registration |
+| `__init__.py` | Setup, `runtime_data`, websocket registration, admin-only `spatial` panel (bundle in `frontend/`, served at `/spatial_static`) |
 | `config_flow.py` | Single-instance config flow |
 | `coordinator.py` | Data access, registry sync, queries |
 | `store.py` | Persistence |
