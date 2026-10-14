@@ -6,6 +6,7 @@ The map panel and the dashboard card. Source here, built into `custom_components
 
 - See the floors and rooms on Home Assistant's own map.
 - Pick the building and the wall the site aligns to, with one click on the map.
+- Draw each room as boxes along that wall, straight onto its Home Assistant area.
 - The panel opens from the integration, no dashboard needed.
 - The card shows the same view on a dashboard, also for non-admin users.
 
@@ -18,6 +19,13 @@ a floor button shows that floor as a plan with room outlines.
 shows a handle on every corner; dragging one saves the outline, and moving one of the first
 wall's two corners turns the map. **Building** once more hides the handles. The card shows the
 outline but has no Building button.
+**Draw**, on a floor, draws rooms. The strip under the toolbar lists the floor's areas, those
+without a footprint first; the highlighted one is drawn next. Press and drag from one corner to
+the opposite one, or click one corner and then the other (two taps on a phone). Each box is saved
+at once; a box against the area's footprint joins it, a box apart from it is refused. Then the
+next area without a footprint is highlighted. **+ New area** creates "Room 1", "Room 2" and so
+on, on this floor. Tapping the highlighted area again renames it. Hold Space and drag to pan;
+Escape cancels a box. **All** shows the floors in 3D and does not draw.
 On a dashboard, add a card with `type: custom:spatial-map-card`, best in a panel view; its
 `floor` option (`all` or a `floor_id`) fixes the view, see `custom_components/spatial/README.md`.
 
@@ -29,7 +37,7 @@ On a dashboard, add a card with `type: custom:spatial-map-card`, best in a panel
 
 The build output is not in git. Run a build or the `frontend` service before opening the panel
 locally. On a published GitHub release, `.github/workflows/release.yml` builds it, adds the
-licences of the bundled MapLibre, Lit, turf, JSTS, d3 and polyclip-ts code and uploads `spatial.zip`, which HACS installs.
+licences of the bundled MapLibre, Lit, turf, JSTS, d3 and polyclip-ts (with bignumber.js and splaytree-ts) code and uploads `spatial.zip`, which HACS installs.
 
 ## Architecture
 
@@ -38,6 +46,9 @@ licences of the bundled MapLibre, Lit, turf, JSTS, d3 and polyclip-ts code and u
 | File | Purpose |
 | --- | --- |
 | `src/spatial-panel.ts` | The panel element: floor buttons, the MapLibre map, websocket calls |
+| `src/room-editor.ts` | Drawing in the panel: the area strip, mouse and tap input, saving each box, area creation and rename |
+| `src/area-strip.ts` | The strip of area chips: order, next area, new area names, rename |
+| `src/history.ts` | Session undo and redo of footprint changes |
 | `src/spatial-card.ts` | The card: wraps the panel element, without the menu button; loads the panel bundle when created |
 | `src/map-view.ts` | Pure helpers: map bearing, style URL, map tiles token, floor order, room bounds |
 | `src/outline.ts` | Building outline from an OSM building: inset, orientation and start wall, all with turf |
@@ -53,8 +64,14 @@ licences of the bundled MapLibre, Lit, turf, JSTS, d3 and polyclip-ts code and u
 | MapLibre worker and shared chunk | `maplibre-gl-worker.mjs` and `maplibre-gl-shared.mjs` are copied next to the bundle; the shared chunk stays external |
 | Versions | Packages shared with Home Assistant's frontend use its exact versions, set by `tools/sync_frontend_versions.py` |
 
-- Uses only the public websocket API. Its only geometry is picking the outline, done with turf;
-  lengths and areas come from the integration.
+- Uses only the public websocket API and Home Assistant's area and floor registry commands. Its
+  geometry (the outline, boxes, joining a box to a footprint) is done with turf; lengths and m²
+  shown while drawing are previews, a saved room's `area_m2` comes from the integration.
+- A box is a screen rectangle, unprojected corner by corner, on the flat map turned to the site
+  axis, so its sides follow the picked wall. Draw turns the map back to that axis and disables
+  rotating and tilting until it ends.
+- Every box is one `spatial/area/update_geometries` batch, recorded in the session history; a
+  rejected save reloads the rooms and says "Could not save".
 - The outline is the outer shell only: courtyards (holes) of the OSM building are dropped, and a
   click is matched to the outer walls.
 - The OSM building is the `buildings` part under the click, as MapLibre renders it from one

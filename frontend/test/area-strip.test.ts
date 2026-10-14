@@ -99,3 +99,27 @@ test("Enter renames the active area and Escape cancels", async () => {
   expect(renamed).toHaveBeenCalledWith({ areaId: "a", name: "Scullery" });
   expect(strip.shadowRoot!.querySelector("input")).toBeNull();
 });
+
+test("stripOrder sorts numbers in names by value", () => {
+  const areas = [area("r10", "Room 10"), area("r2", "Room 2")];
+  expect(stripOrder(areas, new Set(), "f1").map((a) => a.area_id)).toEqual(["r2", "r10"]);
+});
+
+test("tapping the active chip opens the rename field without selecting", async () => {
+  const strip = mountStrip("a");
+  await strip.updateComplete;
+  const selected = vi.fn();
+  strip.addEventListener("area-select", selected);
+  chips(strip)[0].click();
+  expect(selected).not.toHaveBeenCalled();
+});
+
+test("a new active area closes the rename field", async () => {
+  const strip = mountStrip("a");
+  await strip.updateComplete;
+  chips(strip)[0].click();
+  await strip.updateComplete;
+  strip.active = "b";
+  await strip.updateComplete;
+  expect(strip.shadowRoot!.querySelector("input")).toBeNull();
+});

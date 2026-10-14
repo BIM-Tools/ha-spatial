@@ -20,7 +20,7 @@ export const stripOrder = (
     .sort(
       (a, b) =>
         Number(linkedAreaIds.has(a.area_id)) - Number(linkedAreaIds.has(b.area_id)) ||
-        a.name.localeCompare(b.name),
+        a.name.localeCompare(b.name, undefined, { numeric: true }),
     );
 
 export const nextActive = (order: AreaEntry[], linkedAreaIds: Set<string>): string =>
@@ -100,6 +100,10 @@ class SpatialAreaStrip extends LitElement {
       >
         + New area
       </button>`;
+  }
+
+  willUpdate(changed: Map<string, unknown>) {
+    if (changed.has("active")) this._renaming = false;
   }
 
   updated(changed: Map<string, unknown>) {
