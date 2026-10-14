@@ -10,20 +10,22 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@turf/area": "7.4.0",
     "@turf/bearing": "7.4.0",
     "@turf/boolean-point-in-polygon": "7.4.0",
     "@turf/buffer": "7.4.0",
+    "@turf/center": "7.4.0",
+    "@turf/destination": "7.4.0",
+    "@turf/distance": "7.4.0",
     "@turf/helpers": "7.4.0",
     "@turf/nearest-point-on-line": "7.4.0",
     "@turf/rewind": "7.4.0",
+    "@turf/union": "7.4.0",
     "lit": "3.3.3",
     "maplibre-gl": "6.11.2"
   },
   "devDependencies": {
-    "@turf/area": "7.4.0",
     "@turf/boolean-clockwise": "7.4.0",
-    "@turf/destination": "7.4.0",
-    "@turf/distance": "7.4.0",
     "@turf/transform-rotate": "7.4.0",
     "esbuild": "0.28.2",
     "happy-dom": "21.0.1",

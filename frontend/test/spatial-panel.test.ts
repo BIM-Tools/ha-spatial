@@ -1,164 +1,28 @@
 // @vitest-environment happy-dom
 // Checks the panel against a fake MapLibre and a scripted Home Assistant connection.
 import { afterEach, expect, test, vi } from "vitest";
+import {
+  EMPTY,
+  type Reply,
+  answer,
+  fitBounds,
+  handlers,
+  handles,
+  layers,
+  mapCreated,
+  mountPanel,
+  queryRenderedFeatures,
+  resetFakes,
+  setBearing,
+  sources,
+} from "./panel-harness";
 
-const mapCreated = vi.fn();
-const setBearing = vi.fn();
-const fitBounds = vi.fn();
-const queryRenderedFeatures = vi.fn((): object[] => []);
-let handlers: Record<string, (event?: object) => void> = {};
-let sources: Record<string, { data: unknown }> = {};
-let layers: { id: string; type: string; source: string }[] = [];
-
-interface FakeMarker {
-  options: object;
-  lngLat: { lng: number; lat: number };
-  handlers: Record<string, () => void>;
-  removed: boolean;
-  element: HTMLElement;
-}
-let markers: FakeMarker[] = [];
-const handles = () => markers.filter((marker) => !marker.removed);
-
-// MapLibre needs WebGL; the panel's own behaviour does not.
-vi.mock("maplibre-gl", () => ({
-  setWorkerUrl: vi.fn(),
-  Marker: class implements FakeMarker {
-    options: object;
-    lngLat = { lng: 0, lat: 0 };
-    handlers: Record<string, () => void> = {};
-    removed = false;
-    element = document.createElement("div");
-    constructor(options: object) {
-      this.options = options;
-      markers.push(this);
-    }
-    setLngLat([lng, lat]: [number, number]) {
-      this.lngLat = { lng, lat };
-      return this;
-    }
-    getElement() {
-      return this.element;
-    }
-    getLngLat() {
-      return this.lngLat;
-    }
-    addTo() {
-      return this;
-    }
-    on(event: string, handler: () => void) {
-      this.handlers[event] = handler;
-      return this;
-    }
-    remove() {
-      this.removed = true;
-      return this;
-    }
-  },
-  Map: class {
-    constructor(options: object) {
-      mapCreated(options);
-      handlers = {};
-      sources = {};
-      layers = [];
-    }
-    on(event: string, handler: () => void) {
-      handlers[event] = handler;
-    }
-    remove() {}
-    addSource(id: string, source: { data: unknown }) {
-      sources[id] = { data: source.data };
-    }
-    getSource(id: string) {
-      const source = sources[id];
-      return source && { setData: (data: unknown) => (source.data = data) };
-    }
-    addLayer(layer: { id: string; type: string; source: string }) {
-      layers.push(layer);
-    }
-    getLayer(id: string) {
-      return layers.find((layer) => layer.id === id);
-    }
-    setLayoutProperty() {}
-    setFilter() {}
-    getStyle() {
-      return {
-        layers: [
-          { id: "water", type: "fill", "source-layer": "water" },
-          { id: "building-3d", type: "fill-extrusion", "source-layer": "buildings" },
-        ],
-      };
-    }
-    queryRenderedFeatures(...args: unknown[]) {
-      return (queryRenderedFeatures as (...a: unknown[]) => object[])(...args);
-    }
-    setBearing(bearing: number) {
-      setBearing(bearing);
-    }
-    fitBounds(...args: unknown[]) {
-      fitBounds(...args);
-    }
-  },
-}));
+vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
 
 import { alignOutline, outlineBearing } from "../src/outline";
 import "../src/spatial-panel";
 
-const EMPTY = { type: "FeatureCollection", features: [] };
-
-type Reply = (message: { type: string }) => Promise<unknown>;
-
-const answer: Reply = async ({ type }) => {
-  if (type === "map_tiles/access_token") return { token: "t" };
-  if (type === "spatial/site") return { lon: 5, lat: 52, bearing_deg: 0, outline: null };
-  if (type === "spatial/site/update") return null;
-  if (type === "spatial/geojson") return EMPTY;
-  throw new Error(type);
-};
-
-const mountPanel = (reply: Reply = answer, floors = {}, card = false, floor?: string) => {
-  const sendMessagePromise = vi.fn(reply);
-  const unsubscribe = vi.fn(async () => {});
-  const listeners: Record<string, () => void> = {};
-  const connection = {
-    sendMessagePromise,
-    subscribeMessage: vi.fn(async () => unsubscribe),
-    addEventListener: vi.fn((event: string, listener: () => void) => {
-      listeners[event] = listener;
-    }),
-    removeEventListener: vi.fn((event: string) => {
-      delete listeners[event];
-    }),
-  };
-  const panel = document.createElement("spatial-panel") as HTMLElement & {
-    hass: object;
-    floor?: string;
-  };
-  panel.floor = floor;
-  panel.hass = { connection, floors, themes: { darkMode: false } };
-  panel.toggleAttribute("card", card);
-  document.body.append(panel);
-  const tokenCalls = () =>
-    sendMessagePromise.mock.calls.filter(([message]) => message.type === "map_tiles/access_token").length;
-  return { panel, connection, listeners, unsubscribe, tokenCalls };
-};
-
-vi.stubGlobal(
-  "fetch",
-  vi.fn(async () => ({ json: async () => ({ sprite: [], glyphs: "/g", layers: [] }) })),
-);
-
-afterEach(() => {
-  document.body.replaceChildren();
-  vi.useRealTimers();
-  mapCreated.mockClear();
-  setBearing.mockClear();
-  fitBounds.mockClear();
-  queryRenderedFeatures.mockReset();
-  handlers = {};
-  markers = [];
-  queryRenderedFeatures.mockReturnValue([]);
-});
+afterEach(resetFakes);
 
 test("the panel refreshes the map tiles token every 20 minutes", async () => {
   vi.useFakeTimers();
@@ -192,7 +56,7 @@ test("the panel says so when the map cannot load", async () => {
 test("leaving the panel during startup leaves nothing behind", async () => {
   vi.useFakeTimers();
   const pending: (() => void)[] = [];
-  const { panel, connection, listeners, unsubscribe } = mountPanel(
+  const { panel, connection, listeners, unsubscribe, unsubscribeEvents } = mountPanel(
     (message) => new Promise((resolve) => pending.push(() => resolve(answer(message)))),
   );
   await vi.advanceTimersByTimeAsync(0);
@@ -206,6 +70,7 @@ test("leaving the panel during startup leaves nothing behind", async () => {
   expect(vi.getTimerCount()).toBe(0);
   expect(listeners).toEqual({});
   expect(connection.subscribeMessage.mock.calls.length).toBe(unsubscribe.mock.calls.length);
+  expect(connection.subscribeEvents.mock.calls.length).toBe(unsubscribeEvents.mock.calls.length);
 });
 
 test("the panel has Home Assistant's menu button for narrow screens", async () => {
@@ -219,7 +84,7 @@ const room = (floor_id: string | null, level: number | null) => ({
   properties: { floor_id, level },
 });
 
-test("the panel has one button per floor, named by Home Assistant", async () => {
+test("the card has one button per floor in the rooms, named by Home Assistant", async () => {
   const collection = {
     type: "FeatureCollection",
     features: [room("loft", 1), room("ground", 0), room("annex", 0), room(null, null)],
@@ -227,13 +92,14 @@ test("the panel has one button per floor, named by Home Assistant", async () => 
   const { panel } = mountPanel(
     async (message) => (message.type === "spatial/geojson" ? collection : answer(message)),
     { ground: { name: "Ground floor" }, loft: { name: "Loft" } },
+    true,
   );
   const buttons = () =>
     [...(panel.shadowRoot?.querySelectorAll(".bar > button") ?? [])].map((button) =>
       button.textContent?.trim(),
     );
   await vi.waitFor(() =>
-    expect(buttons()).toEqual(["All", "Ground floor", "annex", "Loft", "No floor", "Building"]),
+    expect(buttons()).toEqual(["All", "Ground floor", "annex", "Loft", "No floor"]),
   );
 });
 
@@ -627,4 +493,24 @@ test("a drag that ends after the handles are gone saves nothing", async () => {
   await vi.waitFor(() => expect(handles()).toEqual([]));
   dragend();
   expect(updates(connection)).toEqual([]);
+});
+
+test("the panel reads the areas and floors again on registry changes, until it is left", async () => {
+  const { panel, connection, unsubscribeEvents } = mountPanel();
+  await vi.waitFor(() => expect(connection.subscribeEvents).toHaveBeenCalledTimes(2));
+  const subscriptions = connection.subscribeEvents.mock.calls as unknown as [() => void, string][];
+  expect(subscriptions.map(([, eventType]) => eventType)).toEqual(["area_registry_updated", "floor_registry_updated"]);
+  const reads = () =>
+    connection.sendMessagePromise.mock.calls.filter(([message]) => message.type === "config/area_registry/list").length;
+  const before = reads();
+  for (const [onEvent] of subscriptions) onEvent();
+  await vi.waitFor(() => expect(reads()).toBe(before + 2));
+  panel.remove();
+  expect(unsubscribeEvents).toHaveBeenCalledTimes(2);
+});
+
+test("the card does not follow the registries", async () => {
+  const { connection } = mountPanel(answer, {}, true);
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
+  expect(connection.subscribeEvents).not.toHaveBeenCalled();
 });

@@ -44,6 +44,9 @@ jobs:
           d3-geo frontend/node_modules/d3-geo/LICENSE
           point-in-polygon-hao frontend/node_modules/point-in-polygon-hao/LICENSE
           robust-predicates frontend/node_modules/robust-predicates/LICENSE
+          polyclip-ts frontend/node_modules/polyclip-ts/LICENSE
+          bignumber.js frontend/node_modules/bignumber.js/LICENCE.md
+          splaytree-ts frontend/node_modules/splaytree-ts/LICENSE
           LIST
 
       # The tag is the version, so manifest.json in the repository is not bumped by hand.

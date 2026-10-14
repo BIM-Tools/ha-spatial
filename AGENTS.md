@@ -33,6 +33,7 @@ prefix `docker` commands with `MSYS_NO_PATHCONV=1`.
 | Panel build, rebuilt on change | `docker compose up -d frontend` |
 | Real Home Assistant | `docker compose up homeassistant` |
 | Frontend (typecheck, test, build) | `MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/frontend":/app -v "$(pwd -W)/custom_components":/custom_components -w /app node:24-alpine sh -c "npm ci && npm run typecheck && npm test && npm run build"` |
+| E2E smoke test (build the panel first) | `docker compose run --rm e2e; docker compose rm -sf homeassistant-e2e` |
 | Sync frontend versions | `python tools/sync_frontend_versions.py` (`--check` only compares) |
 | Tools | Run them against the real Home Assistant, see `tools/README.md` |
 
@@ -141,6 +142,8 @@ What is and is not checked automatically:
 - On every push and pull request to `main`: `CI Tests` (tests, line coverage with a 99% floor,
   mypy strict), `Validate` (hassfest, HACS, ruff, no-`CLAUDE.md` check) and `Frontend` (tsc,
   vitest, a build, `sync_frontend_versions.py --check`).
+- `E2E` runs on the same triggers but is not a required check yet: it covers one room drawn with
+  the mouse in the panel of a fresh Home Assistant, and nothing else of the panel.
 - On a published GitHub release: `Release` builds the panel and uploads `spatial.zip` (the
   integration with the bundle and licences, version taken from the tag). Untested until the
   first release; check the zip then.
