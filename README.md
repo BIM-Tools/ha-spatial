@@ -21,6 +21,7 @@ Early version. The API and storage format can still change. The editor can only 
 | `tools/` | GeoJSON importer, example house, version sync | [README](tools/README.md) |
 | `frontend/` | Map panel and dashboard card source, built into the integration | [README](frontend/README.md) |
 | `tests/` | Tests against a real Home Assistant | - |
+| `e2e/` | A browser smoke test: one room drawn in the panel | - |
 | `AGENTS.md` | Rules for contributors and coding agents | - |
 
 ## Try it

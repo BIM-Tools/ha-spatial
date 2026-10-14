@@ -38,6 +38,7 @@ On a dashboard, add a card with `type: custom:spatial-map-card`, best in a panel
 | --- | --- |
 | Install, test, typecheck, build | `MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/frontend":/app -v "$(pwd -W)/custom_components":/custom_components -w /app node:24-alpine sh -c "npm ci && npm run typecheck && npm test && npm run build"` |
 | Build on every change | `docker compose up -d frontend` (runs `npm run watch`) |
+| Draw one room in a real browser (after a build) | `docker compose run --rm e2e; docker compose rm -sf homeassistant-e2e`, see `e2e/draw_room.py` |
 | Sync versions with Home Assistant | `python tools/sync_frontend_versions.py` (`--check` only compares) |
 
 The build output is not in git. Run a build or the `frontend` service before opening the panel
