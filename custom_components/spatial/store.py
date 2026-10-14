@@ -14,7 +14,6 @@ class AreaSpatial(TypedDict):
     """Footprint of an area."""
 
     polygon: dict[str, Any]
-    area_m2: float
 
 
 class FloorSpatial(TypedDict):

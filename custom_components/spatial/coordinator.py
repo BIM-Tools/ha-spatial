@@ -22,6 +22,11 @@ from .geometry import net_area_m2, polygon_contains, shared_edge_length_m
 from .store import Site, SpatialStore
 
 
+def _net_size(polygon: dict[str, Any]) -> float:
+    """Return the net area in m² of a footprint, computed on every read."""
+    return round(net_area_m2(polygon, NET_INSET_M), 2)
+
+
 class SpatialCoordinator:
     """Keeps area footprints and floor dimensions in sync with the registries."""
 
@@ -75,8 +80,8 @@ class SpatialCoordinator:
             if polygon is None:
                 self.store.areas.pop(area_id, None)
                 continue
-            sizes[area_id] = round(net_area_m2(polygon, NET_INSET_M), 2)
-            self.store.areas[area_id] = {"polygon": polygon, "area_m2": sizes[area_id]}
+            sizes[area_id] = _net_size(polygon)
+            self.store.areas[area_id] = {"polygon": polygon}
         self._changed()
         return sizes
 
@@ -159,7 +164,7 @@ class SpatialCoordinator:
                         "name": area.name if area else area_id,
                         "floor_id": area_floor_id,
                         "level": floor.level if floor else None,
-                        "area_m2": data["area_m2"],
+                        "area_m2": _net_size(data["polygon"]),
                         "base_height": base,
                         "height": top,
                     },
@@ -174,7 +179,7 @@ class SpatialCoordinator:
     def query_point(self, lon: float, lat: float, floor_id: str | None = None) -> str | None:
         """Return the smallest area containing the point, optionally on one floor."""
         matches = [
-            (data["area_m2"], area_id)
+            (_net_size(data["polygon"]), area_id)
             for area_id, data in self.store.areas.items()
             if (floor_id is None or self._floor_of(area_id) == floor_id)
             and polygon_contains(data["polygon"], lon, lat)

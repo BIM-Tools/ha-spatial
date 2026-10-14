@@ -165,6 +165,31 @@ async def test_legacy_stored_site_loads(
     }
 
 
+async def test_legacy_stored_area_size_is_recomputed(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    hass_storage: dict[str, Any],
+    setup_integration: MockConfigEntry,
+) -> None:
+    """Test a footprint stored with an old gross area reports the net area."""
+    hass_storage[DOMAIN] = {
+        "version": 1,
+        "key": DOMAIN,
+        "data": {
+            "areas": {"kitchen": {"polygon": rect(0, 0, 4, 3), "area_m2": 12.0}},
+            "floors": {},
+            "site": None,
+        },
+    }
+    assert await hass.config_entries.async_reload(setup_integration.entry_id)
+    await hass.async_block_till_done()
+
+    client = await hass_ws_client(hass)
+    msg = await _call(client, type="spatial/geojson")
+    [feature] = msg["result"]["features"]
+    assert feature["properties"]["area_m2"] == pytest.approx(11.31, rel=0.001)
+
+
 async def test_site_outline_round_trip(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator, setup_integration: MockConfigEntry
 ) -> None:

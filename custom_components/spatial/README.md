@@ -44,7 +44,7 @@
 
 | Object | Keyed by | Fields | Owner of the key |
 | --- | --- | --- | --- |
-| Area footprint | `area_id` | `polygon` (GeoJSON, WGS84), `area_m2` (computed) | Area registry |
+| Area footprint | `area_id` | `polygon` (GeoJSON, WGS84); `area_m2` is computed on read | Area registry |
 | Floor | `floor_id` | `elevation_m`, `height_m` (both optional) | Floor registry |
 | Site | - | `bearing_deg`, `outline` (GeoJSON Polygon or null; the centre is derived, not stored) | This integration |
 
