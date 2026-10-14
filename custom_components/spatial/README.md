@@ -33,7 +33,7 @@
 
 | Command | Admin | Input | Result |
 | --- | --- | --- | --- |
-| `spatial/geojson` | no | `floor_id`? | FeatureCollection of footprints |
+| `spatial/geojson` | no | `floor_id`? | FeatureCollection of footprints, JSON-FG conformant (`conformsTo`), each feature with `featureType` `https://w3id.org/bot#Space` |
 | `spatial/query_point` | no | `lon`, `lat`, `floor_id`? | `{area_id}` (smallest match, or null) |
 | `spatial/area/adjacent` | no | `area_id` | `{area_ids}` |
 | `spatial/site` | no | - | `{lon, lat, bearing_deg}` (centre derived from the footprints) |

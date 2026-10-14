@@ -17,7 +17,14 @@ from pytest_homeassistant_custom_component.common import (
 )
 from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
-from custom_components.spatial.const import DOMAIN, EVENT_SPATIAL_UPDATED, SAVE_DELAY_S
+from custom_components.spatial.const import (
+    BOT_SPACE,
+    DOMAIN,
+    EVENT_SPATIAL_UPDATED,
+    JSONFG_CORE,
+    JSONFG_TYPES_SCHEMAS,
+    SAVE_DELAY_S,
+)
 
 from .common import lonlat, rect
 
@@ -55,6 +62,20 @@ async def _set_geometry(client: Any, area_id: str, polygon: dict[str, Any]) -> N
     """Attach a polygon to an area and assert success."""
     msg = await _call(client, type="spatial/area/update_geometries", areas={area_id: polygon})
     assert msg["success"], msg
+
+
+async def test_geojson_declares_json_fg_and_bot_types(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test the feed declares JSON-FG conformance and types each feature as a BOT space."""
+    client = await hass_ws_client(hass)
+    msg = await _call(client, type="spatial/geojson")
+    assert msg["result"]["conformsTo"] == [JSONFG_CORE, JSONFG_TYPES_SCHEMAS]
+
+    await _set_geometry(client, "kitchen", rect(0, 0, 4, 3))
+    msg = await _call(client, type="spatial/geojson")
+    assert msg["result"]["conformsTo"] == [JSONFG_CORE, JSONFG_TYPES_SCHEMAS]
+    assert msg["result"]["features"][0]["featureType"] == BOT_SPACE
 
 
 async def test_set_geometry_and_geojson(
