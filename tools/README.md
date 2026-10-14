@@ -32,6 +32,7 @@ Viewer controls:
 | `import_geojson.py` | Imports a GeoJSON file over the websocket API |
 | `example_house.geojson` | Two storeys on a public square, drawn to wall centrelines |
 | `viewer.html` | MapLibre viewer on Home Assistant's own map |
+| `sync_frontend_versions.py` | Sets the versions in `frontend/package.json` and `frontend/.nvmrc` to what Home Assistant's frontend ships; `--check` lists differences and exits 1 |
 | `brand/icon.svg` | Source of `custom_components/spatial/brand/icon.png` and `icon@2x.png`: a zoning plan on Home Assistant map colours, rendered with headless Chromium at 256 and 512 px |
 
 ### Import format
