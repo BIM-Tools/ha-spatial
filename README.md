@@ -25,7 +25,8 @@ Early version. The API and storage format can still change. There is no editor y
 
 ## Try it
 
-1. `docker compose up homeassistant`, open <http://localhost:8123>, finish onboarding.
+1. `docker compose up -d frontend homeassistant` (builds the panel, starts Home Assistant),
+   open <http://localhost:8123>, finish onboarding.
 2. Add the Spatial integration (Settings > Devices & services).
 3. Create a long-lived access token (profile > Security).
 4. Import the example house, see [tools/README.md](tools/README.md).
@@ -53,10 +54,12 @@ Early version. The API and storage format can still change. There is no editor y
 | Tests | `docker compose run --rm test` |
 | Some tests | `docker compose run --rm test pytest -k <expr>` |
 | Lint | `docker compose run --rm test sh -c "ruff format --check . && ruff check ."` |
+| Panel build, rebuilt on change | `docker compose up -d frontend` |
 | Home Assistant | `docker compose up homeassistant` |
 
 - Home Assistant runs on Linux only, so everything runs in Docker. A VS Code devcontainer is included.
 - The Home Assistant version tested against is pinned in `requirements_test.txt`.
+- The built panel is not in git; HACS installs it from the release zip that `.github/workflows/release.yml` builds.
 
 ## Contributing
 

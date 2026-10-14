@@ -31,9 +31,6 @@ jobs:
       - run: npm run build
         working-directory: frontend
 
-      # The committed bundle must be what a fresh build produces.
-      - run: git diff --exit-code custom_components/spatial/frontend
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"

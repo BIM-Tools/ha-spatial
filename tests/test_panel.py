@@ -2,9 +2,8 @@
 
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
-from pytest_homeassistant_custom_component.typing import ClientSessionGenerator
 
-from custom_components.spatial.const import DOMAIN
+from custom_components.spatial.const import DOMAIN, STATIC_URL
 
 
 async def setup_entry(hass: HomeAssistant) -> MockConfigEntry:
@@ -39,10 +38,13 @@ async def test_panel_removed_on_unload_and_back_on_setup(hass: HomeAssistant) ->
     assert "spatial" in hass.data["frontend_panels"]
 
 
-async def test_bundle_is_served(hass: HomeAssistant, hass_client: ClientSessionGenerator) -> None:
-    """The panel bundle is served from the static path."""
+async def test_static_path_registered(hass: HomeAssistant) -> None:
+    """The bundle folder is served under the static URL, built or not.
+
+    Without the folder Home Assistant registers a single-file route instead, so the
+    committed `.gitkeep` keeps it in place until the first build.
+    """
     await setup_entry(hass)
 
-    client = await hass_client()
-    response = await client.get("/spatial_static/spatial-panel.js")
-    assert response.status == 200
+    prefixes = {resource.get_info().get("prefix") for resource in hass.http.app.router.resources()}
+    assert STATIC_URL in prefixes

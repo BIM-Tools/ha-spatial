@@ -15,9 +15,12 @@ a floor button shows that floor as a plan with room outlines.
 | Task | Command (Git Bash, from the repository root) |
 | --- | --- |
 | Install, test, typecheck, build | `MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/frontend":/app -v "$(pwd -W)/custom_components":/custom_components -w /app node:24-alpine sh -c "npm ci && npm run typecheck && npm test && npm run build"` |
+| Build on every change | `docker compose up -d frontend` (runs `npm run watch`) |
 | Sync versions with Home Assistant | `python tools/sync_frontend_versions.py` (`--check` only compares) |
 
-Commit the build output; CI fails when it differs from the source.
+The build output is not in git. Run a build or the `frontend` service before opening the panel
+locally. On a published GitHub release, `.github/workflows/release.yml` builds it, adds the
+licences of the bundled MapLibre and Lit code and uploads `spatial.zip`, which HACS installs.
 
 ## Architecture
 

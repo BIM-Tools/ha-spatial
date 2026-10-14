@@ -54,7 +54,7 @@ Settings > Devices & services > Spatial > Configure opens the admin-only Spatial
 - Centred on the site, rotated so the site direction (the picked wall) is horizontal.
 - "All" stacks the floors in 3D; a button per floor (named as in Home Assistant, ordered by level) shows that floor as a flat plan with room outlines; "No floor" shows areas without one.
 - Updates on `spatial_updated`; shows "No rooms yet" without footprints.
-- Source in `frontend/` at the repository root; the built bundle and MapLibre's worker are in `frontend/` here.
+- Source in `frontend/` at the repository root; it builds the bundle and MapLibre's worker into `frontend/` here. They are not in git; the release zip contains them.
 
 ### Rules
 
