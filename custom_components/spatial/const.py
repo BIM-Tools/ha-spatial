@@ -1,4 +1,4 @@
-"""Constants for the Spatial integration."""
+"""Keeps the integration's names and tuning values in one place."""
 
 from typing import Final
 
@@ -15,7 +15,6 @@ STORAGE_VERSION: Final = 1
 # little if the process is killed; Home Assistant flushes on a normal stop.
 SAVE_DELAY_S: Final = 2
 
-# Fired when spatial data changes.
 EVENT_SPATIAL_UPDATED: Final = "spatial_updated"
 
 # Floors without spatial data stack this many metres per level.

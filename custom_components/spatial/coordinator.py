@@ -1,4 +1,4 @@
-"""Spatial data for Home Assistant areas and floors."""
+"""Keeps spatial data in step with the area and floor registries and answers queries."""
 
 from __future__ import annotations
 

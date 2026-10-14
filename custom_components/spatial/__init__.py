@@ -1,4 +1,4 @@
-"""Spatial: room footprints for Home Assistant areas."""
+"""Gives Home Assistant areas a footprint on the map, with a panel, a card and an API."""
 
 from __future__ import annotations
 

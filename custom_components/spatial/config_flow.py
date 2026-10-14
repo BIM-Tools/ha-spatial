@@ -1,4 +1,4 @@
-"""Config flow for the Spatial integration."""
+"""Lets users add Spatial from the UI; there is nothing to configure."""
 
 from __future__ import annotations
 

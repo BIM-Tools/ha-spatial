@@ -1,9 +1,6 @@
-"""Pure-Python geometry for GeoJSON polygons in WGS84.
+"""All geometry in one place, in pure Python, measured in a local tangent plane.
 
-Each function is either a canonical algorithm (source cited, kept close to
-the reference so it can be checked against it) or marked as custom.
-Lengths and areas are measured in a local tangent plane around the polygon,
-never in a map projection.
+Each function is a cited canonical algorithm or marked as custom.
 """
 
 from __future__ import annotations
