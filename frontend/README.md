@@ -29,7 +29,7 @@ On a dashboard, add a card with `type: custom:spatial-map-card`, best in a panel
 
 The build output is not in git. Run a build or the `frontend` service before opening the panel
 locally. On a published GitHub release, `.github/workflows/release.yml` builds it, adds the
-licences of the bundled MapLibre, Lit, turf, JSTS and d3 code and uploads `spatial.zip`, which HACS installs.
+licences of the bundled MapLibre, Lit, turf, JSTS, d3 and polyclip-ts code and uploads `spatial.zip`, which HACS installs.
 
 ## Architecture
 
@@ -41,6 +41,7 @@ licences of the bundled MapLibre, Lit, turf, JSTS and d3 code and uploads `spati
 | `src/spatial-card.ts` | The card: wraps the panel element, without the menu button; loads the panel bundle when created |
 | `src/map-view.ts` | Pure helpers: map bearing, style URL, map tiles token, floor order, room bounds |
 | `src/outline.ts` | Building outline from an OSM building: inset, orientation and start wall, all with turf |
+| `src/plan.ts` | Box from screen corners, side lengths, resizing and joining footprints, all with turf |
 | `test/` | Unit tests (vitest) |
 
 ### Serving
