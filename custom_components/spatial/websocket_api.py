@@ -119,7 +119,7 @@ def ws_update_area_geometries(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "spatial/floor/update_spatial",
+        vol.Required("type"): "spatial/floor/update",
         vol.Required("floor_id"): str,
         vol.Optional("elevation_m"): vol.Coerce(float),
         vol.Optional("height_m"): POSITIVE_METRES,

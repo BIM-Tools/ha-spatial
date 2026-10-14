@@ -165,8 +165,8 @@ class SpatialCoordinator:
                         "floor_id": area_floor_id,
                         "level": floor.level if floor else None,
                         "area_m2": _net_size(data["polygon"]),
-                        "base_height": base,
-                        "height": top,
+                        "base_m": base,
+                        "top_m": top,
                     },
                 }
             )
