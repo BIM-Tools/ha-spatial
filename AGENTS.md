@@ -31,6 +31,8 @@ prefix `docker` commands with `MSYS_NO_PATHCONV=1`.
 | Lint and format | `docker compose run --rm test sh -c "ruff format . && ruff check ."` |
 | hassfest | `docker run --rm -v "$(pwd -W)":/github/workspace:ro ghcr.io/home-assistant/hassfest` |
 | Real Home Assistant | `docker compose up homeassistant` |
+| Frontend (typecheck, test, build) | `MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/frontend":/app -v "$(pwd -W)/custom_components":/custom_components -w /app node:24-alpine sh -c "npm ci && npm run typecheck && npm test && npm run build"` |
+| Sync frontend versions | `python tools/sync_frontend_versions.py` (`--check` only compares) |
 | Tools | Run them against the real Home Assistant, see `tools/README.md` |
 
 ## Settled decisions

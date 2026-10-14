@@ -18,3 +18,4 @@ htmlcov/
 # Maintainer-only material: local docs and private agent rules
 local/
 .claude/
+frontend/node_modules/
