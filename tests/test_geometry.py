@@ -128,3 +128,8 @@ def test_net_area_grows_holes() -> None:
     polygon = rect(0, 0, 10, 10)
     polygon["coordinates"].append(rect(2, 2, 4, 4)["coordinates"][0])
     assert net_area_m2(polygon, 0.05) == pytest.approx(93.6, rel=1e-3)
+
+
+def test_net_area_of_thin_strip_is_zero() -> None:
+    """Test a strip narrower than twice the inset has no net area, never a negative one."""
+    assert net_area_m2(rect(0, 0, 10, 0.05), 0.05) == 0

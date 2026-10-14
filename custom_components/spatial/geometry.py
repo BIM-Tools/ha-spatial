@@ -140,13 +140,14 @@ def net_area_m2(polygon: dict[str, Any], inset_m: float) -> float:
     corners is always four for a simple ring; the d² term is exact for right
     angles). A hole grows by d, so it takes away A + P * d + 4 * d * d. Exact for
     right-angled polygons; with diagonal walls the corner term is an approximation.
+    A shape thinner than twice inset_m has no net area: the result is clamped to zero.
     """
     exterior, *holes = _rings_m(polygon, *_origin(polygon))
     corners = 4 * inset_m * inset_m
     area = _shoelace_area(exterior) - _perimeter(exterior) * inset_m + corners
     for hole in holes:
         area -= _shoelace_area(hole) + _perimeter(hole) * inset_m + corners
-    return area
+    return max(area, 0.0)
 
 
 def polygon_contains(polygon: dict[str, Any], lon: float, lat: float) -> bool:
