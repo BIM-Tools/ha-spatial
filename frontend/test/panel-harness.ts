@@ -178,10 +178,12 @@ export const answer: Reply = async ({ type }) => {
 export const mountPanel = (reply: Reply = answer, floors = {}, card = false, floor?: string) => {
   const sendMessagePromise = vi.fn(reply);
   const unsubscribe = vi.fn(async () => {});
+  const unsubscribeEvents = vi.fn(async () => {});
   const listeners: Record<string, () => void> = {};
   const connection = {
     sendMessagePromise,
     subscribeMessage: vi.fn(async () => unsubscribe),
+    subscribeEvents: vi.fn(async () => unsubscribeEvents),
     addEventListener: vi.fn((event: string, listener: () => void) => {
       listeners[event] = listener;
     }),
@@ -200,7 +202,7 @@ export const mountPanel = (reply: Reply = answer, floors = {}, card = false, flo
   document.body.append(panel);
   const tokenCalls = () =>
     sendMessagePromise.mock.calls.filter(([message]) => message.type === "map_tiles/access_token").length;
-  return { panel, connection, listeners, unsubscribe, tokenCalls };
+  return { panel, connection, listeners, unsubscribe, unsubscribeEvents, tokenCalls };
 };
 
 export const onUpdateOf = (connection: { subscribeMessage: { mock: { calls: unknown[][] } } }) =>

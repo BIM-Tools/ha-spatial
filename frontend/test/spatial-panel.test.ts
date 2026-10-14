@@ -56,7 +56,7 @@ test("the panel says so when the map cannot load", async () => {
 test("leaving the panel during startup leaves nothing behind", async () => {
   vi.useFakeTimers();
   const pending: (() => void)[] = [];
-  const { panel, connection, listeners, unsubscribe } = mountPanel(
+  const { panel, connection, listeners, unsubscribe, unsubscribeEvents } = mountPanel(
     (message) => new Promise((resolve) => pending.push(() => resolve(answer(message)))),
   );
   await vi.advanceTimersByTimeAsync(0);
@@ -70,6 +70,7 @@ test("leaving the panel during startup leaves nothing behind", async () => {
   expect(vi.getTimerCount()).toBe(0);
   expect(listeners).toEqual({});
   expect(connection.subscribeMessage.mock.calls.length).toBe(unsubscribe.mock.calls.length);
+  expect(connection.subscribeEvents.mock.calls.length).toBe(unsubscribeEvents.mock.calls.length);
 });
 
 test("the panel has Home Assistant's menu button for narrow screens", async () => {
@@ -492,4 +493,24 @@ test("a drag that ends after the handles are gone saves nothing", async () => {
   await vi.waitFor(() => expect(handles()).toEqual([]));
   dragend();
   expect(updates(connection)).toEqual([]);
+});
+
+test("the panel reads the areas and floors again on registry changes, until it is left", async () => {
+  const { panel, connection, unsubscribeEvents } = mountPanel();
+  await vi.waitFor(() => expect(connection.subscribeEvents).toHaveBeenCalledTimes(2));
+  const subscriptions = connection.subscribeEvents.mock.calls as unknown as [() => void, string][];
+  expect(subscriptions.map(([, eventType]) => eventType)).toEqual(["area_registry_updated", "floor_registry_updated"]);
+  const reads = () =>
+    connection.sendMessagePromise.mock.calls.filter(([message]) => message.type === "config/area_registry/list").length;
+  const before = reads();
+  for (const [onEvent] of subscriptions) onEvent();
+  await vi.waitFor(() => expect(reads()).toBe(before + 2));
+  panel.remove();
+  expect(unsubscribeEvents).toHaveBeenCalledTimes(2);
+});
+
+test("the card does not follow the registries", async () => {
+  const { connection } = mountPanel(answer, {}, true);
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
+  expect(connection.subscribeEvents).not.toHaveBeenCalled();
 });

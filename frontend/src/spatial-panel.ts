@@ -19,6 +19,7 @@ interface Hass {
   connection: {
     sendMessagePromise<T>(message: { type: string; [key: string]: unknown }): Promise<T>;
     subscribeMessage(callback: () => void, message: { type: string }): Promise<() => Promise<void>>;
+    subscribeEvents(callback: () => void, eventType: string): Promise<() => Promise<void>>;
     addEventListener(eventType: "ready", listener: () => void): void;
     removeEventListener(eventType: "ready", listener: () => void): void;
   };
@@ -37,6 +38,7 @@ interface Site {
 }
 
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
+const REGISTRY_EVENTS = ["area_registry_updated", "floor_registry_updated"];
 
 // Core rotates the map tiles token every 30 minutes and keeps two live; this
 // is the interval Home Assistant's own frontend refreshes at.
@@ -123,7 +125,7 @@ class SpatialPanel extends LitElement {
   private _token = "";
   private _bearing = 0;
   private _tokenTimer?: ReturnType<typeof setInterval>;
-  private _unsubscribe?: () => Promise<void>;
+  private _unsubscribe?: () => void;
   private _areas: FeatureCollection = EMPTY;
   private _outline: Polygon | FeatureCollection = EMPTY;
   private _handles: Marker[] = [];
@@ -285,9 +287,17 @@ class SpatialPanel extends LitElement {
       this._bearing = bearing_deg;
       this._map?.setBearing(mapBearing(bearing_deg));
     };
-    const unsubscribe = await hass.connection.subscribeMessage(onUpdate, {
-      type: "spatial/subscribe",
-    });
+    // The editor's strip and floor buttons name areas and floors, which change outside this panel.
+    const rereadRegistries = () => {
+      loadAreas().catch(console.error);
+    };
+    const subscriptions = await Promise.all([
+      hass.connection.subscribeMessage(onUpdate, { type: "spatial/subscribe" }),
+      ...(editor ? REGISTRY_EVENTS.map((eventType) => hass.connection.subscribeEvents(rereadRegistries, eventType)) : []),
+    ]);
+    const unsubscribe = () => {
+      for (const unsubscribeOne of subscriptions) unsubscribeOne();
+    };
     if (stopped()) {
       unsubscribe();
       return;
