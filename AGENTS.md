@@ -132,11 +132,13 @@ way".
 What is and is not checked automatically:
 
 - On every push and pull request to `main`: `CI Tests` (tests, line coverage with a 99% floor,
-  mypy strict) and `Validate` (hassfest, HACS, ruff, no-`CLAUDE.md` check).
+  mypy strict), `Validate` (hassfest, HACS, ruff, no-`CLAUDE.md` check) and `Frontend` (tsc,
+  vitest, the committed bundle byte-identical to a fresh build, `sync_frontend_versions.py --check`).
 - `main` is protected by a ruleset: pull request required, review threads resolved, squash
   merge only, checks `test`, `hassfest`, `ruff`, `agents-file` and `hacs` required and up to
   date with `main`, no force pushes or deletion. Copilot reviews every pull request.
-- `tools/` has no automated tests; verify changes against a real Home Assistant.
+- `tools/sync_frontend_versions.py` has unit tests; `tools/import_geojson.py` has none, verify
+  changes to it against a real Home Assistant.
 - Ruff reports `EXE002` on every file through the Windows bind mount; it is an artefact of the
   mount and does not occur on Linux.
 

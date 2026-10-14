@@ -13,6 +13,8 @@ interface Hass {
   connection: {
     sendMessagePromise<T>(message: { type: string }): Promise<T>;
     subscribeEvents(callback: () => void, eventType: string): Promise<() => Promise<void>>;
+    addEventListener(eventType: "ready", listener: () => void): void;
+    removeEventListener(eventType: "ready", listener: () => void): void;
   };
   themes: { darkMode: boolean };
 }
@@ -42,6 +44,7 @@ class SpatialPanel extends LitElement {
     panel: { attribute: false },
     _levels: { state: true },
     _level: { state: true },
+    _failed: { state: true },
   };
 
   static styles = css`
@@ -71,9 +74,12 @@ class SpatialPanel extends LitElement {
   declare panel: object | undefined;
   declare _levels: (number | null)[] | undefined;
   declare _level: Level;
+  declare _failed: boolean;
 
   private _map?: MapLibreMap;
   private _started = false;
+  // Bumped on disconnect, so a startup still awaiting creates nothing.
+  private _run = 0;
   private _darkMode = false;
   private _token = "";
   private _timer?: ReturnType<typeof setInterval>;
@@ -99,6 +105,7 @@ class SpatialPanel extends LitElement {
           `,
         )}
         ${this._levels?.length === 0 ? html`<span>No rooms yet</span>` : nothing}
+        ${this._failed ? html`<span>Map could not load</span>` : nothing}
       </div>
       <div id="map"></div>
     `;
@@ -108,7 +115,11 @@ class SpatialPanel extends LitElement {
     if (!this.hass) return;
     if (!this._started) {
       this._started = true;
-      this._start(this.hass);
+      this._failed = false;
+      this._start(this.hass).catch((err) => {
+        console.error(err);
+        this._failed = true;
+      });
     } else if (this._map && this.hass.themes.darkMode !== this._darkMode) {
       this._darkMode = this.hass.themes.darkMode;
       // A full reload fires `style.load`, which adds the rooms again.
@@ -118,6 +129,8 @@ class SpatialPanel extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
+    this._run++;
+    this.hass?.connection.removeEventListener("ready", this._keepToken);
     clearInterval(this._timer);
     this._unsubscribe?.();
     this._map?.remove();
@@ -125,14 +138,28 @@ class SpatialPanel extends LitElement {
     this._started = false;
   }
 
+  private _refreshToken = async () => {
+    this._token = (
+      await this.hass!.connection.sendMessagePromise<{ token: string }>({
+        type: "map_tiles/access_token",
+      })
+    ).token;
+  };
+
+  // On failure the current token stays; the next interval or reconnect retries.
+  // A reconnect matters because a restarted core has forgotten its tokens.
+  private _keepToken = () => {
+    this._refreshToken().catch(() => {});
+  };
+
   private async _start(hass: Hass) {
+    const run = this._run;
+    const left = () => run !== this._run;
     const call = <T>(type: string) => hass.connection.sendMessagePromise<T>({ type });
-    const refreshToken = async () => {
-      this._token = (await call<{ token: string }>("map_tiles/access_token")).token;
-    };
-    await refreshToken();
-    // On failure the current token stays; the next interval retries.
-    this._timer = setInterval(() => refreshToken().catch(() => {}), TOKEN_REFRESH_MS);
+    await this._refreshToken();
+    if (left()) return;
+    this._timer = setInterval(this._keepToken, TOKEN_REFRESH_MS);
+    hass.connection.addEventListener("ready", this._keepToken);
 
     const loadAreas = async () => {
       this._areas = await call<FeatureCollection>("spatial/geojson");
@@ -140,14 +167,22 @@ class SpatialPanel extends LitElement {
       this._map?.getSource<GeoJSONSource>("areas")?.setData(this._areas);
     };
     await loadAreas();
-    this._unsubscribe = await hass.connection.subscribeEvents(loadAreas, "spatial_updated");
+    if (left()) return;
+    const unsubscribe = await hass.connection.subscribeEvents(loadAreas, "spatial_updated");
+    if (left()) {
+      unsubscribe();
+      return;
+    }
+    this._unsubscribe = unsubscribe;
 
     const site = await call<{ lon: number; lat: number; bearing_deg: number }>("spatial/site");
     this._darkMode = hass.themes.darkMode;
+    const style = await loadStyle(this._darkMode);
+    if (left()) return;
     setWorkerUrl("/spatial_static/maplibre-gl-worker.mjs");
     this._map = new MapLibreMap({
       container: this.renderRoot.querySelector<HTMLElement>("#map")!,
-      style: await loadStyle(this._darkMode),
+      style,
       transformRequest: (url) => withMapTilesToken(url, location.origin, this._token),
       center: [site.lon, site.lat],
       zoom: 19,
