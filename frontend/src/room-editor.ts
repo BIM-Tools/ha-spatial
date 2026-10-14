@@ -92,6 +92,9 @@ export class RoomEditor {
     map.on("mouseup", this._up);
     map.on("click", this._click);
     window.addEventListener("keydown", this._undoKey);
+    // The toolbar works before the map exists.
+    this._applyInput();
+    this._showSides();
   }
 
   addLayers(map: MapLibreMap) {

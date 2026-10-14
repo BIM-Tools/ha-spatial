@@ -782,6 +782,24 @@ test("a refresh held back until after a save is acknowledged keeps the saved foo
   expect(chipNames(panel)).toContain("● Bath");
 });
 
+test("Draw chosen before the map attaches takes effect when it does", async () => {
+  let release = () => {};
+  let hold = true;
+  const { panel } = mountEditor(async (message) => {
+    if (message.type !== "spatial/site" || !hold) return undefined;
+    hold = false;
+    await new Promise<void>((resolve) => (release = resolve));
+    return undefined;
+  });
+  await vi.waitFor(() => expect(barButton(panel, "Ground floor")).toBeDefined());
+  barButton(panel, "Ground floor")!.click();
+  await settle(panel);
+  barButton(panel, "Draw")!.click();
+  release();
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
+  expect(dragPan.isEnabled()).toBe(false);
+});
+
 test("a pan between the two taps keeps the box on the first tapped spot", async () => {
   const { panel, connection } = mountEditor();
   await startDrawing(panel);
