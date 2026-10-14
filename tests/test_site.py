@@ -42,6 +42,7 @@ async def test_site_defaults_to_home_location(
         "lon": hass.config.longitude,
         "lat": hass.config.latitude,
         "bearing_deg": 0.0,
+        "outline": None,
     }
 
 
@@ -98,6 +99,7 @@ async def test_update_site_persists_bearing(
         "lon": hass.config.longitude,
         "lat": hass.config.latitude,
         "bearing_deg": 12.5,
+        "outline": None,
     }
 
 
@@ -159,4 +161,86 @@ async def test_legacy_stored_site_loads(
         "lon": hass.config.longitude,
         "lat": hass.config.latitude,
         "bearing_deg": legacy_site["bearing_deg"] if legacy_site else 0.0,
+        "outline": None,
     }
+
+
+async def test_site_outline_round_trip(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, setup_integration: MockConfigEntry
+) -> None:
+    """Test the outline and bearing are stored together and survive a reload."""
+    client = await hass_ws_client(hass)
+    outline = rect(0, 0, 10, 8)
+    msg = await _call(client, type="spatial/site/update", bearing_deg=30.0, outline=outline)
+    assert msg["success"], msg
+
+    assert await hass.config_entries.async_reload(setup_integration.entry_id)
+    await hass.async_block_till_done()
+
+    msg = await _call(client, type="spatial/site")
+    assert msg["result"]["outline"] == outline
+    assert msg["result"]["bearing_deg"] == 30.0
+
+
+async def test_site_centre_uses_outline_without_footprints(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test the centre is the middle of the outline's bounds when there are no footprints."""
+    client = await hass_ws_client(hass)
+    await _call(client, type="spatial/site/update", outline=rect(0, 0, 10, 8))
+    msg = await _call(client, type="spatial/site")
+    lon, lat = lonlat(5, 4)
+    assert msg["result"]["lon"] == pytest.approx(lon, abs=1e-9)
+    assert msg["result"]["lat"] == pytest.approx(lat, abs=1e-9)
+
+
+async def test_site_centre_prefers_footprints(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test footprints decide the centre when there is also an outline."""
+    client = await hass_ws_client(hass)
+    await _call(client, type="spatial/site/update", outline=rect(0, 0, 10, 8))
+    await _call(client, type="spatial/area/update_geometries", areas={"kitchen": rect(0, 0, 4, 3)})
+    msg = await _call(client, type="spatial/site")
+    lon, lat = lonlat(2, 1.5)
+    assert msg["result"]["lon"] == pytest.approx(lon, abs=1e-9)
+    assert msg["result"]["lat"] == pytest.approx(lat, abs=1e-9)
+
+
+@pytest.mark.parametrize(
+    "outline",
+    [
+        {"type": "Point", "coordinates": [5.0, 52.0]},
+        {"type": "Polygon", "coordinates": [[[5, 52], [5.1, 52], [5.1, 52.1], [5, 52.1]]]},
+    ],
+    ids=["point", "open_ring"],
+)
+async def test_site_update_rejects_bad_outline(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, outline: dict[str, Any]
+) -> None:
+    """Test an outline that is not a closed Polygon is rejected."""
+    client = await hass_ws_client(hass)
+    msg = await _call(client, type="spatial/site/update", outline=outline)
+    assert msg["error"]["code"] == "invalid_format"
+
+
+async def test_site_update_needs_a_field(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test an update without bearing or outline is rejected."""
+    client = await hass_ws_client(hass)
+    msg = await _call(client, type="spatial/site/update")
+    assert msg["error"]["code"] == "invalid_format"
+
+
+async def test_site_outline_cleared_with_null(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test null removes the outline and leaves the bearing alone."""
+    client = await hass_ws_client(hass)
+    await _call(client, type="spatial/site/update", bearing_deg=30.0, outline=rect(0, 0, 10, 8))
+    msg = await _call(client, type="spatial/site/update", outline=None)
+    assert msg["success"], msg
+    msg = await _call(client, type="spatial/site")
+    assert msg["result"]["outline"] is None
+    assert msg["result"]["bearing_deg"] == 30.0

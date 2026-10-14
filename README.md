@@ -44,7 +44,7 @@ Early version. The API and storage format can still change. There is no editor y
 | Measurements | Computed by the integration in metres, never from the map projection |
 | Area | `area_m2` is net: the drawn polygon shrunk by 50 mm on every side |
 | Building, sub-spaces | Home Assistant labels |
-| Site anchor | One bearing per installation; the centre follows all footprints; aligns views only |
+| Site anchor | One bearing and optional building outline per installation; the centre follows the footprints, else the outline; aligns views only |
 | Finding the building | OSM buildings from Home Assistant's own map tiles |
 | Dependencies | Pure Python |
 | Concepts | Structure of the W3C Building Topology Ontology (BOT), Home Assistant naming |

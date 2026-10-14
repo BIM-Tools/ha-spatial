@@ -89,28 +89,36 @@ class SpatialCoordinator:
         self._changed()
 
     def get_site(self) -> Site:
-        """Return the site: the centre of the footprints' bounding box and the bearing.
+        """Return the site: the centre of the bounding box, the bearing and the outline.
 
-        Custom code. Computed on read, so it follows every edit. The box is taken in
-        lon/lat degrees, which is accurate enough at building scale but not across
-        the antimeridian. Without footprints the centre is the home location.
+        Custom code. Computed on read, so it follows every edit. The box covers the
+        footprints, else the outline, and is taken in lon/lat degrees, which is
+        accurate enough at building scale but not across the antimeridian. Without
+        either the centre is the home location.
         """
-        points = [
-            position
-            for data in self.store.areas.values()
-            for position in data["polygon"]["coordinates"][0]
-        ]
+        rings = [data["polygon"]["coordinates"][0] for data in self.store.areas.values()]
+        if not rings and self.store.outline:
+            rings = [self.store.outline["coordinates"][0]]
+        points = [position for ring in rings for position in ring]
         if not points:
             lon, lat = self.hass.config.longitude, self.hass.config.latitude
         else:
             lons, lats = [p[0] for p in points], [p[1] for p in points]
             lon, lat = (min(lons) + max(lons)) / 2, (min(lats) + max(lats)) / 2
-        return {"lon": lon, "lat": lat, "bearing_deg": self.store.bearing_deg}
+        return {
+            "lon": lon,
+            "lat": lat,
+            "bearing_deg": self.store.bearing_deg,
+            "outline": self.store.outline,
+        }
 
     @callback
-    def async_set_site_bearing(self, bearing_deg: float) -> None:
-        """Set the bearing of the site's x-axis."""
-        self.store.bearing_deg = bearing_deg
+    def async_update_site(self, fields: dict[str, Any]) -> None:
+        """Set the bearing and/or the outline (None removes it) of the site."""
+        if "bearing_deg" in fields:
+            self.store.bearing_deg = fields["bearing_deg"]
+        if "outline" in fields:
+            self.store.outline = fields["outline"]
         self._changed()
 
     def _floor_of(self, area_id: str) -> str | None:
