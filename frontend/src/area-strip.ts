@@ -8,7 +8,8 @@ export interface AreaEntry {
   floor_id: string | null;
 }
 
-export const NEW_AREA = "new";
+// Empty, so it is never a registry id.
+export const NEW_AREA = "";
 
 export const stripOrder = (
   areas: AreaEntry[],

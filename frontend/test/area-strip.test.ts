@@ -134,3 +134,10 @@ test("a new active area scrolls its chip into view", async () => {
   expect((scroll.mock.contexts[0] as Element).textContent?.trim()).toBe("● Bath");
   scroll.mockRestore();
 });
+
+test("an area with the id new and the new-area chip are never both active", async () => {
+  const strip = mountStrip("new");
+  strip.order = [area("new", "New")];
+  await strip.updateComplete;
+  expect(chips(strip).map((c) => c.getAttribute("aria-pressed"))).toEqual(["true", "false"]);
+});
