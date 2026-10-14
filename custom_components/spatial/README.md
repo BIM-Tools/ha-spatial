@@ -52,7 +52,7 @@
 - Names, levels and floor assignment are read from Home Assistant's registries, never copied.
 - Deleting an area or floor in Home Assistant deletes its spatial data.
 - Floors without data stack 3 m per level.
-- Site centre: the middle of the bounding box of all footprints, computed on every read; the home location without footprints. The bearing defaults to north.
+- Site centre: the middle of the bounding box of all footprints, computed on every read; else the building outline, else the home location. The bearing defaults to north.
 
 ### Websocket API
 

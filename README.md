@@ -11,7 +11,7 @@ Room footprints for Home Assistant areas, on the same map as your zones.
 
 ## Status
 
-Early version. The API and storage format can still change. There is no editor yet.
+Early version. The API and storage format can still change. The editor can only pick the building outline so far.
 
 ## Parts
 
