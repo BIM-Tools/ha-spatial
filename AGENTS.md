@@ -155,6 +155,6 @@ What is and is not checked automatically:
 - The frontend's `dev` branch is ahead of what Home Assistant ships; read the release tag.
 - The `buildings` layer in Home Assistant's map tiles is one MultiPolygon without attributes
   per tile; each part is one building.
-- Home Assistant's shipped map style uses root-relative sprite and glyph URLs; MapLibre 5
+- Home Assistant's shipped map style uses root-relative sprite and glyph URLs; MapLibre
   needs them absolute.
 - hassfest needs the repository root mounted, not the integration folder.

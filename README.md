@@ -18,8 +18,8 @@ Early version. The API and storage format can still change. There is no editor y
 | Path | What | Details |
 | --- | --- | --- |
 | `custom_components/spatial/` | The integration | [README](custom_components/spatial/README.md) |
-| `tools/` | GeoJSON importer, example house, development viewer | [README](tools/README.md) |
-| `frontend/` | Map panel source, built into the integration | - |
+| `tools/` | GeoJSON importer, example house, version sync | [README](tools/README.md) |
+| `frontend/` | Map panel source, built into the integration | [README](frontend/README.md) |
 | `tests/` | Tests against a real Home Assistant | - |
 | `AGENTS.md` | Rules for contributors and coding agents | - |
 
@@ -28,7 +28,8 @@ Early version. The API and storage format can still change. There is no editor y
 1. `docker compose up homeassistant`, open <http://localhost:8123>, finish onboarding.
 2. Add the Spatial integration (Settings > Devices & services).
 3. Create a long-lived access token (profile > Security).
-4. Import the example house, then open the viewer: see [tools/README.md](tools/README.md).
+4. Import the example house, see [tools/README.md](tools/README.md).
+5. Open the panel: Settings > Devices & services > Spatial > Configure.
 
 ## Design rules
 
