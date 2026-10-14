@@ -47,6 +47,7 @@ export const centreOf = (shape: Polygon): Position => center(shape).geometry.coo
 export function isAxisRectangle(shape: Polygon, bearingDeg: number): boolean {
   const vertices = corners(shape);
   return (
+    shape.coordinates.length === 1 &&
     vertices.length === 4 &&
     vertices.every((vertex, index) => {
       const edge = bearing(point(vertex), point(vertices[(index + 1) % 4]));

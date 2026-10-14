@@ -115,3 +115,9 @@ test("centreOf is the middle of a box", () => {
   const box: Polygon = { type: "Polygon", coordinates: [[[0, 0], [2, 0], [2, 2], [0, 2], [0, 0]]] };
   expect(centreOf(box)).toEqual([1, 1]);
 });
+
+test("isAxisRectangle refuses a rectangle with a hole", () => {
+  const hole = rectangle(move(move(ORIGIN, 1, 20), 1, -70), 1, 1, 20);
+  const holed: Polygon = { type: "Polygon", coordinates: [ringOf(box), [...hole, hole[0]].reverse()] };
+  expect(isAxisRectangle(holed, 20)).toBe(false);
+});
