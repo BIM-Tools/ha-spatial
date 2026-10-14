@@ -1,4 +1,4 @@
-import type { FeatureCollection } from "geojson";
+import type { Feature, FeatureCollection, Polygon } from "geojson";
 
 /** MapLibre bearing that puts the site's x-axis (the picked wall) horizontal, pointing right. */
 export const mapBearing = (bearingDeg: number): number => (((bearingDeg - 90) % 360) + 360) % 360;
@@ -58,4 +58,16 @@ export const floors = (fc: FeatureCollection): (string | null)[] => {
     const [gb, lb] = key(b);
     return ga - gb || la - lb;
   });
+};
+
+/**
+ * Custom: `[west, south, east, north]` around the outer rings of the polygon
+ * features, for framing them; undefined without features.
+ */
+export const bounds = (features: Feature[]): [number, number, number, number] | undefined => {
+  const points = features.flatMap((f) => (f.geometry as Polygon).coordinates[0]);
+  if (!points.length) return undefined;
+  const lons = points.map((p) => p[0]);
+  const lats = points.map((p) => p[1]);
+  return [Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)];
 };

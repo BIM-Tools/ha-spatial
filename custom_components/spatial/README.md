@@ -11,7 +11,32 @@
 1. Copy `custom_components/spatial/` into your Home Assistant `config/custom_components/`.
 2. Restart, then add **Spatial** under Settings > Devices & services (one instance).
 3. Add footprints, for now with `tools/import_geojson.py` (no editor yet).
-4. Read the data over the websocket API below, for example from a dashboard card.
+4. Show the rooms on a dashboard: add a card with `type: custom:spatial-map-card`, best in a
+   view of type Panel so the map fills it. Everyone who can see the dashboard sees the map.
+   The card has one option, in YAML:
+
+   | `floor` | Shows |
+   | --- | --- |
+   | not set | Floor buttons; pan, zoom and rotate |
+   | `all` | All floors in 3D, fixed |
+   | a `floor_id` | That floor as a plan, fixed |
+
+   A fixed view has no buttons, frames its rooms and follows changes. A dashboard view with
+   all three:
+
+   ```yaml
+   title: Floors
+   type: sections
+   sections:
+     - type: grid
+       cards:
+         - type: custom:spatial-map-card
+           floor: all
+         - type: custom:spatial-map-card
+           floor: ground_floor
+         - type: custom:spatial-map-card
+           floor: first_floor
+   ```
 
 ## Architecture
 
@@ -37,6 +62,7 @@
 | `spatial/query_point` | no | `lon`, `lat`, `floor_id`? | `{area_id}` (smallest match, or null) |
 | `spatial/area/adjacent` | no | `area_id` | `{area_ids}` |
 | `spatial/site` | no | - | `{lon, lat, bearing_deg}` (centre derived from the footprints) |
+| `spatial/subscribe` | no | - | An empty event message on every change, until `unsubscribe_events` |
 | `spatial/area/update_geometries` | yes | `areas`: `{area_id: polygon or null}` (null removes) | `{area_m2: {area_id: m²}}` |
 | `spatial/floor/update_spatial` | yes | `floor_id`, `elevation_m`?, `height_m`? | - |
 | `spatial/site/update` | yes | `bearing_deg` (0 to under 360) | - |
@@ -44,7 +70,7 @@
 - Feature properties: `area_id`, `name`, `floor_id`, `level`, `area_m2`, `base_height`, `height`
   (ready for MapLibre `fill-extrusion`).
 - Errors: `not_found` (unknown area or floor), `invalid_format` (bad input), `unauthorized`.
-- Event `spatial_updated` fires after every change.
+- Event `spatial_updated` fires after every change; non-admin users follow it through `spatial/subscribe`.
 
 ### Panel
 
@@ -53,8 +79,9 @@ Settings > Devices & services > Spatial > Configure opens the admin-only Spatial
 - Home Assistant's own map: its shipped light or dark style, following the theme, with tiles from the `map_tiles` proxy.
 - Centred on the site, rotated so the site direction (the picked wall) is horizontal.
 - "All" stacks the floors in 3D; a button per floor (named as in Home Assistant, ordered by level) shows that floor as a flat plan with room outlines; "No floor" shows areas without one.
-- Updates on `spatial_updated`; shows "No rooms yet" without footprints.
-- Source in `frontend/` at the repository root; it builds the bundle and MapLibre's worker into `frontend/` here. They are not in git; the release zip contains them.
+- Updates through `spatial/subscribe`; shows "No rooms yet" without footprints.
+- The card `custom:spatial-map-card` shows the same view on a dashboard, for every user, without the menu button; it fills a panel view and is 400 px high elsewhere. Its `floor` option fixes the view: MapLibre's `interactive: false`, framed with `fitBounds` on every update.
+- Source in `frontend/` at the repository root; it builds the bundles and MapLibre's worker into `frontend/` here. They are not in git; the release zip contains them.
 
 ### Rules
 
@@ -70,7 +97,7 @@ Settings > Devices & services > Spatial > Configure opens the admin-only Spatial
 
 | File | Responsibility |
 | --- | --- |
-| `__init__.py` | Setup, `runtime_data`, websocket registration, admin-only `spatial` panel (bundle in `frontend/`, served at `/spatial_static`) |
+| `__init__.py` | Setup, `runtime_data`, websocket registration, admin-only `spatial` panel and the card module (bundles in `frontend/`, served at `/spatial_static`) |
 | `config_flow.py` | Single-instance config flow |
 | `coordinator.py` | Data access, registry sync, queries |
 | `store.py` | Persistence |

@@ -6,12 +6,12 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant.components import websocket_api
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import floor_registry as fr
 
-from .const import DOMAIN
+from .const import DOMAIN, EVENT_SPATIAL_UPDATED
 from .coordinator import SpatialCoordinator
 from .geometry import validate_polygon
 
@@ -28,6 +28,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_update_floor)
     websocket_api.async_register_command(hass, ws_site)
     websocket_api.async_register_command(hass, ws_update_site)
+    websocket_api.async_register_command(hass, ws_subscribe)
 
 
 def _coordinator(hass: HomeAssistant) -> SpatialCoordinator:
@@ -159,4 +160,23 @@ def ws_update_site(
 ) -> None:
     """Set the bearing of the site's x-axis, clockwise from north."""
     _coordinator(hass).async_set_site_bearing(msg["bearing_deg"])
+    connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command({vol.Required("type"): "spatial/subscribe"})
+@callback
+def ws_subscribe(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Send an empty event on every change, until `unsubscribe_events`.
+
+    Home Assistant lets non-admin users subscribe only to an allowlist of bus
+    events, so dashboards follow changes through this command instead.
+    """
+
+    @callback
+    def forward(event: Event) -> None:
+        connection.send_message(websocket_api.event_message(msg["id"], {}))
+
+    connection.subscriptions[msg["id"]] = hass.bus.async_listen(EVENT_SPATIAL_UPDATED, forward)
     connection.send_result(msg["id"])

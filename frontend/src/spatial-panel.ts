@@ -1,18 +1,18 @@
 import type { FeatureCollection } from "geojson";
-import { LitElement, css, html, nothing } from "lit";
+import { LitElement, type PropertyValues, css, html, nothing } from "lit";
 import {
   type GeoJSONSource,
   Map as MapLibreMap,
   type StyleSpecification,
   setWorkerUrl,
 } from "maplibre-gl";
-import { floors, mapBearing, styleUrl, withMapTilesToken } from "./map-view";
+import { bounds, floors, mapBearing, styleUrl, withMapTilesToken } from "./map-view";
 
 // The parts of Home Assistant's `hass` object this panel uses.
 interface Hass {
   connection: {
     sendMessagePromise<T>(message: { type: string }): Promise<T>;
-    subscribeEvents(callback: () => void, eventType: string): Promise<() => Promise<void>>;
+    subscribeMessage(callback: () => void, message: { type: string }): Promise<() => Promise<void>>;
     addEventListener(eventType: "ready", listener: () => void): void;
     removeEventListener(eventType: "ready", listener: () => void): void;
   };
@@ -49,6 +49,10 @@ class SpatialPanel extends LitElement {
   static properties = {
     hass: { attribute: false },
     narrow: { type: Boolean },
+    // Set by the dashboard card.
+    card: { type: Boolean },
+    // Set by the card's `floor` option: a fixed, static view of "all" or one floor_id.
+    floor: { attribute: false },
     panel: { attribute: false },
     _floors: { state: true },
     _floor: { state: true },
@@ -64,12 +68,20 @@ class SpatialPanel extends LitElement {
       background: var(--primary-background-color);
       color: var(--primary-text-color);
     }
+    :host([card]) {
+      height: 100%;
+      background: none;
+    }
     .bar {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       gap: 8px;
       padding: 8px;
+    }
+    /* A static card has no buttons; a message still shows. */
+    .bar:not(:has(*)) {
+      display: none;
     }
     #map {
       flex: 1;
@@ -79,6 +91,8 @@ class SpatialPanel extends LitElement {
   // `declare` keeps class fields from shadowing Lit's accessors.
   declare hass: Hass | undefined;
   declare narrow: boolean;
+  declare card: boolean;
+  declare floor: string | undefined;
   declare panel: object | undefined;
   declare _floors: (string | null)[] | undefined;
   declare _floor: Floor;
@@ -98,6 +112,7 @@ class SpatialPanel extends LitElement {
   constructor() {
     super();
     this.narrow = false;
+    this.card = false;
     this._floor = "all";
   }
 
@@ -105,8 +120,10 @@ class SpatialPanel extends LitElement {
     return html`
       <link rel="stylesheet" href="/static/map/maplibre-gl.css" />
       <div class="bar">
-        <ha-menu-button .hass=${this.hass} .narrow=${this.narrow}></ha-menu-button>
-        ${(["all", ...(this._floors ?? [])] as Floor[]).map(
+        ${this.card
+          ? nothing
+          : html`<ha-menu-button .hass=${this.hass} .narrow=${this.narrow}></ha-menu-button>`}
+        ${(this.floor ? [] : (["all", ...(this._floors ?? [])] as Floor[])).map(
           (floor) => html`
             <button ?disabled=${floor === this._floor} @click=${() => this._show(floor)}>
               ${floor === "all"
@@ -117,14 +134,21 @@ class SpatialPanel extends LitElement {
             </button>
           `,
         )}
-        ${this._floors?.length === 0 ? html`<span>No rooms yet</span>` : nothing}
+        ${this._floors &&
+        (this.floor && this.floor !== "all"
+          ? !this._floors.includes(this.floor)
+          : this._floors.length === 0)
+          ? html`<span>No rooms yet</span>`
+          : nothing}
         ${this._failed ? html`<span>Map could not load</span>` : nothing}
       </div>
       <div id="map"></div>
     `;
   }
 
-  updated() {
+  updated(changed: PropertyValues<this>) {
+    // MapLibre fixes interactivity at creation, so a new option rebuilds the map.
+    if (changed.has("floor") && this._started) this._stop();
     if (!this.hass) return;
     if (!this._started) {
       this._started = true;
@@ -142,6 +166,10 @@ class SpatialPanel extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
+    this._stop();
+  }
+
+  private _stop() {
     this._run++;
     this.hass?.connection.removeEventListener("ready", this._keepToken);
     clearInterval(this._timer);
@@ -169,6 +197,7 @@ class SpatialPanel extends LitElement {
     const run = this._run;
     const left = () => run !== this._run;
     const call = <T>(type: string) => hass.connection.sendMessagePromise<T>({ type });
+    this._floor = this.floor ?? "all";
     await this._refreshToken();
     if (left()) return;
     this._timer = setInterval(this._keepToken, TOKEN_REFRESH_MS);
@@ -182,15 +211,22 @@ class SpatialPanel extends LitElement {
     await loadAreas();
     if (left()) return;
     // Only a new bearing is applied; re-centring would move the camera while
-    // the user looks around.
+    // the user looks around. A static map has no user, so it frames again.
     const onUpdate = async () => {
       await loadAreas();
       const { bearing_deg } = await call<Site>("spatial/site");
+      if (this.floor) {
+        this._bearing = bearing_deg;
+        this._fit();
+        return;
+      }
       if (bearing_deg === this._bearing) return;
       this._bearing = bearing_deg;
       this._map?.setBearing(mapBearing(bearing_deg));
     };
-    const unsubscribe = await hass.connection.subscribeEvents(onUpdate, "spatial_updated");
+    const unsubscribe = await hass.connection.subscribeMessage(onUpdate, {
+      type: "spatial/subscribe",
+    });
     if (left()) {
       unsubscribe();
       return;
@@ -209,10 +245,24 @@ class SpatialPanel extends LitElement {
       transformRequest: (url) => withMapTilesToken(url, location.origin, this._token),
       center: [site.lon, site.lat],
       zoom: 19,
-      pitch: 50,
+      pitch: this._floor === "all" ? 50 : 0,
       bearing: mapBearing(site.bearing_deg),
+      interactive: !this.floor,
     });
     this._map.on("style.load", () => this._addAreas());
+    if (this.floor) this._fit();
+  }
+
+  // Frames the rooms in view, keeping the picked wall horizontal.
+  private _fit() {
+    const box = bounds(
+      this._areas.features.filter(
+        (f) => this._floor === "all" || f.properties?.floor_id === this._floor,
+      ),
+    );
+    if (box) {
+      this._map?.fitBounds(box, { bearing: mapBearing(this._bearing), padding: 16, animate: false });
+    }
   }
 
   // "All" stacks the floors in 3D; one floor is a flat plan with room outlines.
