@@ -1,4 +1,4 @@
-"""Tests for the frontend version sync script."""
+"""Proves the version sync reads Home Assistant's pins correctly, without the network."""
 
 import pytest
 

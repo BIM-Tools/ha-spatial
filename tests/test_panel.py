@@ -1,4 +1,4 @@
-"""Tests for the panel and card registration."""
+"""Proves the panel and the card are registered and versioned for the browser."""
 
 from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL
 from homeassistant.core import HomeAssistant

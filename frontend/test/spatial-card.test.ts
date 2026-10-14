@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+// Checks the card as Home Assistant drives it: config, hass, layout and the lazy panel import.
 import { expect, test, vi } from "vitest";
 
 // The card loads the panel bundle at runtime; here there is no bundle to load.

@@ -1,4 +1,4 @@
-"""Persistence of area footprints and floor dimensions."""
+"""Keeps footprints, floor dimensions and the site across restarts."""
 
 from __future__ import annotations
 

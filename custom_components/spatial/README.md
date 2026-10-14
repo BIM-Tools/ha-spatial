@@ -64,10 +64,10 @@
 | `spatial/site` | no | - | `{lon, lat, bearing_deg, outline}` (centre derived from the footprints, else the outline, else the home location) |
 | `spatial/subscribe` | no | - | An empty event message on every change, until `unsubscribe_events` |
 | `spatial/area/update_geometries` | yes | `areas`: `{area_id: polygon or null}` (null removes) | `{area_m2: {area_id: m²}}` |
-| `spatial/floor/update_spatial` | yes | `floor_id`, `elevation_m`?, `height_m`? | - |
+| `spatial/floor/update` | yes | `floor_id`, `elevation_m`?, `height_m`? | - |
 | `spatial/site/update` | yes | `bearing_deg`? (0 to under 360), `outline`? (Polygon, or null to remove); at least one | - |
 
-- Feature properties: `area_id`, `name`, `floor_id`, `level`, `area_m2`, `base_height`, `height`
+- Feature properties: `area_id`, `name`, `floor_id`, `level`, `area_m2`, `base_m`, `top_m`
   (ready for MapLibre `fill-extrusion`).
 - Errors: `not_found` (unknown area or floor), `invalid_format` (bad input), `unauthorized`.
 - Event `spatial_updated` fires after every change; non-admin users follow it through `spatial/subscribe`.

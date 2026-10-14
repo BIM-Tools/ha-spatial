@@ -1,4 +1,4 @@
-"""Tests for the site anchor."""
+"""Proves the site centre follows the footprints and the site can be aligned and outlined."""
 
 from typing import Any
 

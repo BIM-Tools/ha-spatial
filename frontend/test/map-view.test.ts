@@ -1,6 +1,8 @@
+// Checks the map logic that runs without a map.
+
 import type { FeatureCollection } from "geojson";
 import { expect, test } from "vitest";
-import { floors, mapBearing, styleUrl, withMapTilesToken } from "../src/map-view";
+import { floorsByLevel, mapBearing, styleUrl, withMapTilesToken } from "../src/map-view";
 
 test("mapBearing turns the site's x-axis to point right", () => {
   expect(mapBearing(0)).toBe(270);
@@ -23,8 +25,8 @@ test("withMapTilesToken sends the token to the proxy only", () => {
   });
 });
 
-test("floors lists distinct floors by level, no level after, no floor last", () => {
-  const fc: FeatureCollection = {
+test("floorsByLevel lists distinct floors by level, no level after, no floor last", () => {
+  const collection: FeatureCollection = {
     type: "FeatureCollection",
     features: [
       ["up", 1],
@@ -39,5 +41,5 @@ test("floors lists distinct floors by level, no level after, no floor last", () 
       properties: { floor_id, level },
     })),
   };
-  expect(floors(fc)).toEqual(["ground", "annex", "up", "attic", null]);
+  expect(floorsByLevel(collection)).toEqual(["ground", "annex", "up", "attic", null]);
 });

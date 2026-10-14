@@ -1,4 +1,4 @@
-"""Tests for the Spatial websocket API."""
+"""Proves the websocket API behaves as documented, for admins and other users."""
 
 from datetime import timedelta
 from typing import Any
@@ -30,7 +30,7 @@ from .common import lonlat, rect
 
 WRITE_COMMANDS: list[dict[str, Any]] = [
     {"type": "spatial/area/update_geometries", "areas": {"kitchen": rect(0, 0, 4, 3)}},
-    {"type": "spatial/floor/update_spatial", "floor_id": "ground_floor"},
+    {"type": "spatial/floor/update", "floor_id": "ground_floor"},
 ]
 
 
@@ -91,7 +91,7 @@ async def test_set_geometry_and_geojson(
 
     msg = await _call(
         client,
-        type="spatial/floor/update_spatial",
+        type="spatial/floor/update",
         floor_id="ground_floor",
         elevation_m=-0.5,
         height_m=2.7,
@@ -109,8 +109,8 @@ async def test_set_geometry_and_geojson(
         "floor_id": "ground_floor",
         "level": 0,
         "area_m2": pytest.approx(11.31, rel=0.001),
-        "base_height": -0.5,
-        "height": pytest.approx(2.2),
+        "base_m": -0.5,
+        "top_m": pytest.approx(2.2),
     }
 
 
@@ -123,8 +123,8 @@ async def test_floor_defaults_stack_by_level(
 
     msg = await _call(client, type="spatial/geojson", floor_id="first_floor")
     [feature] = msg["result"]["features"]
-    assert feature["properties"]["base_height"] == 3.0
-    assert feature["properties"]["height"] == 6.0
+    assert feature["properties"]["base_m"] == 3.0
+    assert feature["properties"]["top_m"] == 6.0
 
 
 async def test_query_point(hass: HomeAssistant, hass_ws_client: WebSocketGenerator) -> None:
@@ -260,7 +260,7 @@ async def test_registry_removal_drops_spatial_data(
     """Test deleting an area or floor in Home Assistant removes its spatial data."""
     client = await hass_ws_client(hass)
     await _set_geometry(client, "kitchen", rect(0, 0, 4, 3))
-    await _call(client, type="spatial/floor/update_spatial", floor_id="first_floor", elevation_m=9)
+    await _call(client, type="spatial/floor/update", floor_id="first_floor", elevation_m=9)
 
     ar.async_get(hass).async_delete("kitchen")
     fr.async_get(hass).async_delete("first_floor")
@@ -276,7 +276,7 @@ async def test_registry_removal_drops_spatial_data(
     await _set_geometry(client, "bedroom", rect(0, 0, 4, 3))
     msg = await _call(client, type="spatial/geojson")
     [feature] = msg["result"]["features"]
-    assert feature["properties"]["base_height"] == 3.0
+    assert feature["properties"]["base_m"] == 3.0
 
 
 async def test_data_survives_reload(
@@ -405,9 +405,9 @@ async def test_subscribe_notifies_non_admin_until_unsubscribed(
 @pytest.mark.parametrize(
     ("command", "code"),
     [
-        ({"type": "spatial/floor/update_spatial", "floor_id": "attic"}, "not_found"),
+        ({"type": "spatial/floor/update", "floor_id": "attic"}, "not_found"),
         (
-            {"type": "spatial/floor/update_spatial", "floor_id": "ground_floor", "height_m": 0},
+            {"type": "spatial/floor/update", "floor_id": "ground_floor", "height_m": 0},
             "invalid_format",
         ),
     ],

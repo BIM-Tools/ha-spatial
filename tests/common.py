@@ -1,4 +1,4 @@
-"""Test helpers for Spatial."""
+"""Builds test footprints in metres around a fixed origin, so tests read as floor plans."""
 
 from typing import Any
 

@@ -1,8 +1,4 @@
-# Usage:
-#   docker compose run --rm test                 # run the test suite
-#   docker compose run --rm test pytest -k area  # any pytest args
-#   docker compose up -d frontend                # build the panel, rebuild on change
-#   docker compose up homeassistant              # real HA at http://localhost:8123
+# Containers for everything, as Home Assistant does not run on Windows; commands in AGENTS.md.
 services:
   test:
     build:

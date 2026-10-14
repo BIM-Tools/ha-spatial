@@ -116,7 +116,12 @@ way".
 ## Writing
 
 - English. No em or en dashes; use a plain hyphen.
-- Comments explain why, not what.
+- Descriptive names for functions and variables; the names carry the meaning, not comments.
+- Inline comments only for a why the code cannot show: a workaround, a platform quirk, a
+  non-obvious constraint.
+- Every code file opens with a one-line header saying why it exists, not what it contains:
+  the module docstring in Python, a `//` comment in TypeScript and JavaScript, a `#` comment
+  in YAML, Dockerfiles and shell scripts. JSON is exempt.
 - Each part has one README: why it exists, how to use it, its architecture in lists and
   tables. No other Markdown files.
 - Never add a `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md`: Claude Code then stops

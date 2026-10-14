@@ -1,15 +1,6 @@
-"""Import room footprints from a GeoJSON file into Home Assistant.
+"""Imports room footprints from a GeoJSON file, for houses drawn outside Home Assistant.
 
-Usage:
-    python tools/import_geojson.py house.geojson --url http://localhost:8123 --token TOKEN
-
-The file is a FeatureCollection of Polygons. Each feature names its area and
-floor in its properties ({"area": "Kitchen", "floor": "Ground floor"}).
-Optional foreign members set floors and the site direction:
-    "floors": [{"name": "Ground floor", "level": 0, "elevation_m": 0, "height_m": 2.8}]
-    "site": {"bearing_deg": 20}
-Missing floors and areas are created with Home Assistant's own registry
-commands. Only the public websocket API is used.
+The file format is in tools/README.md.
 """
 
 from __future__ import annotations
@@ -65,12 +56,12 @@ async def import_file(path: str, url: str, token: str) -> None:
         client = Client(ws)
 
         floors = {
-            normalize_name(f["name"]): f["floor_id"]
-            for f in await client.call("config/floor_registry/list")
+            normalize_name(entry["name"]): entry["floor_id"]
+            for entry in await client.call("config/floor_registry/list")
         }
         areas = {
-            normalize_name(a["name"]): a["area_id"]
-            for a in await client.call("config/area_registry/list")
+            normalize_name(entry["name"]): entry["area_id"]
+            for entry in await client.call("config/area_registry/list")
         }
 
         for floor in collection.get("floors", []):
@@ -80,8 +71,10 @@ async def import_file(path: str, url: str, token: str) -> None:
                     "config/floor_registry/create", name=floor["name"], level=floor.get("level")
                 )
                 floors[key] = created["floor_id"]
-            spatial = {k: floor[k] for k in ("elevation_m", "height_m") if k in floor}
-            await client.call("spatial/floor/update_spatial", floor_id=floors[key], **spatial)
+            spatial = {
+                field: floor[field] for field in ("elevation_m", "height_m") if field in floor
+            }
+            await client.call("spatial/floor/update", floor_id=floors[key], **spatial)
 
         footprints: dict[str, Any] = {}
         names: dict[str, str] = {}
