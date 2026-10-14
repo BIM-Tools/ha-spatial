@@ -107,6 +107,12 @@ class SpatialAreaStrip extends LitElement {
   }
 
   updated(changed: Map<string, unknown>) {
+    // On a phone the strip scrolls, and the next area to draw may be out of view.
+    if (changed.has("active")) {
+      this.shadowRoot!
+        .querySelector('[aria-pressed="true"]')
+        ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    }
     if (changed.has("_renaming") && this._renaming) {
       this.shadowRoot!.querySelector("input")?.focus();
     }

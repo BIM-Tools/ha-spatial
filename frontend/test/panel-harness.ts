@@ -24,16 +24,19 @@ export const handles = () => markers.filter((marker) => !marker.removed);
 
 const handler = () => {
   let enabled = true;
+  let rotation = true;
   return {
     enable: () => (enabled = true),
     disable: () => (enabled = false),
-    enableRotation: () => (enabled = true),
-    disableRotation: () => (enabled = false),
+    enableRotation: () => (rotation = true),
+    disableRotation: () => (rotation = false),
     isEnabled: () => enabled,
+    isRotationEnabled: () => rotation,
   };
 };
 export let dragPan = handler();
 export let dragRotate = handler();
+export let touchZoomRotate = handler();
 
 // The site centre at pixel (0, 0), 0.1 m per pixel, screen up at the map bearing.
 export const METRES_PER_PIXEL = 0.1;
@@ -83,7 +86,7 @@ export const fakeMapLibre = {
   Map: class {
     dragPan = dragPan;
     dragRotate = dragRotate;
-    touchZoomRotate = handler();
+    touchZoomRotate = touchZoomRotate;
     touchPitch = handler();
     constructor(options: { bearing?: number }) {
       mapCreated(options);
@@ -202,6 +205,7 @@ export const resetFakes = () => {
   markers = [];
   dragPan = handler();
   dragRotate = handler();
+  touchZoomRotate = handler();
 };
 
 vi.stubGlobal(

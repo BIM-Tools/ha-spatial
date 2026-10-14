@@ -368,6 +368,7 @@ class SpatialPanel extends LitElement {
 
   private _toggleDrawing() {
     this._picking = false;
+    this._message = "";
     this._placeHandles();
     this.editor?.setDrawing(!this.editor.drawing);
   }

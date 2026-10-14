@@ -13,6 +13,7 @@ import {
   addToFootprint,
   areaLabel,
   boxFromCorners,
+  centreOf,
   edgeLengths,
   isAxisRectangle,
   resizeSide,
@@ -108,4 +109,9 @@ test("addToFootprint refuses a box that does not touch the footprint", () => {
 
 test("addToFootprint returns the box when there is no footprint", () => {
   expect(addToFootprint(undefined, box)).toEqual(box);
+});
+
+test("centreOf is the middle of a box", () => {
+  const box: Polygon = { type: "Polygon", coordinates: [[[0, 0], [2, 0], [2, 2], [0, 2], [0, 0]]] };
+  expect(centreOf(box)).toEqual([1, 1]);
 });

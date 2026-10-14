@@ -15,6 +15,7 @@ import {
   onUpdateOf,
   resetFakes,
   sources,
+  touchZoomRotate,
   unprojectPixel,
 } from "./panel-harness";
 
@@ -64,8 +65,11 @@ const mountEditor = (overrides: Reply = async () => undefined) => {
           { floor_id: "ground", name: "Ground floor", level: 0 },
           { floor_id: "loft", name: "Loft", level: 1 },
         ];
-      case "config/area_registry/create":
-        return { area_id: "room_1", name: message.name, floor_id: message.floor_id };
+      case "config/area_registry/create": {
+        const created = { area_id: "room_1", name: message.name as string, floor_id: message.floor_id as string };
+        registry = [...registry, created];
+        return created;
+      }
       case "config/area_registry/update":
         return {};
       case "spatial/area/update_geometries":
@@ -344,4 +348,121 @@ test("renaming the active area updates the area registry", async () => {
       { type: "config/area_registry/update", area_id: "bath", name: "Scullery" },
     ]),
   );
+});
+
+test("boxes while a save is in flight are ignored", async () => {
+  let release = () => {};
+  const { panel, connection } = mountEditor(async (message) => {
+    if (message.type !== "spatial/area/update_geometries") return undefined;
+    await new Promise<void>((resolve) => (release = resolve));
+    return { area_m2: {} };
+  });
+  await startDrawing(panel);
+  tap(100, 0);
+  tap(140, 30);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  tap(140, 0);
+  tap(180, 30);
+  drag([140, 0], [180, 30]);
+  await settle(panel);
+  expect(saves(connection)).toHaveLength(1);
+  release();
+  await vi.waitFor(() => expect(activeChip(panel)).toBe("Hall"));
+  tap(100, 100);
+  tap(140, 130);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
+});
+
+test("a created area whose first save fails stays active, so a retry creates no second area", async () => {
+  let fail = true;
+  const { panel, connection } = mountEditor(async (message) => {
+    if (message.type === "spatial/area/update_geometries" && fail) {
+      fail = false;
+      throw new Error("connection lost");
+    }
+    return undefined;
+  });
+  vi.spyOn(console, "error").mockImplementationOnce(() => {});
+  await startDrawing(panel);
+  chip(panel, "+ New area").click();
+  await settle(panel);
+  tap(100, 0);
+  tap(140, 30);
+  await vi.waitFor(() => expect(barText(panel)).toContain("Could not save"));
+  await vi.waitFor(() => expect(activeChip(panel)).toBe("Room 1"));
+  tap(100, 0);
+  tap(140, 30);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
+  expect(sent(connection, "config/area_registry/create")).toHaveLength(1);
+  expect(Object.keys(saves(connection)[1].areas)).toEqual(["room_1"]);
+});
+
+test("a press or taps while Space is held draw nothing", async () => {
+  const { panel, connection } = mountEditor();
+  await startDrawing(panel);
+  key("keydown", " ");
+  drag([100, 0], [140, 30]);
+  tap(100, 0);
+  tap(140, 30);
+  key("keyup", " ");
+  await settle(panel);
+  expect(saves(connection)).toEqual([]);
+});
+
+test("losing focus while Space is held ends panning", async () => {
+  const { panel } = mountEditor();
+  await startDrawing(panel);
+  key("keydown", " ");
+  expect(dragPan.isEnabled()).toBe(true);
+  window.dispatchEvent(new Event("blur"));
+  expect(dragPan.isEnabled()).toBe(false);
+});
+
+test("in Draw two fingers still pan and zoom, without turning the map", async () => {
+  const { panel } = mountEditor();
+  await startDrawing(panel);
+  expect(touchZoomRotate.isEnabled()).toBe(true);
+  expect(touchZoomRotate.isRotationEnabled()).toBe(false);
+});
+
+test("a floor change cancels a box in progress", async () => {
+  const { panel, connection } = mountEditor();
+  await startDrawing(panel);
+  tap(100, 0);
+  barButton(panel, "Loft")!.click();
+  barButton(panel, "Ground floor")!.click();
+  await settle(panel);
+  tap(140, 30);
+  await settle(panel);
+  expect(saves(connection)).toEqual([]);
+});
+
+test("leaving the panel in Draw turns panning back on", async () => {
+  const { panel } = mountEditor();
+  await startDrawing(panel);
+  expect(dragPan.isEnabled()).toBe(false);
+  panel.remove();
+  expect(dragPan.isEnabled()).toBe(true);
+});
+
+test("a failed registry read does not stop the map", async () => {
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  const { panel } = mountEditor(async (message) => {
+    if (message.type === "config/area_registry/list") throw new Error("connection lost");
+    return undefined;
+  });
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
+  expect(barText(panel)).not.toContain("Map could not load");
+  errors.mockRestore();
+});
+
+test("Draw clears a building message", async () => {
+  const { panel } = mountEditor();
+  await showFloor(panel);
+  barButton(panel, "Building")!.click();
+  handlers.click(mouse(0, 0));
+  await vi.waitFor(() => expect(barText(panel)).toContain("No building here"));
+  barButton(panel, "Draw")!.click();
+  await settle(panel);
+  expect(barText(panel)).not.toContain("No building here");
 });

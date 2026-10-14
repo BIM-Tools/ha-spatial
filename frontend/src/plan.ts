@@ -2,6 +2,7 @@
 
 import area from "@turf/area";
 import bearing from "@turf/bearing";
+import center from "@turf/center";
 import destination from "@turf/destination";
 import distance from "@turf/distance";
 import { point, polygon } from "@turf/helpers";
@@ -39,6 +40,9 @@ export function sideLabels(shape: Polygon): { at: Position; edgeIndex: number; t
 }
 
 export const areaLabel = (shape: Polygon): string => `${area(shape).toFixed(1)} m²`;
+
+/** Where the area label goes: the middle of the shape's bounding box. */
+export const centreOf = (shape: Polygon): Position => center(shape).geometry.coordinates;
 
 export function isAxisRectangle(shape: Polygon, bearingDeg: number): boolean {
   const vertices = corners(shape);

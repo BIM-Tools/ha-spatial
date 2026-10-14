@@ -123,3 +123,14 @@ test("a new active area closes the rename field", async () => {
   await strip.updateComplete;
   expect(strip.shadowRoot!.querySelector("input")).toBeNull();
 });
+
+test("a new active area scrolls its chip into view", async () => {
+  const strip = mountStrip("a");
+  await strip.updateComplete;
+  const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
+  strip.active = "b";
+  await strip.updateComplete;
+  expect(scroll).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
+  expect((scroll.mock.contexts[0] as Element).textContent?.trim()).toBe("● Bath");
+  scroll.mockRestore();
+});

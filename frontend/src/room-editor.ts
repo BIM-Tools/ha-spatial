@@ -6,7 +6,7 @@ import { type GeoJSONSource, Marker, type MapMouseEvent, type Map as MapLibreMap
 import { type AreaEntry, NEW_AREA, newAreaName, nextActive, stripOrder } from "./area-strip";
 import { History } from "./history";
 import { mapBearing } from "./map-view";
-import { addToFootprint, areaLabel, boxFromCorners, sideLabels } from "./plan";
+import { addToFootprint, areaLabel, boxFromCorners, centreOf, sideLabels } from "./plan";
 
 interface Connection {
   sendMessagePromise<T>(message: { type: string; [key: string]: unknown }): Promise<T>;
@@ -41,6 +41,7 @@ export class RoomEditor {
   private _press?: Pixel;
   private _dragging = false;
   private _spaceHeld = false;
+  private _saving = false;
   private _labels: Marker[] = [];
 
   constructor(
@@ -79,12 +80,17 @@ export class RoomEditor {
 
   /** Takes the footprints from the feed and re-reads the area and floor registries. */
   async refresh(feed: FeatureCollection) {
-    const [areas, floors] = await Promise.all([
-      this._connection.sendMessagePromise<AreaEntry[]>({ type: "config/area_registry/list" }),
-      this._connection.sendMessagePromise<FloorEntry[]>({ type: "config/floor_registry/list" }),
-    ]);
-    this._areas = areas;
-    this.floors = floors;
+    // On failure the previous lists stay; the next update reads them again.
+    try {
+      const [areas, floors] = await Promise.all([
+        this._connection.sendMessagePromise<AreaEntry[]>({ type: "config/area_registry/list" }),
+        this._connection.sendMessagePromise<FloorEntry[]>({ type: "config/floor_registry/list" }),
+      ]);
+      this._areas = areas;
+      this.floors = floors;
+    } catch (err) {
+      console.error(err);
+    }
     this._footprints = new Map(feed.features.map((feature) => [String(feature.id), feature.geometry as Polygon]));
     const order = this._order();
     if (this._active !== NEW_AREA && !order.some((area) => area.area_id === this._active)) {
@@ -109,9 +115,11 @@ export class RoomEditor {
     if (drawing) {
       window.addEventListener("keydown", this._key);
       window.addEventListener("keyup", this._key);
+      window.addEventListener("blur", this._releaseSpace);
     } else {
       window.removeEventListener("keydown", this._key);
       window.removeEventListener("keyup", this._key);
+      window.removeEventListener("blur", this._releaseSpace);
     }
     this._applyInput();
     this._requestUpdate();
@@ -174,8 +182,14 @@ export class RoomEditor {
     this._applyInput(false);
   };
 
+  // A keyup that happens in another window never arrives.
+  private _releaseSpace = () => {
+    this._spaceHeld = false;
+    this._applyInput(false);
+  };
+
   private _down = (event: MapMouseEvent) => {
-    if (!this._canDraw || this._spaceHeld || event.originalEvent.button !== 0) return;
+    if (!this._canDraw || this._spaceHeld || this._saving || event.originalEvent.button !== 0) return;
     this._press = event.point;
     this._dragging = false;
   };
@@ -201,7 +215,7 @@ export class RoomEditor {
 
   // MapLibre fires `click` for a tap too, so two taps draw a box on a phone.
   private _click = (event: MapMouseEvent) => {
-    if (!this._canDraw) return;
+    if (!this._canDraw || this._spaceHeld || this._saving) return;
     const corner = this._corner;
     if (!corner) {
       this._corner = event.point;
@@ -237,11 +251,7 @@ export class RoomEditor {
       this._labels = [];
       return;
     }
-    const [first, , third] = box.coordinates[0];
-    const labels = [
-      ...sideLabels(box),
-      { at: [(first[0] + third[0]) / 2, (first[1] + third[1]) / 2], text: areaLabel(box) },
-    ];
+    const labels = [...sideLabels(box), { at: centreOf(box), text: areaLabel(box) }];
     if (!this._labels.length) {
       this._labels = labels.map(() => {
         const element = document.createElement("span");
@@ -268,8 +278,12 @@ export class RoomEditor {
       this._requestUpdate();
       return;
     }
+    // A second box before this one settles would replace it, or create a second area.
+    this._saving = true;
     try {
       const id = areaId === NEW_AREA ? await this._createArea(floor) : areaId;
+      // A retry after a failed save goes to the created area, not to another new one.
+      if (this._floor === floor) this._active = id;
       await this._connection.sendMessagePromise({
         type: "spatial/area/update_geometries",
         areas: { [id]: footprint },
@@ -282,6 +296,8 @@ export class RoomEditor {
       console.error(err);
       this._message = "Could not save";
       await this._reloadRooms().catch(console.error);
+    } finally {
+      this._saving = false;
     }
     this._requestUpdate();
   }
