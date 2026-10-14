@@ -1,3 +1,4 @@
+# Keeps the integration tested, covered and type-safe in the same image as local runs.
 name: CI Tests
 
 on:

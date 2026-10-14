@@ -1,14 +1,6 @@
-"""Sync frontend package versions with the ones Home Assistant's frontend ships.
+"""Keeps shared frontend packages at the versions Home Assistant's frontend ships.
 
-Usage:
-    python tools/sync_frontend_versions.py [--check]
-
-Reads the Home Assistant version from requirements_test.txt, finds the frontend
-release in that core version's manifest, and copies the exact versions of shared
-packages from that release's package.json into frontend/package.json, plus its
-.nvmrc, and sets the home-assistant-frontend pin in requirements_test.txt to the
-release. With --check nothing is written; differences are listed and the exit
-code is 1. Standard library only.
+How it finds them is in tools/README.md; --check only lists differences.
 """
 
 from __future__ import annotations
@@ -78,8 +70,8 @@ def main() -> int:
 
     requirements_path = ROOT / "requirements_test.txt"
     requirements = requirements_path.read_text()
-    ha = ha_version(requirements)
-    release = frontend_release(json.loads(_fetch(CORE.format(ha))))
+    core_version = ha_version(requirements)
+    release = frontend_release(json.loads(_fetch(CORE.format(core_version))))
     theirs = json.loads(_fetch(FRONTEND.format(release, "package.json")))
     nvmrc = _fetch(FRONTEND.format(release, ".nvmrc")).strip() + "\n"
 
@@ -104,7 +96,7 @@ def main() -> int:
     if current_nvmrc != nvmrc:
         differences.append(f".nvmrc: {current_nvmrc.strip() or '(missing)'} -> {nvmrc.strip()}")
 
-    print(f"Home Assistant {ha}, frontend {release}")
+    print(f"Home Assistant {core_version}, frontend {release}")
     for line in differences:
         print(line)
     if check:

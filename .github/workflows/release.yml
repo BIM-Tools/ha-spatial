@@ -1,6 +1,6 @@
+# HACS installs the zip attached to a published release (hacs.json: zip_release); this builds it.
 name: Release
 
-# HACS installs the asset of a published GitHub release (hacs.json: zip_release).
 on:
   release:
     types: [published]

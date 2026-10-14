@@ -1,4 +1,4 @@
-"""Tests for Spatial config flow and options flow."""
+"""Proves Spatial can be added from the UI, once."""
 
 from unittest.mock import patch
 

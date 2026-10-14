@@ -1,4 +1,4 @@
-"""Tests for the pure-Python geometry helpers."""
+"""Checks the geometry against independent references, never against the same formula."""
 
 import pytest
 from homeassistant.util.location import vincenty

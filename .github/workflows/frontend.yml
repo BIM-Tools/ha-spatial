@@ -1,3 +1,4 @@
+# Keeps the panel and card typechecked, tested, buildable and on Home Assistant's package versions.
 name: Frontend
 
 on:

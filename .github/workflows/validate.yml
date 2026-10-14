@@ -1,3 +1,4 @@
+# Checks what Home Assistant and HACS require of an integration, plus style and AGENTS.md.
 name: Validate
 
 on:

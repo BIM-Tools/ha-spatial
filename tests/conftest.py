@@ -1,4 +1,4 @@
-"""Shared fixtures for Spatial tests."""
+"""Lets Home Assistant load the custom integration in every test."""
 
 import pytest
 
