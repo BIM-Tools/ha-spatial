@@ -30,7 +30,10 @@ prefix `docker` commands with `MSYS_NO_PATHCONV=1`.
 | Type check (mypy strict) | `docker compose run --rm test mypy` |
 | Lint and format | `docker compose run --rm test sh -c "ruff format . && ruff check ."` |
 | hassfest | `docker run --rm -v "$(pwd -W)":/github/workspace:ro ghcr.io/home-assistant/hassfest` |
+| Panel build, rebuilt on change | `docker compose up -d frontend` |
 | Real Home Assistant | `docker compose up homeassistant` |
+| Frontend (typecheck, test, build) | `MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/frontend":/app -v "$(pwd -W)/custom_components":/custom_components -w /app node:24-alpine sh -c "npm ci && npm run typecheck && npm test && npm run build"` |
+| Sync frontend versions | `python tools/sync_frontend_versions.py` (`--check` only compares) |
 | Tools | Run them against the real Home Assistant, see `tools/README.md` |
 
 ## Settled decisions
@@ -130,11 +133,16 @@ way".
 What is and is not checked automatically:
 
 - On every push and pull request to `main`: `CI Tests` (tests, line coverage with a 99% floor,
-  mypy strict) and `Validate` (hassfest, HACS, ruff, no-`CLAUDE.md` check).
+  mypy strict), `Validate` (hassfest, HACS, ruff, no-`CLAUDE.md` check) and `Frontend` (tsc,
+  vitest, a build, `sync_frontend_versions.py --check`).
+- On a published GitHub release: `Release` builds the panel and uploads `spatial.zip` (the
+  integration with the bundle and licences, version taken from the tag). Untested until the
+  first release; check the zip then.
 - `main` is protected by a ruleset: pull request required, review threads resolved, squash
   merge only, checks `test`, `hassfest`, `ruff`, `agents-file` and `hacs` required and up to
   date with `main`, no force pushes or deletion. Copilot reviews every pull request.
-- `tools/` has no automated tests; verify changes against a real Home Assistant.
+- `tools/sync_frontend_versions.py` has unit tests; `tools/import_geojson.py` has none, verify
+  changes to it against a real Home Assistant.
 - Ruff reports `EXE002` on every file through the Windows bind mount; it is an artefact of the
   mount and does not occur on Linux.
 
@@ -153,6 +161,11 @@ What is and is not checked automatically:
 - The frontend's `dev` branch is ahead of what Home Assistant ships; read the release tag.
 - The `buildings` layer in Home Assistant's map tiles is one MultiPolygon without attributes
   per tile; each part is one building.
-- Home Assistant's shipped map style uses root-relative sprite and glyph URLs; MapLibre 5
+- Home Assistant's shipped map style uses root-relative sprite and glyph URLs; MapLibre
   needs them absolute.
 - hassfest needs the repository root mounted, not the integration folder.
+- The built panel is not in git. Run the `frontend` service or a build before using the panel
+  locally. Keep `custom_components/spatial/frontend/.gitkeep`: without the folder Home
+  Assistant registers `/spatial_static` as a single file and the panel 404s until a restart.
+- `manifest.json`'s `version` in git is not the released one; the release workflow writes the
+  tag into the zip.

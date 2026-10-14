@@ -18,3 +18,8 @@ htmlcov/
 # Maintainer-only material: local docs and private agent rules
 local/
 .claude/
+frontend/node_modules/
+
+# Frontend build output (npm run build); shipped in the release zip
+custom_components/spatial/frontend/*
+!custom_components/spatial/frontend/.gitkeep

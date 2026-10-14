@@ -1,0 +1,41 @@
+name: Release
+
+# HACS installs the asset of a published GitHub release (hacs.json: zip_release).
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  zip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci && npm run build
+        working-directory: frontend
+
+      # The bundle contains Lit and the copied chunks are MapLibre; both are BSD-3-Clause.
+      - run: |
+          for p in maplibre-gl/LICENSE.txt lit/LICENSE lit-html/LICENSE lit-element/LICENSE @lit/reactive-element/LICENSE; do
+            cp "frontend/node_modules/$p" "custom_components/spatial/frontend/LICENSE-$(basename "$(dirname "$p")").txt"
+          done
+
+      # The tag is the version, so manifest.json in the repository is not bumped by hand.
+      - run: |
+          jq --arg v "${GITHUB_REF_NAME#v}" '.version = $v' manifest.json > manifest.tmp
+          mv manifest.tmp manifest.json
+          zip -r ../../spatial.zip .
+        working-directory: custom_components/spatial
+
+      - run: gh release upload "$GITHUB_REF_NAME" spatial.zip
+        env:
+          GH_TOKEN: ${{ github.token }}

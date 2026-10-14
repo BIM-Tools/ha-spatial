@@ -1,5 +1,8 @@
 {
   "name": "Spatial",
   "render_readme": true,
-  "homeassistant": "2026.10.0"
+  "homeassistant": "2026.10.0",
+  "zip_release": true,
+  "filename": "spatial.zip",
+  "hide_default_branch": true
 }

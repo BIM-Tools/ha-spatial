@@ -1,0 +1,22 @@
+{
+  "name": "spatial-panel",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm run copy-maplibre && esbuild src/spatial-panel.ts --bundle --format=esm --minify --external:*/maplibre-gl-shared.mjs --outfile=../custom_components/spatial/frontend/spatial-panel.js",
+    "copy-maplibre": "cp node_modules/maplibre-gl/dist/maplibre-gl-worker.mjs node_modules/maplibre-gl/dist/maplibre-gl-shared.mjs ../custom_components/spatial/frontend/",
+    "watch": "npm run build -- --watch=forever",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "lit": "3.3.3",
+    "maplibre-gl": "6.11.2"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "happy-dom": "21.0.1",
+    "typescript": "6.0.3",
+    "vitest": "5.0.2"
+  }
+}

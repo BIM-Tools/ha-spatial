@@ -11,8 +11,11 @@ from homeassistant.helpers import floor_registry as fr
 from .const import (
     ADJACENCY_MIN_SHARED_M,
     ADJACENCY_TOLERANCE_M,
+    BOT_SPACE,
     DEFAULT_FLOOR_HEIGHT_M,
     EVENT_SPATIAL_UPDATED,
+    JSONFG_CORE,
+    JSONFG_TYPES_SCHEMAS,
 )
 from .geometry import polygon_area_m2, polygon_contains, shared_edge_length_m
 from .store import Site, SpatialStore
@@ -140,6 +143,7 @@ class SpatialCoordinator:
                 {
                     "type": "Feature",
                     "id": area_id,
+                    "featureType": BOT_SPACE,
                     "geometry": data["polygon"],
                     "properties": {
                         "area_id": area_id,
@@ -152,7 +156,11 @@ class SpatialCoordinator:
                     },
                 }
             )
-        return {"type": "FeatureCollection", "features": features}
+        return {
+            "type": "FeatureCollection",
+            "conformsTo": [JSONFG_CORE, JSONFG_TYPES_SCHEMAS],
+            "features": features,
+        }
 
     def query_point(self, lon: float, lat: float, floor_id: str | None = None) -> str | None:
         """Return the smallest area containing the point, optionally on one floor."""

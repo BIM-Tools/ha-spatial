@@ -4,6 +4,10 @@ from typing import Final
 
 DOMAIN: Final = "spatial"
 
+PANEL_URL_PATH: Final = "spatial"
+PANEL_COMPONENT: Final = "spatial-panel"
+STATIC_URL: Final = "/spatial_static"
+
 STORAGE_KEY: Final = DOMAIN
 STORAGE_VERSION: Final = 1
 
@@ -21,3 +25,8 @@ DEFAULT_FLOOR_HEIGHT_M: Final = 3.0
 # their edges coincide within the tolerance over at least the minimum length.
 ADJACENCY_TOLERANCE_M: Final = 0.05
 ADJACENCY_MIN_SHARED_M: Final = 0.3
+
+# JSON-FG (OGC) conformance classes and the feature type of an area footprint.
+JSONFG_CORE: Final = "http://www.opengis.net/spec/json-fg-1/1.0/conf/core"
+JSONFG_TYPES_SCHEMAS: Final = "http://www.opengis.net/spec/json-fg-1/1.0/conf/types-schemas"
+BOT_SPACE: Final = "https://w3id.org/bot#Space"

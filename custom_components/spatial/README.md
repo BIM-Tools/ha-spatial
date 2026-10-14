@@ -33,7 +33,7 @@
 
 | Command | Admin | Input | Result |
 | --- | --- | --- | --- |
-| `spatial/geojson` | no | `floor_id`? | FeatureCollection of footprints |
+| `spatial/geojson` | no | `floor_id`? | FeatureCollection of footprints, JSON-FG conformant (`conformsTo`), each feature with `featureType` `https://w3id.org/bot#Space` |
 | `spatial/query_point` | no | `lon`, `lat`, `floor_id`? | `{area_id}` (smallest match, or null) |
 | `spatial/area/adjacent` | no | `area_id` | `{area_ids}` |
 | `spatial/site` | no | - | `{lon, lat, bearing_deg}` (centre derived from the footprints) |
@@ -45,6 +45,16 @@
   (ready for MapLibre `fill-extrusion`).
 - Errors: `not_found` (unknown area or floor), `invalid_format` (bad input), `unauthorized`.
 - Event `spatial_updated` fires after every change.
+
+### Panel
+
+Settings > Devices & services > Spatial > Configure opens the admin-only Spatial panel, read-only for now.
+
+- Home Assistant's own map: its shipped light or dark style, following the theme, with tiles from the `map_tiles` proxy.
+- Centred on the site, rotated so the site direction (the picked wall) is horizontal.
+- "All" stacks the floors in 3D; a button per floor (named as in Home Assistant, ordered by level) shows that floor as a flat plan with room outlines; "No floor" shows areas without one.
+- Updates on `spatial_updated`; shows "No rooms yet" without footprints.
+- Source in `frontend/` at the repository root; it builds the bundle and MapLibre's worker into `frontend/` here. They are not in git; the release zip contains them.
 
 ### Rules
 
@@ -60,7 +70,7 @@
 
 | File | Responsibility |
 | --- | --- |
-| `__init__.py` | Setup, `runtime_data`, websocket registration |
+| `__init__.py` | Setup, `runtime_data`, websocket registration, admin-only `spatial` panel (bundle in `frontend/`, served at `/spatial_static`) |
 | `config_flow.py` | Single-instance config flow |
 | `coordinator.py` | Data access, registry sync, queries |
 | `store.py` | Persistence |

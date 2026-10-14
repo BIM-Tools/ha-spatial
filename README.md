@@ -18,16 +18,19 @@ Early version. The API and storage format can still change. There is no editor y
 | Path | What | Details |
 | --- | --- | --- |
 | `custom_components/spatial/` | The integration | [README](custom_components/spatial/README.md) |
-| `tools/` | GeoJSON importer, example house, development viewer | [README](tools/README.md) |
+| `tools/` | GeoJSON importer, example house, version sync | [README](tools/README.md) |
+| `frontend/` | Map panel source, built into the integration | [README](frontend/README.md) |
 | `tests/` | Tests against a real Home Assistant | - |
 | `AGENTS.md` | Rules for contributors and coding agents | - |
 
 ## Try it
 
-1. `docker compose up homeassistant`, open <http://localhost:8123>, finish onboarding.
+1. `docker compose up -d frontend homeassistant` (builds the panel, starts Home Assistant),
+   open <http://localhost:8123>, finish onboarding.
 2. Add the Spatial integration (Settings > Devices & services).
 3. Create a long-lived access token (profile > Security).
-4. Import the example house, then open the viewer: see [tools/README.md](tools/README.md).
+4. Import the example house, see [tools/README.md](tools/README.md).
+5. Open the panel: Settings > Devices & services > Spatial > Configure.
 
 ## Design rules
 
@@ -51,10 +54,12 @@ Early version. The API and storage format can still change. There is no editor y
 | Tests | `docker compose run --rm test` |
 | Some tests | `docker compose run --rm test pytest -k <expr>` |
 | Lint | `docker compose run --rm test sh -c "ruff format --check . && ruff check ."` |
+| Panel build, rebuilt on change | `docker compose up -d frontend` |
 | Home Assistant | `docker compose up homeassistant` |
 
 - Home Assistant runs on Linux only, so everything runs in Docker. A VS Code devcontainer is included.
 - The Home Assistant version tested against is pinned in `requirements_test.txt`.
+- The built panel is not in git; HACS installs it from the release zip that `.github/workflows/release.yml` builds.
 
 ## Contributing
 
