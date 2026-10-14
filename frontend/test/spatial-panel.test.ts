@@ -528,6 +528,27 @@ test.each([
   expect(sources.outline.data).toEqual(outline);
 });
 
+test("dragging a corner keeps the courtyards of the stored outline", async () => {
+  const hole = [
+    [5.00005, 52.00003],
+    [5.00007, 52.00003],
+    [5.00007, 52.00005],
+    [5.00005, 52.00003],
+  ];
+  const withHole = { type: "Polygon", coordinates: [...HOUSE.coordinates, hole] };
+  const { panel, connection } = mountPanel(async (message) =>
+    message.type === "spatial/site"
+      ? { lon: 5, lat: 52, bearing_deg: 90, outline: withHole }
+      : answer(message),
+  );
+  await startEditing(panel);
+  const marker = handles()[0];
+  marker.lngLat = { lng: 5.0001, lat: 51.9999 };
+  marker.handlers.dragend();
+  const [saved] = updates(connection) as unknown as [{ outline: { coordinates: unknown[] } }];
+  expect(saved.outline.coordinates.slice(1)).toEqual([hole]);
+});
+
 test("a rejected corner drag restores the stored outline and says so", async () => {
   const { panel } = mountWithOutline(async (message) => {
     if (message.type === "spatial/site/update") throw new Error("not allowed");

@@ -373,7 +373,12 @@ class SpatialPanel extends LitElement {
       return [lng, lat];
     });
     ring.push(ring[0]);
-    const outline: Polygon = { type: "Polygon", coordinates: [ring] };
+    const holes = this._outline.type === "Polygon" ? this._outline.coordinates.slice(1) : [];
+    // Interior rings (courtyards) of the stored outline stay as they are.
+    const outline: Polygon = {
+      type: "Polygon",
+      coordinates: [ring, ...holes],
+    };
     this._map?.getSource<GeoJSONSource>("outline")?.setData(outline);
     this._save(outline, outlineBearing(outline));
   };
