@@ -1,5 +1,7 @@
 """Tests for the frontend version sync script."""
 
+import pytest
+
 from tools.sync_frontend_versions import frontend_release, ha_version, set_frontend_pin, sync
 
 
@@ -37,3 +39,13 @@ def test_set_frontend_pin_changes_only_that_line() -> None:
     text = "ruff\nhome-assistant-frontend==20260930.3  # note\nmypy\n"
     expected = "ruff\nhome-assistant-frontend==20261001.0  # note\nmypy\n"
     assert set_frontend_pin(text, "20261001.0") == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["ruff\nmypy\n", "home-assistant-frontend==1\nhome-assistant-frontend==2\n"],
+    ids=["missing", "duplicated"],
+)
+def test_set_frontend_pin_needs_exactly_one_pin(text: str) -> None:
+    with pytest.raises(ValueError, match="exactly one"):
+        set_frontend_pin(text, "20261001.0")

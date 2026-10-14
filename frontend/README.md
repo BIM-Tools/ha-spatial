@@ -10,7 +10,7 @@ The map panel. Source here, built into `custom_components/spatial/frontend/`.
 ## How to use
 
 Open Settings > Devices & services > Spatial > Configure. **All** stacks the floors in 3D;
-**Level n** shows one floor plan with room outlines.
+a floor button shows that floor as a plan with room outlines.
 
 | Task | Command (Git Bash, from the repository root) |
 | --- | --- |
@@ -25,8 +25,8 @@ Commit the build output; CI fails when it differs from the source.
 
 | File | Purpose |
 | --- | --- |
-| `src/spatial-panel.ts` | The panel element: floor picker, room list, websocket calls |
-| `src/map-view.ts` | MapLibre view on Home Assistant's map style and tiles |
+| `src/spatial-panel.ts` | The panel element: floor buttons, the MapLibre map, websocket calls |
+| `src/map-view.ts` | Pure helpers: map bearing, style URL, map tiles token, floor order |
 | `test/` | Unit tests (vitest) |
 
 ### Serving

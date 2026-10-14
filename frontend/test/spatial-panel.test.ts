@@ -2,6 +2,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 
 const mapCreated = vi.fn();
+const setBearing = vi.fn();
 
 // MapLibre needs WebGL; the panel's own behaviour does not.
 vi.mock("maplibre-gl", () => ({
@@ -12,6 +13,10 @@ vi.mock("maplibre-gl", () => ({
     }
     on() {}
     remove() {}
+    getSource() {}
+    setBearing(bearing: number) {
+      setBearing(bearing);
+    }
   },
 }));
 
@@ -19,14 +24,16 @@ import "../src/spatial-panel";
 
 const EMPTY = { type: "FeatureCollection", features: [] };
 
-const answer = async ({ type }: { type: string }) => {
+type Reply = (message: { type: string }) => Promise<unknown>;
+
+const answer: Reply = async ({ type }) => {
   if (type === "map_tiles/access_token") return { token: "t" };
   if (type === "spatial/site") return { lon: 5, lat: 52, bearing_deg: 0 };
   if (type === "spatial/geojson") return EMPTY;
   throw new Error(type);
 };
 
-const mountPanel = (reply = answer) => {
+const mountPanel = (reply: Reply = answer, floors = {}) => {
   const sendMessagePromise = vi.fn(reply);
   const unsubscribe = vi.fn(async () => {});
   const listeners: Record<string, () => void> = {};
@@ -41,7 +48,7 @@ const mountPanel = (reply = answer) => {
     }),
   };
   const panel = document.createElement("spatial-panel") as HTMLElement & { hass: object };
-  panel.hass = { connection, themes: { darkMode: false } };
+  panel.hass = { connection, floors, themes: { darkMode: false } };
   document.body.append(panel);
   const tokenCalls = () =>
     sendMessagePromise.mock.calls.filter(([m]) => m.type === "map_tiles/access_token").length;
@@ -57,6 +64,7 @@ afterEach(() => {
   document.body.replaceChildren();
   vi.useRealTimers();
   mapCreated.mockClear();
+  setBearing.mockClear();
 });
 
 test("the panel refreshes the map tiles token every 20 minutes", async () => {
@@ -110,4 +118,38 @@ test("leaving the panel during startup leaves nothing behind", async () => {
 test("the panel has Home Assistant's menu button for narrow screens", async () => {
   const { panel } = mountPanel();
   await vi.waitFor(() => expect(panel.shadowRoot?.querySelector("ha-menu-button")).not.toBeNull());
+});
+
+const room = (floor_id: string | null, level: number | null) => ({
+  type: "Feature",
+  geometry: { type: "Point", coordinates: [0, 0] },
+  properties: { floor_id, level },
+});
+
+test("the panel has one button per floor, named by Home Assistant", async () => {
+  const fc = {
+    type: "FeatureCollection",
+    features: [room("loft", 1), room("ground", 0), room("annex", 0), room(null, null)],
+  };
+  const { panel } = mountPanel(
+    async (message) => (message.type === "spatial/geojson" ? fc : answer(message)),
+    { ground: { name: "Ground floor" }, loft: { name: "Loft" } },
+  );
+  const buttons = () =>
+    [...(panel.shadowRoot?.querySelectorAll(".bar > button") ?? [])].map((b) =>
+      b.textContent?.trim(),
+    );
+  await vi.waitFor(() => expect(buttons()).toEqual(["All", "Ground floor", "annex", "Loft", "No floor"]));
+});
+
+test("an update with a new site bearing turns the map", async () => {
+  let bearing = 0;
+  const { connection } = mountPanel(async (message) =>
+    message.type === "spatial/site" ? { lon: 5, lat: 52, bearing_deg: bearing } : answer(message),
+  );
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
+  bearing = 90;
+  const [[onUpdate]] = connection.subscribeEvents.mock.calls as unknown as [[() => Promise<void>]];
+  await onUpdate();
+  expect(setBearing).toHaveBeenCalledWith(0);
 });

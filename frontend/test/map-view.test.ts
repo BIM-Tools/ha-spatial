@@ -1,6 +1,6 @@
 import type { FeatureCollection } from "geojson";
 import { expect, test } from "vitest";
-import { levels, mapBearing, styleUrl, withMapTilesToken } from "../src/map-view";
+import { floors, mapBearing, styleUrl, withMapTilesToken } from "../src/map-view";
 
 test("mapBearing turns the site's x-axis to point right", () => {
   expect(mapBearing(0)).toBe(270);
@@ -23,14 +23,21 @@ test("withMapTilesToken sends the token to the proxy only", () => {
   });
 });
 
-test("levels lists distinct levels, sorted, null last", () => {
+test("floors lists distinct floors by level, no level after, no floor last", () => {
   const fc: FeatureCollection = {
     type: "FeatureCollection",
-    features: [1, 0, null, 1].map((level) => ({
+    features: [
+      ["up", 1],
+      ["ground", 0],
+      [null, null],
+      ["attic", null],
+      ["annex", 0],
+      ["up", 1],
+    ].map(([floor_id, level]) => ({
       type: "Feature",
       geometry: { type: "Point", coordinates: [0, 0] },
-      properties: { level },
+      properties: { floor_id, level },
     })),
   };
-  expect(levels(fc)).toEqual([0, 1, null]);
+  expect(floors(fc)).toEqual(["ground", "annex", "up", "attic", null]);
 });

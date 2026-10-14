@@ -6,7 +6,7 @@ import {
   type StyleSpecification,
   setWorkerUrl,
 } from "maplibre-gl";
-import { levels, mapBearing, styleUrl, withMapTilesToken } from "./map-view";
+import { floors, mapBearing, styleUrl, withMapTilesToken } from "./map-view";
 
 // The parts of Home Assistant's `hass` object this panel uses.
 interface Hass {
@@ -16,10 +16,18 @@ interface Hass {
     addEventListener(eventType: "ready", listener: () => void): void;
     removeEventListener(eventType: "ready", listener: () => void): void;
   };
+  floors?: Record<string, { name: string }>;
   themes: { darkMode: boolean };
 }
 
-type Level = number | null | "all";
+// A floor_id, null for areas without a floor, or "all".
+type Floor = string | null | "all";
+
+interface Site {
+  lon: number;
+  lat: number;
+  bearing_deg: number;
+}
 
 // Core rotates the map tiles token every 30 minutes and keeps two live; this
 // is the interval Home Assistant's own frontend refreshes at.
@@ -42,8 +50,8 @@ class SpatialPanel extends LitElement {
     hass: { attribute: false },
     narrow: { type: Boolean },
     panel: { attribute: false },
-    _levels: { state: true },
-    _level: { state: true },
+    _floors: { state: true },
+    _floor: { state: true },
     _failed: { state: true },
   };
 
@@ -72,8 +80,8 @@ class SpatialPanel extends LitElement {
   declare hass: Hass | undefined;
   declare narrow: boolean;
   declare panel: object | undefined;
-  declare _levels: (number | null)[] | undefined;
-  declare _level: Level;
+  declare _floors: (string | null)[] | undefined;
+  declare _floor: Floor;
   declare _failed: boolean;
 
   private _map?: MapLibreMap;
@@ -82,6 +90,7 @@ class SpatialPanel extends LitElement {
   private _run = 0;
   private _darkMode = false;
   private _token = "";
+  private _bearing = 0;
   private _timer?: ReturnType<typeof setInterval>;
   private _unsubscribe?: () => Promise<void>;
   private _areas: FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -89,7 +98,7 @@ class SpatialPanel extends LitElement {
   constructor() {
     super();
     this.narrow = false;
-    this._level = "all";
+    this._floor = "all";
   }
 
   render() {
@@ -97,14 +106,18 @@ class SpatialPanel extends LitElement {
       <link rel="stylesheet" href="/static/map/maplibre-gl.css" />
       <div class="bar">
         <ha-menu-button .hass=${this.hass} .narrow=${this.narrow}></ha-menu-button>
-        ${(["all", ...(this._levels ?? [])] as Level[]).map(
-          (level) => html`
-            <button ?disabled=${level === this._level} @click=${() => this._show(level)}>
-              ${level === "all" ? "All" : level === null ? "No floor" : `Level ${level}`}
+        ${(["all", ...(this._floors ?? [])] as Floor[]).map(
+          (floor) => html`
+            <button ?disabled=${floor === this._floor} @click=${() => this._show(floor)}>
+              ${floor === "all"
+                ? "All"
+                : floor === null
+                  ? "No floor"
+                  : (this.hass?.floors?.[floor]?.name ?? floor)}
             </button>
           `,
         )}
-        ${this._levels?.length === 0 ? html`<span>No rooms yet</span>` : nothing}
+        ${this._floors?.length === 0 ? html`<span>No rooms yet</span>` : nothing}
         ${this._failed ? html`<span>Map could not load</span>` : nothing}
       </div>
       <div id="map"></div>
@@ -163,19 +176,29 @@ class SpatialPanel extends LitElement {
 
     const loadAreas = async () => {
       this._areas = await call<FeatureCollection>("spatial/geojson");
-      this._levels = levels(this._areas);
+      this._floors = floors(this._areas);
       this._map?.getSource<GeoJSONSource>("areas")?.setData(this._areas);
     };
     await loadAreas();
     if (left()) return;
-    const unsubscribe = await hass.connection.subscribeEvents(loadAreas, "spatial_updated");
+    // Only a new bearing is applied; re-centring would move the camera while
+    // the user looks around.
+    const onUpdate = async () => {
+      await loadAreas();
+      const { bearing_deg } = await call<Site>("spatial/site");
+      if (bearing_deg === this._bearing) return;
+      this._bearing = bearing_deg;
+      this._map?.setBearing(mapBearing(bearing_deg));
+    };
+    const unsubscribe = await hass.connection.subscribeEvents(onUpdate, "spatial_updated");
     if (left()) {
       unsubscribe();
       return;
     }
     this._unsubscribe = unsubscribe;
 
-    const site = await call<{ lon: number; lat: number; bearing_deg: number }>("spatial/site");
+    const site = await call<Site>("spatial/site");
+    this._bearing = site.bearing_deg;
     this._darkMode = hass.themes.darkMode;
     const style = await loadStyle(this._darkMode);
     if (left()) return;
@@ -192,7 +215,7 @@ class SpatialPanel extends LitElement {
     this._map.on("style.load", () => this._addAreas());
   }
 
-  // "All" stacks the floors in 3D; one level is a flat plan with room outlines.
+  // "All" stacks the floors in 3D; one floor is a flat plan with room outlines.
   private _addAreas() {
     const map = this._map!;
     map.addSource("areas", { type: "geojson", data: this._areas });
@@ -219,25 +242,25 @@ class SpatialPanel extends LitElement {
       source: "areas",
       paint: { "line-color": "#212121", "line-width": 2 },
     });
-    this._applyLevel();
+    this._applyFloor();
   }
 
-  private _applyLevel() {
+  private _applyFloor() {
     const map = this._map!;
-    const flat = this._level !== "all";
+    const flat = this._floor !== "all";
     map.setLayoutProperty("areas-3d", "visibility", flat ? "none" : "visible");
     for (const id of ["areas-2d", "areas-outline"]) {
       map.setLayoutProperty(id, "visibility", flat ? "visible" : "none");
-      map.setFilter(id, flat ? ["==", ["get", "level"], this._level] : null);
+      map.setFilter(id, flat ? ["==", ["get", "floor_id"], this._floor] : null);
     }
   }
 
-  private _show(level: Level) {
-    this._level = level;
-    // Before the style has loaded, `_addAreas` applies the level.
+  private _show(floor: Floor) {
+    this._floor = floor;
+    // Before the style has loaded, `_addAreas` applies the floor.
     if (!this._map?.getLayer("areas-3d")) return;
-    this._applyLevel();
-    this._map.easeTo({ pitch: level === "all" ? 50 : 0 });
+    this._applyFloor();
+    this._map.easeTo({ pitch: floor === "all" ? 50 : 0 });
   }
 }
 

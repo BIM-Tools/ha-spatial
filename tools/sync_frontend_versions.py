@@ -45,10 +45,13 @@ def frontend_release(core_manifest: dict[str, Any]) -> str:
 
 
 def set_frontend_pin(requirements_test: str, release: str) -> str:
-    """Return the text with the home-assistant-frontend== version set to release."""
-    return re.sub(
+    """Return the text with its one home-assistant-frontend== version set to release."""
+    text, count = re.subn(
         r"^(home-assistant-frontend==)\S+", rf"\g<1>{release}", requirements_test, flags=re.M
     )
+    if count != 1:
+        raise ValueError(f"expected exactly one home-assistant-frontend== line, found {count}")
+    return text
 
 
 def sync(ours: dict[str, Any], theirs: dict[str, Any]) -> dict[str, Any]:

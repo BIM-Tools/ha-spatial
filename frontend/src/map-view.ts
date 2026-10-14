@@ -39,8 +39,23 @@ export const withMapTilesToken = (
   return { url: onInstance.href, headers: { [TOKEN_HEADER]: token } };
 };
 
-/** Distinct `properties.level` of the features, sorted, `null` (no floor) last. */
-export const levels = (fc: FeatureCollection): (number | null)[] =>
-  [...new Set(fc.features.map((f) => (f.properties?.level ?? null) as number | null))].sort(
-    (a, b) => (a === null ? 1 : b === null ? -1 : a - b),
-  );
+/**
+ * Distinct `properties.floor_id` of the features, by level: floors without a
+ * level after those with one, `null` (no floor) last. Several floors may share
+ * a level; they keep feed order.
+ */
+export const floors = (fc: FeatureCollection): (string | null)[] => {
+  const level = new Map<string | null, number | null>();
+  for (const f of fc.features) {
+    level.set(f.properties?.floor_id ?? null, f.properties?.level ?? null);
+  }
+  const key = (id: string | null) => {
+    const l = level.get(id) ?? null;
+    return [id === null ? 2 : l === null ? 1 : 0, l ?? 0];
+  };
+  return [...level.keys()].sort((a, b) => {
+    const [ga, la] = key(a);
+    const [gb, lb] = key(b);
+    return ga - gb || la - lb;
+  });
+};
