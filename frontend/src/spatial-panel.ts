@@ -12,7 +12,7 @@ import { floors, mapBearing, styleUrl, withMapTilesToken } from "./map-view";
 interface Hass {
   connection: {
     sendMessagePromise<T>(message: { type: string }): Promise<T>;
-    subscribeEvents(callback: () => void, eventType: string): Promise<() => Promise<void>>;
+    subscribeMessage(callback: () => void, message: { type: string }): Promise<() => Promise<void>>;
     addEventListener(eventType: "ready", listener: () => void): void;
     removeEventListener(eventType: "ready", listener: () => void): void;
   };
@@ -190,7 +190,9 @@ class SpatialPanel extends LitElement {
       this._bearing = bearing_deg;
       this._map?.setBearing(mapBearing(bearing_deg));
     };
-    const unsubscribe = await hass.connection.subscribeEvents(onUpdate, "spatial_updated");
+    const unsubscribe = await hass.connection.subscribeMessage(onUpdate, {
+      type: "spatial/subscribe",
+    });
     if (left()) {
       unsubscribe();
       return;

@@ -39,7 +39,7 @@ const mountPanel = (reply: Reply = answer, floors = {}) => {
   const listeners: Record<string, () => void> = {};
   const connection = {
     sendMessagePromise,
-    subscribeEvents: vi.fn(async () => unsubscribe),
+    subscribeMessage: vi.fn(async () => unsubscribe),
     addEventListener: vi.fn((event: string, listener: () => void) => {
       listeners[event] = listener;
     }),
@@ -112,7 +112,7 @@ test("leaving the panel during startup leaves nothing behind", async () => {
   expect(mapCreated).not.toHaveBeenCalled();
   expect(vi.getTimerCount()).toBe(0);
   expect(listeners).toEqual({});
-  expect(connection.subscribeEvents.mock.calls.length).toBe(unsubscribe.mock.calls.length);
+  expect(connection.subscribeMessage.mock.calls.length).toBe(unsubscribe.mock.calls.length);
 });
 
 test("the panel has Home Assistant's menu button for narrow screens", async () => {
@@ -149,7 +149,15 @@ test("an update with a new site bearing turns the map", async () => {
   );
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
   bearing = 90;
-  const [[onUpdate]] = connection.subscribeEvents.mock.calls as unknown as [[() => Promise<void>]];
+  const [[onUpdate]] = connection.subscribeMessage.mock.calls as unknown as [[() => Promise<void>]];
   await onUpdate();
   expect(setBearing).toHaveBeenCalledWith(0);
+});
+
+test("the panel follows changes through spatial/subscribe, open to non-admin users", async () => {
+  const { connection } = mountPanel();
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
+  expect(connection.subscribeMessage).toHaveBeenCalledWith(expect.any(Function), {
+    type: "spatial/subscribe",
+  });
 });
