@@ -6,7 +6,8 @@ Usage:
 Reads the Home Assistant version from requirements_test.txt, finds the frontend
 release in that core version's manifest, and copies the exact versions of shared
 packages from that release's package.json into frontend/package.json, plus its
-.nvmrc. With --check nothing is written; differences are listed and the exit
+.nvmrc, and sets the home-assistant-frontend pin in requirements_test.txt to the
+release. With --check nothing is written; differences are listed and the exit
 code is 1. Standard library only.
 """
 
@@ -43,6 +44,13 @@ def frontend_release(core_manifest: dict[str, Any]) -> str:
     raise ValueError("no home-assistant-frontend requirement in the manifest")
 
 
+def set_frontend_pin(requirements_test: str, release: str) -> str:
+    """Return the text with the home-assistant-frontend== version set to release."""
+    return re.sub(
+        r"^(home-assistant-frontend==)\S+", rf"\g<1>{release}", requirements_test, flags=re.M
+    )
+
+
 def sync(ours: dict[str, Any], theirs: dict[str, Any]) -> dict[str, Any]:
     """Return ours with shared packages set to their exact version (range prefix stripped)."""
     result: dict[str, Any] = copy.deepcopy(ours)
@@ -65,7 +73,9 @@ def main() -> int:
     parser.add_argument("--check", action="store_true", help="list differences, exit 1")
     check = parser.parse_args().check
 
-    ha = ha_version((ROOT / "requirements_test.txt").read_text())
+    requirements_path = ROOT / "requirements_test.txt"
+    requirements = requirements_path.read_text()
+    ha = ha_version(requirements)
     release = frontend_release(json.loads(_fetch(CORE.format(ha))))
     theirs = json.loads(_fetch(FRONTEND.format(release, "package.json")))
     nvmrc = _fetch(FRONTEND.format(release, ".nvmrc")).strip() + "\n"
@@ -85,6 +95,9 @@ def main() -> int:
         for name, version in wanted.get(section, {}).items()
         if ours[section][name] != version
     ]
+    wanted_requirements = set_frontend_pin(requirements, release)
+    if wanted_requirements != requirements:
+        differences.append("requirements_test.txt: home-assistant-frontend pin -> " + release)
     if current_nvmrc != nvmrc:
         differences.append(f".nvmrc: {current_nvmrc.strip() or '(missing)'} -> {nvmrc.strip()}")
 
@@ -95,6 +108,7 @@ def main() -> int:
         return 1 if differences else 0
     package_path.write_text(json.dumps(wanted, indent=2) + "\n")
     nvmrc_path.write_text(nvmrc)
+    requirements_path.write_text(wanted_requirements)
     return 0
 
 
