@@ -281,13 +281,14 @@ test("in Align a click on a building saves only the bearing of the wall nearest 
   await vi.waitFor(() => expect(barText(panel)).not.toContain("Click your house"));
 });
 
-test("in Align a click turns the camera in place to the click point, and the update does not turn it again", async () => {
+test("in Align a click turns the camera so the wall lies low in the view, and the update does not turn it again", async () => {
+  Object.defineProperty(document.body, "clientHeight", { value: 600, configurable: true });
   const { panel, connection } = mountPanel();
   queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
   await startAligning(panel);
   click();
   await vi.waitFor(() => expect(easeTo).toHaveBeenCalled());
-  expect(easeTo).toHaveBeenCalledWith({ bearing: 270, center: EAST_WALL });
+  expect(easeTo).toHaveBeenCalledWith({ bearing: 270, center: EAST_WALL, offset: [0, 180] });
   const [[onUpdate]] = connection.subscribeMessage.mock.calls as unknown as [[() => Promise<void>]];
   setBearing.mockClear();
   await onUpdate();
@@ -379,7 +380,7 @@ test("Align turns the map before the save is answered", async () => {
   queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
   await startAligning(panel);
   click();
-  expect(easeTo).toHaveBeenCalledWith({ bearing: 270, center: EAST_WALL });
+  expect(easeTo).toHaveBeenCalledWith(expect.objectContaining({ bearing: 270, center: EAST_WALL }));
   answerSave();
 });
 

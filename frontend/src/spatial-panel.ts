@@ -38,6 +38,8 @@ interface Site {
 }
 
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
+// Share of the map height the aligned wall sits below the centre.
+const WALL_OFFSET_SHARE = 0.3;
 const REGISTRY_EVENTS = ["area_registry_updated", "floor_registry_updated"];
 
 // Core rotates the map tiles token every 30 minutes and keeps two live; this
@@ -437,7 +439,9 @@ class SpatialPanel extends LitElement {
     const previousBearing = this._bearing;
     const newBearing = wallBearingAt(building, [event.lngLat.lng, event.lngLat.lat]);
     this._bearing = newBearing;
-    this._map?.easeTo({ bearing: mapBearing(newBearing), center: event.lngLat });
+    // The picked wall lies low in the view with the building above it, its outside facing the viewer.
+    const wallBelowCentre = (this._map?.getContainer().clientHeight ?? 0) * WALL_OFFSET_SHARE;
+    this._map?.easeTo({ bearing: mapBearing(newBearing), center: event.lngLat, offset: [0, wallBelowCentre] });
     this.hass!.connection.sendMessagePromise({ type: "spatial/site/update", bearing_deg: newBearing }).then(
       () => {
         this._message = "";
