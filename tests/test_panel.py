@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -72,46 +73,46 @@ async def test_card_module_added_while_set_up(hass: HomeAssistant) -> None:
     assert card_urls() == []
 
 
-async def test_module_url_follows_bundle_content(hass: HomeAssistant) -> None:
-    """A rebuilt bundle gets a new URL, so browsers do not keep the old one."""
-    bundle = Path(custom_components.spatial.__file__).parent / "frontend" / "spatial-card.js"
+@pytest.fixture
+def frontend_folder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Serve the bundles from an empty folder, so tests never touch a real build."""
+    monkeypatch.setattr(custom_components.spatial, "FRONTEND_PATH", tmp_path)
+    return tmp_path
 
-    def card_url() -> str:
-        (url,) = [
-            url
-            for url in hass.data[DATA_EXTRA_MODULE_URL].urls
-            if url.startswith(f"{STATIC_URL}/spatial-card.js?v=")
-        ]
-        return url
 
-    try:
-        bundle.write_text("first build")
-        entry = await setup_entry(hass)
-        first_url = card_url()
+def module_urls(hass: HomeAssistant) -> list[str]:
+    """Return the frontend's extra module URLs of the integration."""
+    return [url for url in hass.data[DATA_EXTRA_MODULE_URL].urls if url.startswith(STATIC_URL)]
 
+
+async def test_module_url_follows_either_bundle(hass: HomeAssistant, frontend_folder: Path) -> None:
+    """Rebuilding the card or the panel gives a new URL, so browsers do not keep the old one."""
+    (frontend_folder / "spatial-card.js").write_text("card")
+    (frontend_folder / "spatial-panel.js").write_text("panel")
+    entry = await setup_entry(hass)
+    (url,) = module_urls(hass)
+    seen = {url}
+
+    for bundle in ("spatial-panel.js", "spatial-card.js"):
         assert await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
-        bundle.write_text("second build")
+        (frontend_folder / bundle).write_text("rebuilt")
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
+        (url,) = module_urls(hass)
+        assert url not in seen
+        seen.add(url)
 
-        assert card_url() != first_url
-    finally:
-        bundle.unlink(missing_ok=True)
 
-
-async def test_card_url_removed_after_bundle_rebuilt_while_loaded(hass: HomeAssistant) -> None:
+async def test_card_url_removed_after_bundle_rebuilt_while_loaded(
+    hass: HomeAssistant, frontend_folder: Path
+) -> None:
     """Unloading removes the card URL that setup registered, even after a rebuild."""
-    bundle = Path(custom_components.spatial.__file__).parent / "frontend" / "spatial-card.js"
+    (frontend_folder / "spatial-card.js").write_text("first build")
+    entry = await setup_entry(hass)
 
-    try:
-        bundle.write_text("first build")
-        entry = await setup_entry(hass)
+    (frontend_folder / "spatial-card.js").write_text("second build")
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
 
-        bundle.write_text("second build")
-        assert await hass.config_entries.async_unload(entry.entry_id)
-        await hass.async_block_till_done()
-
-        assert not [url for url in hass.data[DATA_EXTRA_MODULE_URL].urls if "spatial-card" in url]
-    finally:
-        bundle.unlink(missing_ok=True)
+    assert module_urls(hass) == []
