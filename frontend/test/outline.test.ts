@@ -4,7 +4,7 @@ import destination from "@turf/destination";
 import { polygon } from "@turf/helpers";
 import type { Polygon } from "geojson";
 import { expect, test } from "vitest";
-import { buildingAt, wallBearingAt } from "../src/outline";
+import { buildingAt, wallAt, wallBearingAt } from "../src/outline";
 
 type Pos = [number, number];
 
@@ -36,4 +36,10 @@ test.each([
 test("wallBearingAt reads a clockwise ring as its counter-clockwise twin", () => {
   const clockwise = polygon([[p0, p3, p2, p1, p0]]).geometry as Polygon;
   expect(Math.abs(wallBearingAt(clockwise, midpoint(p0, p1)) - 20)).toBeLessThan(0.5);
+});
+
+test("wallAt gives the two ends of the wall nearest to the point, counter-clockwise", () => {
+  expect(wallAt(building, midpoint(p1, p2))).toEqual([p1, p2]);
+  const clockwise = polygon([[p0, p3, p2, p1, p0]]).geometry as Polygon;
+  expect(wallAt(clockwise, midpoint(p0, p1))).toEqual([p0, p1]);
 });

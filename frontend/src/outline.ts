@@ -13,10 +13,15 @@ export function buildingAt(geometry: Polygon | MultiPolygon, at: [number, number
   return hit && { type: "Polygon", coordinates: hit };
 }
 
-/** The bearing of the exterior edge nearest `at`, in [0, 360), with the building on its left. */
-export function wallBearingAt(building: Polygon, at: Position): number {
+/** The exterior edge nearest `at`, as its two positions with the building on its left. */
+export function wallAt(building: Polygon, at: Position): [Position, Position] {
   const ring = (rewind(building) as Polygon).coordinates[0];
   const index = nearestPointOnLine(lineString(ring), point(at)).properties.segmentIndex;
-  const degrees = bearing(point(ring[index]), point(ring[index + 1]));
-  return ((degrees % 360) + 360) % 360;
+  return [ring[index], ring[index + 1]];
+}
+
+/** The bearing of the exterior edge nearest `at`, in [0, 360). */
+export function wallBearingAt(building: Polygon, at: Position): number {
+  const [start, end] = wallAt(building, at);
+  return ((bearing(point(start), point(end)) % 360) + 360) % 360;
 }

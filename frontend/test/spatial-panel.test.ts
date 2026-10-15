@@ -12,6 +12,7 @@ import {
   queryRenderedFeatures,
   resetFakes,
   setBearing,
+  easeTo,
   sources,
 } from "./panel-harness";
 
@@ -278,6 +279,49 @@ test("in Align a click on a building saves only the bearing of the wall nearest 
   click();
   expect(updates(connection)).toHaveLength(1);
   await vi.waitFor(() => expect(barText(panel)).not.toContain("Click your house"));
+});
+
+test("in Align a click turns the camera in place to the click point, and the update does not turn it again", async () => {
+  const { panel, connection } = mountPanel();
+  queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
+  await startAligning(panel);
+  click();
+  await vi.waitFor(() => expect(easeTo).toHaveBeenCalled());
+  expect(easeTo).toHaveBeenCalledWith({ bearing: 270, center: EAST_WALL });
+  const [[onUpdate]] = connection.subscribeMessage.mock.calls as unknown as [[() => Promise<void>]];
+  setBearing.mockClear();
+  await onUpdate();
+  expect(setBearing).not.toHaveBeenCalled();
+});
+
+const wallSource = () => sources["spatial-wall"].data as { geometry?: { coordinates: number[][] } };
+const hover = (lngLat = EAST_WALL) => handlers.mousemove({ point: { x: 1, y: 2 }, lngLat });
+
+test("in Align hovering a building draws the wall a click would pick, and leaving it clears the wall", async () => {
+  const { panel } = mountPanel();
+  queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
+  await startAligning(panel);
+  handlers["style.load"]();
+  expect(layers.find((layer) => layer.id === "spatial-wall")).toMatchObject({ type: "line", source: "spatial-wall" });
+  hover();
+  expect(wallSource().geometry?.coordinates).toEqual([[5.0002, 52], [5.0002, 52.0001]]);
+  queryRenderedFeatures.mockReturnValue([]);
+  hover();
+  expect(sources["spatial-wall"].data).toEqual(EMPTY);
+});
+
+test("the wall is cleared when Align ends, and hovering outside Align does nothing", async () => {
+  const { panel } = mountPanel();
+  queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
+  hover();
+  expect(sources["spatial-wall"].data).toEqual(EMPTY);
+  await startAligning(panel);
+  hover();
+  expect(wallSource().geometry).toBeDefined();
+  alignButton(panel)!.click();
+  await vi.waitFor(() => expect(sources["spatial-wall"].data).toEqual(EMPTY));
 });
 
 test("in Align a click without a building saves nothing", async () => {

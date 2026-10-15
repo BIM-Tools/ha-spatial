@@ -6,6 +6,7 @@ import { vi } from "vitest";
 
 export const mapCreated = vi.fn();
 export const setBearing = vi.fn();
+export const easeTo = vi.fn();
 export const fitBounds = vi.fn();
 export const jumpTo = vi.fn();
 export const queryRenderedFeatures = vi.fn((): object[] => []);
@@ -142,7 +143,10 @@ export const fakeMapLibre = {
       mapBearingNow = options.bearing ?? mapBearingNow;
       jumpTo(options);
     }
-    easeTo() {}
+    easeTo(options: { bearing?: number }) {
+      mapBearingNow = options.bearing ?? mapBearingNow;
+      easeTo(options);
+    }
     fitBounds(...args: unknown[]) {
       fitBounds(...args);
     }
@@ -208,6 +212,7 @@ export const resetFakes = () => {
   mapCreated.mockClear();
   setBearing.mockClear();
   fitBounds.mockClear();
+  easeTo.mockClear();
   jumpTo.mockClear();
   queryRenderedFeatures.mockReset();
   queryRenderedFeatures.mockReturnValue([]);

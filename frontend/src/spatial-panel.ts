@@ -1,6 +1,7 @@
 // The space editor panel; the dashboard card embeds it to show the rooms on the map.
 
-import type { FeatureCollection, MultiPolygon, Polygon } from "geojson";
+import { lineString } from "@turf/helpers";
+import type { FeatureCollection, MultiPolygon, Polygon, Position } from "geojson";
 import { LitElement, type PropertyValues, css, html, nothing } from "lit";
 import {
   type GeoJSONSource,
@@ -10,7 +11,7 @@ import {
   setWorkerUrl,
 } from "maplibre-gl";
 import { bounds, floorsByLevel, mapBearing, styleUrl, withMapTilesToken } from "./map-view";
-import { buildingAt, wallBearingAt } from "./outline";
+import { buildingAt, wallAt, wallBearingAt } from "./outline";
 import { RoomEditor, type Tool } from "./room-editor";
 
 // The parts of Home Assistant's `hass` object this panel uses.
@@ -189,6 +190,7 @@ class SpatialPanel extends LitElement {
   }
 
   updated(changed: PropertyValues<this>) {
+    if (changed.has("_picking") && !this._picking) this._showWall();
     // MapLibre fixes interactivity at creation, so a new option rebuilds the map.
     if (changed.has("floor") && this._started) this._stop();
     // A render queued by _stop must not start a map for a panel that has left.
@@ -313,6 +315,7 @@ class SpatialPanel extends LitElement {
     });
     this._map.on("style.load", () => this._addAreas());
     this._map.on("click", (event) => this._pick(event));
+    this._map.on("mousemove", (event) => this._previewWall(event));
     editor?.attach(this._map);
     if (this.floor) this._fit();
   }
@@ -363,6 +366,16 @@ class SpatialPanel extends LitElement {
       source: "outline",
       paint: { "line-color": "#ff9800", "line-width": 3 },
     });
+    map.addSource("spatial-wall", { type: "geojson", data: EMPTY });
+    map.addLayer({
+      id: "spatial-wall",
+      type: "line",
+      source: "spatial-wall",
+      paint: {
+        "line-color": getComputedStyle(map.getContainer()).getPropertyValue("--primary-color").trim() || "#03a9f4",
+        "line-width": 4,
+      },
+    });
     this._editor?.addLayers(map);
     this._applyFloor();
   }
@@ -386,28 +399,46 @@ class SpatialPanel extends LitElement {
     this._editor?.setTool(undefined);
   }
 
-  // One tap sets the site axis from the wall of the building nearest to it, and ends the mode.
-  // The new bearing comes back through `spatial/subscribe`, which turns the map.
-  private _pick(event: MapMouseEvent) {
-    if (!this._picking) return;
-    this._picking = false;
+  private _showWall(wall?: [Position, Position]) {
+    const data = wall ? lineString(wall) : EMPTY;
+    this._map?.getSource<GeoJSONSource>("spatial-wall")?.setData(data);
+  }
+
+  private _buildingUnder(event: MapMouseEvent): Polygon | undefined {
     const map = this._map!;
     const layers = map
       .getStyle()
       .layers.filter((layer) => "source-layer" in layer && layer["source-layer"] === "buildings")
       .map((layer) => layer.id);
     const at: [number, number] = [event.lngLat.lng, event.lngLat.lat];
-    const building = map
+    return map
       .queryRenderedFeatures(event.point, { layers })
       .map((feature) => buildingAt(feature.geometry as Polygon | MultiPolygon, at))
       .find(Boolean);
+  }
+
+  private _previewWall(event: MapMouseEvent) {
+    if (!this._picking) return;
+    const building = this._buildingUnder(event);
+    this._showWall(building && wallAt(building, [event.lngLat.lng, event.lngLat.lat]));
+  }
+
+  // One tap sets the site axis from the wall of the building nearest to it, and ends the mode.
+  // The camera turns in place around the click, so the building stays in view.
+  private _pick(event: MapMouseEvent) {
+    if (!this._picking) return;
+    this._picking = false;
+    const building = this._buildingUnder(event);
     if (!building) {
       this._message = "No building here";
       return;
     }
-    this.hass!.connection.sendMessagePromise({ type: "spatial/site/update", bearing_deg: wallBearingAt(building, at) }).then(
+    const newBearing = wallBearingAt(building, [event.lngLat.lng, event.lngLat.lat]);
+    this.hass!.connection.sendMessagePromise({ type: "spatial/site/update", bearing_deg: newBearing }).then(
       () => {
         this._message = "";
+        this._bearing = newBearing;
+        this._map?.easeTo({ bearing: mapBearing(newBearing), center: event.lngLat });
       },
       (err) => {
         console.error(err);
