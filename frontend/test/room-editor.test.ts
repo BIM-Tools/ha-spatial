@@ -10,7 +10,7 @@ import {
   answer,
   dragPan,
   handlers,
-  handles,
+  liveMarkers,
   layers,
   mapCreated,
   mountPanel,
@@ -137,7 +137,7 @@ const startDrawing = async (panel: HTMLElement, floor = "Ground floor") => {
 
 const mouse = (x: number, y: number) => {
   const [lng, lat] = unprojectPixel([x, y]);
-  return { point: { x, y }, lngLat: { lng, lat }, originalEvent: { button: 0, target: null }, preventDefault: vi.fn() };
+  return { point: { x, y }, lngLat: { lng, lat }, originalEvent: { button: 0 }, preventDefault: vi.fn() };
 };
 
 const tap = (x: number, y: number) => {
@@ -216,14 +216,14 @@ test("a mouse drag draws a box with live side labels and saves it in one batch",
   await startDrawing(panel);
   handlers.mousedown(mouse(100, 0));
   handlers.mousemove(mouse(140, 30));
-  const labels = handles().map((marker) => marker.element.textContent);
+  const labels = liveMarkers().map((marker) => marker.element.textContent);
   expect(labels).toEqual(expect.arrayContaining(["4.00 m", "3.00 m", "12.0 m²"]));
   handlers.mouseup(mouse(140, 30));
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
   const [{ areas }] = saves(connection);
   expect(Object.keys(areas)).toEqual(["bath"]);
   expect(area(areas.bath)).toBeCloseTo(12, 1);
-  expect(handles()).toEqual([]);
+  expect(liveMarkers()).toEqual([]);
 });
 
 test("in Draw the map pans only while Space is held, and leaving Draw restores panning", async () => {
@@ -598,12 +598,12 @@ const tapRoom = async (panel: HTMLElement, areaId: string) => {
 };
 
 const sideButtons = () =>
-  handles()
+  liveMarkers()
     .map((marker) => marker.element.firstElementChild)
     .filter((element) => element instanceof HTMLButtonElement);
 
 const sideField = () =>
-  handles()
+  liveMarkers()
     .map((marker) => marker.element.firstElementChild)
     .find((element) => element instanceof HTMLInputElement) as HTMLInputElement | undefined;
 
@@ -680,7 +680,7 @@ test("Adjust shows the active room's area from the feed in its centre", async ()
   setFeed([feature("kitchen", KITCHEN, 21.46)]);
   await onUpdateOf(connection)();
   await tapRoom(panel, "kitchen");
-  expect(handles().map((marker) => marker.element.textContent)).toContain("21.5 m²");
+  expect(liveMarkers().map((marker) => marker.element.textContent)).toContain("21.5 m²");
 });
 
 test("in Adjust taps and drags save nothing, and leaving leaves no side markers", async () => {
@@ -696,7 +696,7 @@ test("in Adjust taps and drags save nothing, and leaving leaves no side markers"
     expect(sideButtons()).toHaveLength(4);
     barButton(panel, name)!.click();
     await settle(panel);
-    expect(handles()).toEqual([]);
+    expect(liveMarkers()).toEqual([]);
     if (barButton(panel, "Adjust")!.getAttribute("aria-pressed") !== "true") await startAdjusting(panel);
   }
   expect(saves(connection)).toEqual([]);

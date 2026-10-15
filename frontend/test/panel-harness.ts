@@ -15,14 +15,11 @@ export let layers: { id: string; type: string; source: string; filter?: unknown;
 export let mapBearingNow = 0;
 
 export interface FakeMarker {
-  options: object;
-  lngLat: { lng: number; lat: number };
-  handlers: Record<string, () => void>;
   removed: boolean;
   element: HTMLElement;
 }
 export let markers: FakeMarker[] = [];
-export const handles = () => markers.filter((marker) => !marker.removed);
+export const liveMarkers = () => markers.filter((marker) => !marker.removed);
 
 const handler = () => {
   let enabled = true;
@@ -62,31 +59,19 @@ const projectLngLat = ({ lng, lat }: { lng: number; lat: number }) => {
 export const fakeMapLibre = {
   setWorkerUrl: vi.fn(),
   Marker: class implements FakeMarker {
-    options: object;
-    lngLat = { lng: 0, lat: 0 };
-    handlers: Record<string, () => void> = {};
     removed = false;
     element: HTMLElement;
     constructor(options: { element?: HTMLElement } = {}) {
-      this.options = options;
       this.element = options.element ?? document.createElement("div");
       markers.push(this);
     }
-    setLngLat([lng, lat]: [number, number]) {
-      this.lngLat = { lng, lat };
+    setLngLat() {
       return this;
     }
     getElement() {
       return this.element;
     }
-    getLngLat() {
-      return this.lngLat;
-    }
     addTo() {
-      return this;
-    }
-    on(event: string, handler: () => void) {
-      this.handlers[event] = handler;
       return this;
     }
     remove() {

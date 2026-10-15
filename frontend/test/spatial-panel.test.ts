@@ -239,7 +239,7 @@ const SHED = {
 const EAST_WALL = { lng: 5.00019, lat: 52.00005 };
 
 const click = (lngLat = EAST_WALL) =>
-  handlers.click({ point: { x: 1, y: 2 }, lngLat, originalEvent: { target: null } });
+  handlers.click({ point: { x: 1, y: 2 }, lngLat });
 
 const startAligning = async (panel: HTMLElement) => {
   await vi.waitFor(() => expect(handlers.click).toBeDefined());

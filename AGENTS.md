@@ -73,7 +73,8 @@ way".
 
 ## Single implementations
 
-- All measurement geometry is in `custom_components/spatial/geometry.py`; the panel only picks the outline, with turf (`frontend/src/outline.ts`).
+- All measurement geometry is in `custom_components/spatial/geometry.py`. The panel's drawing geometry is turf in
+  `frontend/src/plan.ts`; the Align pick is in `frontend/src/outline.ts`.
 - Tools, bridges and frontends use only the websocket API; nothing else reads
   `.storage/spatial` or imports the integration.
 - Home Assistant owns areas and floors. Data is keyed by `area_id` and `floor_id`; names,

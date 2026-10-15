@@ -26,7 +26,6 @@
   },
   "devDependencies": {
     "@turf/boolean-clockwise": "7.4.0",
-    "@turf/transform-rotate": "7.4.0",
     "esbuild": "0.28.2",
     "happy-dom": "21.0.1",
     "typescript": "6.0.3",
