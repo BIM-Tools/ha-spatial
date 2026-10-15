@@ -35,6 +35,7 @@ class SpatialCoordinator:
         self.hass = hass
         self.store = SpatialStore(hass)
         self._unsubscribe: list[Any] = []
+        self.card_url = ""
 
     async def async_setup(self) -> None:
         """Load stored data and follow registry removals."""
