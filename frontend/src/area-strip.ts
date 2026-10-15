@@ -62,6 +62,12 @@ class SpatialAreaStrip extends LitElement {
       color: var(--primary-text-color);
       font: inherit;
     }
+    button[data-linked="false"] {
+      border-style: dashed;
+    }
+    button[data-linked="true"] {
+      background: color-mix(in srgb, var(--primary-color) 15%, var(--card-background-color));
+    }
     button[aria-pressed="true"] {
       background: var(--primary-color);
       color: var(--text-primary-color, #fff);
@@ -90,9 +96,11 @@ class SpatialAreaStrip extends LitElement {
             />`
           : html`<button
               aria-pressed=${area.area_id === this.active}
+              data-linked=${this.linked.has(area.area_id)}
+              title=${this.linked.has(area.area_id) ? nothing : "No shape yet"}
               @click=${() => this._tap(area.area_id)}
             >
-              ${this.linked.has(area.area_id) ? "● " : nothing}${area.name}
+              ${area.name}
             </button>`,
       )}
       <button

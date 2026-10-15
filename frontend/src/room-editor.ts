@@ -98,6 +98,16 @@ export class RoomEditor {
   }
 
   addLayers(map: MapLibreMap) {
+    map.addLayer({
+      id: "spatial-active",
+      type: "line",
+      source: "areas",
+      filter: this._activeFilter(),
+      paint: {
+        "line-color": getComputedStyle(map.getContainer()).getPropertyValue("--primary-color").trim() || "#03a9f4",
+        "line-width": 4,
+      },
+    });
     map.addSource("spatial-draft", { type: "geojson", data: EMPTY });
     map.addLayer({
       id: "spatial-draft",
@@ -213,8 +223,14 @@ export class RoomEditor {
     return this._floor === "all" ? [] : stripOrder(this._areas, this._linked(), this._floor);
   }
 
+  // An area without a footprint has no feature, so nothing is highlighted.
+  private _activeFilter(): ["==", ["get", string], string] {
+    return ["==", ["get", "area_id"], this._active];
+  }
+
   private _select(areaId: string) {
     this._active = areaId;
+    if (this._map?.getLayer("spatial-active")) this._map.setFilter("spatial-active", this._activeFilter());
     this._editingSide = undefined;
     this._showSides();
     this._requestUpdate();

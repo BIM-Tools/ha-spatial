@@ -10,6 +10,7 @@ import {
   dragPan,
   handlers,
   handles,
+  layers,
   mapCreated,
   mountPanel,
   onUpdateOf,
@@ -202,7 +203,7 @@ test("the strip is shown in the panel and not in the card", async () => {
 test("on a floor the first area without a footprint is active", async () => {
   const { panel } = mountEditor();
   await showFloor(panel);
-  await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Bath", "Hall", "● Kitchen", "+ New area"]));
+  await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Bath", "Hall", "Kitchen", "+ New area"]));
   expect(activeChip(panel)).toBe("Bath");
 });
 
@@ -250,7 +251,7 @@ test("two taps save a box along the site axis and move on to the next area", asy
 test("a box against an area's footprint saves their union", async () => {
   const { panel, connection } = mountEditor();
   await startDrawing(panel);
-  chip(panel, "● Kitchen").click();
+  chip(panel, "Kitchen").click();
   await settle(panel);
   tap(50, 0);
   tap(100, 50);
@@ -263,7 +264,7 @@ test("a box against an area's footprint saves their union", async () => {
 test("a box apart from the area's footprint saves nothing and says why", async () => {
   const { panel, connection } = mountEditor();
   await startDrawing(panel);
-  chip(panel, "● Kitchen").click();
+  chip(panel, "Kitchen").click();
   await settle(panel);
   tap(200, 200);
   tap(240, 240);
@@ -341,7 +342,7 @@ test("on All taps draw nothing and the bar asks for a floor", async () => {
 test("an update that removes the active area makes the first area in the order active", async () => {
   const { panel, connection, setRegistry, setFeed } = mountEditor();
   await startDrawing(panel);
-  chip(panel, "● Kitchen").click();
+  chip(panel, "Kitchen").click();
   await settle(panel);
   setRegistry([
     { area_id: "bath", name: "Bath", floor_id: "ground" },
@@ -534,7 +535,7 @@ test("in Adjust a tap on a room makes its area active", async () => {
   await startAdjusting(panel);
   expect(activeChip(panel)).toBe("Bath");
   await tapRoom(panel, "kitchen");
-  expect(activeChip(panel)).toBe("● Kitchen");
+  expect(activeChip(panel)).toBe("Kitchen");
 });
 
 test("a rectangular room shows a button per side, an L-shaped room none", async () => {
@@ -662,7 +663,7 @@ test("undo of a new footprint removes it and redo saves it again", async () => {
 test("undo of an extended footprint saves the previous polygon", async () => {
   const { panel, connection } = mountEditor();
   await startDrawing(panel);
-  chip(panel, "● Kitchen").click();
+  chip(panel, "Kitchen").click();
   await settle(panel);
   tap(50, 0);
   tap(100, 50);
@@ -779,7 +780,7 @@ test("a refresh held back until after a save is acknowledged keeps the saved foo
   release();
   await refreshed;
   await settle(panel);
-  expect(chipNames(panel)).toContain("● Bath");
+  expect(chipNames(panel)).toContain("Bath");
 });
 
 test("Draw chosen before the map attaches takes effect when it does", async () => {
@@ -808,4 +809,28 @@ test("a pan between the two taps keeps the box on the first tapped spot", async 
   tap(140, 30);
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
   expect(area(saves(connection)[0].areas.bath)).toBeCloseTo(35, 1);
+});
+
+const activeFilter = () => layers.find((layer) => layer.id === "spatial-active")?.filter;
+
+test("pills tell linked areas from unlinked ones by data-linked, without a dot", async () => {
+  const { panel } = mountEditor();
+  await showFloor(panel);
+  await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Bath", "Hall", "Kitchen", "+ New area"]));
+  expect(chips(panel).map((c) => c.getAttribute("data-linked"))).toEqual(["false", "false", "true", null]);
+});
+
+test("the map highlights the active area's polygon and nothing for an unlinked or new area", async () => {
+  const { panel } = mountEditor();
+  await showFloor(panel);
+  await vi.waitFor(() => expect(chipNames(panel)).toContain("Kitchen"));
+  chip(panel, "Kitchen").click();
+  await settle(panel);
+  expect(activeFilter()).toEqual(["==", ["get", "area_id"], "kitchen"]);
+  chip(panel, "Bath").click();
+  await settle(panel);
+  expect(activeFilter()).toEqual(["==", ["get", "area_id"], "bath"]);
+  chip(panel, "+ New area").click();
+  await settle(panel);
+  expect(activeFilter()).toEqual(["==", ["get", "area_id"], ""]);
 });

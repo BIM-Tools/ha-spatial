@@ -55,7 +55,7 @@ test("tapping a chip selects its area, and the last chip selects a new one", asy
   const selected = vi.fn();
   strip.addEventListener("area-select", (e) => selected((e as CustomEvent).detail));
   const all = chips(strip);
-  expect(all.map((c) => c.textContent?.trim())).toEqual(["Kitchen", "● Bath", "+ New area"]);
+  expect(all.map((c) => c.textContent?.trim())).toEqual(["Kitchen", "Bath", "+ New area"]);
   all[1].click();
   all[2].click();
   expect(selected).toHaveBeenNthCalledWith(1, { areaId: "b" });
@@ -131,7 +131,7 @@ test("a new active area scrolls its chip into view", async () => {
   strip.active = "b";
   await strip.updateComplete;
   expect(scroll).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
-  expect((scroll.mock.contexts[0] as Element).textContent?.trim()).toBe("● Bath");
+  expect((scroll.mock.contexts[0] as Element).textContent?.trim()).toBe("Bath");
   scroll.mockRestore();
 });
 

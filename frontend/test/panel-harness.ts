@@ -11,7 +11,7 @@ export const jumpTo = vi.fn();
 export const queryRenderedFeatures = vi.fn((): object[] => []);
 export let handlers: Record<string, (event?: object) => void> = {};
 export let sources: Record<string, { data: unknown }> = {};
-export let layers: { id: string; type: string; source: string }[] = [];
+export let layers: { id: string; type: string; source: string; filter?: unknown }[] = [];
 export let mapBearingNow = 0;
 
 export interface FakeMarker {
@@ -114,6 +114,9 @@ export const fakeMapLibre = {
       };
     }
     remove() {}
+    getContainer() {
+      return document.body;
+    }
     addSource(id: string, source: { data: unknown }) {
       sources[id] = { data: source.data };
     }
@@ -121,14 +124,17 @@ export const fakeMapLibre = {
       const source = sources[id];
       return source && { setData: (data: unknown) => (source.data = data) };
     }
-    addLayer(layer: { id: string; type: string; source: string }) {
+    addLayer(layer: { id: string; type: string; source: string; filter?: unknown }) {
       layers.push(layer);
     }
     getLayer(id: string) {
       return layers.find((layer) => layer.id === id);
     }
     setLayoutProperty() {}
-    setFilter() {}
+    setFilter(id: string, filter: unknown) {
+      const layer = layers.find((entry) => entry.id === id);
+      if (layer) layer.filter = filter;
+    }
     getStyle() {
       return {
         layers: [
