@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from pathlib import Path
 
@@ -19,22 +20,35 @@ from .websocket_api import async_register_websocket_commands
 
 _LOGGER = logging.getLogger(__name__)
 
+FRONTEND_PATH = Path(__file__).parent / "frontend"
+
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 type SpatialConfigEntry = ConfigEntry[SpatialCoordinator]
 
 
+def _bundle_version(bundle: Path, fallback: str) -> str:
+    """Return a short content hash of the bundle, or the fallback before the first build."""
+    try:
+        return hashlib.sha256(bundle.read_bytes()).hexdigest()[:8]
+    except FileNotFoundError:
+        return fallback
+
+
 async def _module_url(hass: HomeAssistant, name: str) -> str:
-    """Return the URL of a bundle; the version makes browsers fetch a new release."""
+    """Return the URL of a bundle; its content hash makes browsers fetch every rebuild."""
     integration = await async_get_integration(hass, DOMAIN)
-    return f"{STATIC_URL}/{name}?v={integration.version}"
+    version = await hass.async_add_executor_job(
+        _bundle_version, FRONTEND_PATH / name, str(integration.version)
+    )
+    return f"{STATIC_URL}/{name}?v={version}"
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Spatial integration."""
     async_register_websocket_commands(hass)
     await hass.http.async_register_static_paths(
-        [StaticPathConfig(STATIC_URL, str(Path(__file__).parent / "frontend"), cache_headers=False)]
+        [StaticPathConfig(STATIC_URL, str(FRONTEND_PATH), cache_headers=False)]
     )
     return True
 

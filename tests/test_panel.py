@@ -1,9 +1,12 @@
 """Proves the panel and the card are registered and versioned for the browser."""
 
+from pathlib import Path
+
 from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+import custom_components.spatial
 from custom_components.spatial.const import DOMAIN, STATIC_URL
 
 
@@ -67,3 +70,31 @@ async def test_card_module_added_while_set_up(hass: HomeAssistant) -> None:
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
     assert card_urls() == []
+
+
+async def test_module_url_follows_bundle_content(hass: HomeAssistant) -> None:
+    """A rebuilt bundle gets a new URL, so browsers do not keep the old one."""
+    bundle = Path(custom_components.spatial.__file__).parent / "frontend" / "spatial-card.js"
+
+    def card_url() -> str:
+        (url,) = [
+            url
+            for url in hass.data[DATA_EXTRA_MODULE_URL].urls
+            if url.startswith(f"{STATIC_URL}/spatial-card.js?v=")
+        ]
+        return url
+
+    try:
+        bundle.write_text("first build")
+        entry = await setup_entry(hass)
+        first_url = card_url()
+
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+        bundle.write_text("second build")
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+        assert card_url() != first_url
+    finally:
+        bundle.unlink(missing_ok=True)
