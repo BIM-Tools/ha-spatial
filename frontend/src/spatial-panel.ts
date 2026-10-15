@@ -424,7 +424,8 @@ class SpatialPanel extends LitElement {
   }
 
   // One tap sets the site axis from the wall of the building nearest to it, and ends the mode.
-  // The camera turns in place around the click, so the building stays in view.
+  // The camera turns in place around the click, so the building stays in view. It turns before
+  // the save, because Home Assistant sends the update event ahead of the reply.
   private _pick(event: MapMouseEvent) {
     if (!this._picking) return;
     this._picking = false;
@@ -433,16 +434,19 @@ class SpatialPanel extends LitElement {
       this._message = "No building here";
       return;
     }
+    const previousBearing = this._bearing;
     const newBearing = wallBearingAt(building, [event.lngLat.lng, event.lngLat.lat]);
+    this._bearing = newBearing;
+    this._map?.easeTo({ bearing: mapBearing(newBearing), center: event.lngLat });
     this.hass!.connection.sendMessagePromise({ type: "spatial/site/update", bearing_deg: newBearing }).then(
       () => {
         this._message = "";
-        this._bearing = newBearing;
-        this._map?.easeTo({ bearing: mapBearing(newBearing), center: event.lngLat });
       },
       (err) => {
         console.error(err);
         this._message = "Could not save";
+        this._bearing = previousBearing;
+        this._map?.easeTo({ bearing: mapBearing(previousBearing) });
       },
     );
   }

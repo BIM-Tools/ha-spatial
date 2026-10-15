@@ -356,7 +356,7 @@ test.each([false, true])("the stored outline is drawn on start and after updates
   expect(sources.outline.data).toEqual(EMPTY);
 });
 
-test("in Align a failed save says so", async () => {
+test("in Align a failed save says so and turns the map back", async () => {
   const { panel } = mountPanel(async (message) => {
     if (message.type === "spatial/site/update") throw new Error("connection lost");
     return answer(message);
@@ -366,6 +366,21 @@ test("in Align a failed save says so", async () => {
   await startAligning(panel);
   click();
   await vi.waitFor(() => expect(barText(panel)).toContain("Could not save"));
+  // The fixture's stored bearing gives the same map bearing as the clicked wall.
+  expect(easeTo).toHaveBeenLastCalledWith({ bearing: 270 });
+});
+
+test("Align turns the map before the save is answered", async () => {
+  let answerSave = () => {};
+  const { panel } = mountPanel(async (message) => {
+    if (message.type === "spatial/site/update") return new Promise<null>((resolve) => (answerSave = () => resolve(null)));
+    return answer(message);
+  });
+  queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
+  await startAligning(panel);
+  click();
+  expect(easeTo).toHaveBeenCalledWith({ bearing: 270, center: EAST_WALL });
+  answerSave();
 });
 
 test("a removed panel does not start again", async () => {
