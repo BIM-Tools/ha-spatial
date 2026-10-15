@@ -60,7 +60,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: SpatialConfigEntry) -> b
     entry.runtime_data = coordinator
     # On every page, so the card is there for dashboards; it is small and loads
     # the panel bundle only when a card is created.
-    frontend.add_extra_js_url(hass, await _module_url(hass, "spatial-card.js"))
+    coordinator.card_url = await _module_url(hass, "spatial-card.js")
+    frontend.add_extra_js_url(hass, coordinator.card_url)
     await panel_custom.async_register_panel(
         hass,
         frontend_url_path=PANEL_URL_PATH,
@@ -75,6 +76,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: SpatialConfigEntry) -> b
 async def async_unload_entry(hass: HomeAssistant, entry: SpatialConfigEntry) -> bool:
     """Unload a Spatial config entry."""
     frontend.async_remove_panel(hass, PANEL_URL_PATH)
-    frontend.remove_extra_js_url(hass, await _module_url(hass, "spatial-card.js"))
+    frontend.remove_extra_js_url(hass, entry.runtime_data.card_url)
     await entry.runtime_data.async_teardown()
     return True

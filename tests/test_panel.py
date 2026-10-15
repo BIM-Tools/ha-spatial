@@ -98,3 +98,20 @@ async def test_module_url_follows_bundle_content(hass: HomeAssistant) -> None:
         assert card_url() != first_url
     finally:
         bundle.unlink(missing_ok=True)
+
+
+async def test_card_url_removed_after_bundle_rebuilt_while_loaded(hass: HomeAssistant) -> None:
+    """Unloading removes the card URL that setup registered, even after a rebuild."""
+    bundle = Path(custom_components.spatial.__file__).parent / "frontend" / "spatial-card.js"
+
+    try:
+        bundle.write_text("first build")
+        entry = await setup_entry(hass)
+
+        bundle.write_text("second build")
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
+        assert not [url for url in hass.data[DATA_EXTRA_MODULE_URL].urls if "spatial-card" in url]
+    finally:
+        bundle.unlink(missing_ok=True)
