@@ -145,7 +145,7 @@ export class RoomEditor {
     this._sizesM2 = new Map(feed.features.map((feature) => [String(feature.id), feature.properties?.area_m2]));
     const order = this._order();
     if (this._active !== NEW_AREA && !order.some((area) => area.area_id === this._active)) {
-      this._active = order[0]?.area_id ?? NEW_AREA;
+      this._setActive(order[0]?.area_id ?? NEW_AREA);
     }
     this._showSides();
     this._requestUpdate();
@@ -228,9 +228,13 @@ export class RoomEditor {
     return ["==", ["get", "area_id"], this._active];
   }
 
-  private _select(areaId: string) {
+  private _setActive(areaId: string) {
     this._active = areaId;
     if (this._map?.getLayer("spatial-active")) this._map.setFilter("spatial-active", this._activeFilter());
+  }
+
+  private _select(areaId: string) {
+    this._setActive(areaId);
     this._editingSide = undefined;
     this._showSides();
     this._requestUpdate();
@@ -440,9 +444,9 @@ export class RoomEditor {
     await this._whileSaving(async () => {
       const id = areaId === NEW_AREA ? await this._createArea(floor) : areaId;
       // A retry after a failed save goes to the created area, not to another new one.
-      if (this._floor === floor) this._active = id;
+      if (this._floor === floor) this._setActive(id);
       await this._apply({ before: { [id]: current ?? null }, after: { [id]: footprint } });
-      if (this._floor === floor) this._active = nextActive(this._order(), this._linked());
+      if (this._floor === floor) this._setActive(nextActive(this._order(), this._linked()));
     });
   }
 

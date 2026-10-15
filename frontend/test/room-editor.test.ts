@@ -102,6 +102,8 @@ const strip = (panel: HTMLElement) =>
 
 const chips = (panel: HTMLElement) => [...(strip(panel)?.shadowRoot?.querySelectorAll("button") ?? [])];
 
+const activeFilter = () => layers.find((layer) => layer.id === "spatial-active")?.filter;
+
 const chipNames = (panel: HTMLElement) => chips(panel).map((chip) => chip.textContent?.trim());
 
 const activeChip = (panel: HTMLElement) =>
@@ -245,6 +247,7 @@ test("two taps save a box along the site axis and move on to the next area", asy
   const [{ areas }] = saves(connection);
   expect(isAxisRectangle(areas.bath, SITE_BEARING)).toBe(true);
   await vi.waitFor(() => expect(activeChip(panel)).toBe("Hall"));
+  expect(activeFilter()).toEqual(["==", ["get", "area_id"], "hall"]);
   expect(barButton(panel, "Undo")!.disabled).toBe(false);
 });
 
@@ -296,6 +299,8 @@ test("with New area active a box first creates Room 1 on the floor, then saves i
   expect(writes.map((m) => m.type)).toEqual(["config/area_registry/create", "spatial/area/update_geometries"]);
   expect(writes[0]).toEqual({ type: "config/area_registry/create", name: "Room 1", floor_id: "ground" });
   expect(Object.keys(saves(connection)[0].areas)).toEqual(["room_1"]);
+  await vi.waitFor(() => expect(activeChip(panel)).toBe("Bath"));
+  expect(activeFilter()).toEqual(["==", ["get", "area_id"], "bath"]);
 });
 
 test("a rejected save reloads the rooms, says so and records nothing", async () => {
@@ -352,6 +357,7 @@ test("an update that removes the active area makes the first area in the order a
   await onUpdateOf(connection)();
   await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Bath", "Hall", "+ New area"]));
   expect(activeChip(panel)).toBe("Bath");
+  expect(activeFilter()).toEqual(["==", ["get", "area_id"], "bath"]);
 });
 
 test("renaming the active area updates the area registry", async () => {
@@ -810,8 +816,6 @@ test("a pan between the two taps keeps the box on the first tapped spot", async 
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
   expect(area(saves(connection)[0].areas.bath)).toBeCloseTo(35, 1);
 });
-
-const activeFilter = () => layers.find((layer) => layer.id === "spatial-active")?.filter;
 
 test("pills tell linked areas from unlinked ones by data-linked, without a dot", async () => {
   const { panel } = mountEditor();
