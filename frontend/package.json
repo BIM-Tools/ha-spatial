@@ -20,6 +20,7 @@
     "@turf/helpers": "7.4.0",
     "@turf/nearest-point-on-line": "7.4.0",
     "@turf/rewind": "7.4.0",
+    "@turf/transform-translate": "7.4.0",
     "@turf/union": "7.4.0",
     "lit": "3.3.3",
     "maplibre-gl": "6.11.2"

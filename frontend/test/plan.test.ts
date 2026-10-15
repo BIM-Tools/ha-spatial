@@ -16,6 +16,7 @@ import {
   centreOf,
   edgeLengths,
   isAxisRectangle,
+  movePolygon,
   resizeSide,
   sideLabels,
 } from "../src/plan";
@@ -120,4 +121,13 @@ test("isAxisRectangle refuses a rectangle with a hole", () => {
   const hole = rectangle(move(move(ORIGIN, 1, 20), 1, -70), 1, 1, 20);
   const holed: Polygon = { type: "Polygon", coordinates: [ringOf(box), [...hole, hole[0]].reverse()] };
   expect(isAxisRectangle(holed, 20)).toBe(false);
+});
+
+test("movePolygon moves every corner 2 m east and keeps the side lengths", () => {
+  const box4By3 = boxFromCorners(rectangle(ORIGIN, 4, 3, 0))!;
+  const moved = movePolygon(box4By3, ORIGIN, move(ORIGIN, 2, 90));
+  ringOf(moved).forEach((corner, index) => {
+    expect(distance(point(corner), point(move(ringOf(box4By3)[index], 2, 90)), { units: "meters" })).toBeLessThan(0.01);
+  });
+  edgeLengths(moved).forEach((length, index) => expect(length).toBeCloseTo(edgeLengths(box4By3)[index], 2));
 });

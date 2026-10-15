@@ -1,4 +1,4 @@
-// Plan-space geometry for drawing rooms: boxes from screen corners, side lengths, resizing and joining shapes.
+// Plan-space geometry for drawing rooms: boxes from screen corners, side lengths, resizing, moving and joining shapes.
 
 import area from "@turf/area";
 import bearing from "@turf/bearing";
@@ -7,6 +7,7 @@ import destination from "@turf/destination";
 import distance from "@turf/distance";
 import { point, polygon } from "@turf/helpers";
 import rewind from "@turf/rewind";
+import transformTranslate from "@turf/transform-translate";
 import union from "@turf/union";
 import type { Polygon, Position } from "geojson";
 
@@ -75,3 +76,6 @@ export function addToFootprint(existing: Polygon | undefined, box: Polygon): Pol
   const joined = union({ type: "FeatureCollection", features: [polygon(existing.coordinates), polygon(box.coordinates)] });
   return joined?.geometry.type === "Polygon" ? joined.geometry : undefined;
 }
+
+export const movePolygon = (shape: Polygon, from: Position, to: Position): Polygon =>
+  transformTranslate(shape, edgeLength(from, to), bearing(point(from), point(to)), metres);

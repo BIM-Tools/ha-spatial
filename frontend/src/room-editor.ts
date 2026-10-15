@@ -1,5 +1,6 @@
-// Draws and adjusts rooms on the panel's map along the site axis, saving each action at once to Home Assistant.
+// Draws, moves and adjusts rooms on the panel's map along the site axis, saving each action at once to Home Assistant.
 
+import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
 import type { FeatureCollection, Polygon, Position } from "geojson";
 import { html, nothing } from "lit";
 import { type GeoJSONSource, type LngLat, Marker, type MapMouseEvent, type Map as MapLibreMap } from "maplibre-gl";
@@ -14,6 +15,7 @@ import {
   centreOf,
   edgeLengths,
   isAxisRectangle,
+  movePolygon,
   resizeSide,
   sideLabels,
 } from "./plan";
@@ -35,6 +37,13 @@ interface Pixel {
   y: number;
 }
 
+interface Grab {
+  areaId: string;
+  footprint: Polygon;
+  from: Position;
+}
+
+const lngLatOf = (event: MapMouseEvent): Position => [event.lngLat.lng, event.lngLat.lat];
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 const DRAG_MIN_PX = 5;
 const LABEL_STYLE =
@@ -58,6 +67,8 @@ export class RoomEditor {
   private _corner?: LngLat;
   private _press?: Pixel;
   private _dragging = false;
+  // Set when a press starts inside the active room's footprint: a drag then moves the room.
+  private _grab?: Grab;
   private _spaceHeld = false;
   private _saving = false;
   private _labels: Marker[] = [];
@@ -285,17 +296,31 @@ export class RoomEditor {
   };
 
   private _down = (event: MapMouseEvent) => {
-    if (!this._canDraw || this._spaceHeld || this._saving || event.originalEvent.button !== 0) return;
+    if (!this.tool || this._floor === "all" || this._spaceHeld || this._saving || event.originalEvent.button !== 0) {
+      return;
+    }
+    const at = lngLatOf(event);
+    const footprint = this._footprints.get(this._active);
+    this._grab =
+      footprint && booleanPointInPolygon(at, footprint) ? { areaId: this._active, footprint, from: at } : undefined;
+    if (!this._grab && !this._canDraw) return;
+    // Keeps MapLibre from panning the map under the room in Adjust.
+    if (this._grab) event.preventDefault();
     this._press = event.point;
     this._dragging = false;
   };
 
   private _move = (event: MapMouseEvent) => {
-    if (!this._canDraw) return;
+    const grab = this._grab;
+    if (!this._canDraw && !grab) return;
     const press = this._press;
     if (press && !this._dragging && Math.hypot(event.point.x - press.x, event.point.y - press.y) >= DRAG_MIN_PX) {
       this._dragging = true;
       this._corner = undefined;
+    }
+    if (grab) {
+      if (this._dragging) this._preview(movePolygon(grab.footprint, grab.from, lngLatOf(event)));
+      return;
     }
     const from = this._dragging ? press : this._corner && this._map!.project(this._corner);
     if (from) this._preview(this._box(from, event.point));
@@ -304,9 +329,13 @@ export class RoomEditor {
   private _up = (event: MapMouseEvent) => {
     const press = this._press;
     const dragged = this._dragging;
+    const grab = this._grab;
     this._press = undefined;
     this._dragging = false;
-    if (press && dragged) this._finish(press, event.point);
+    this._grab = undefined;
+    if (!press || !dragged) return;
+    if (grab) this._drop(grab, lngLatOf(event));
+    else this._finish(press, event.point);
   };
 
   // MapLibre fires `click` for a tap too, so two taps draw a box on a phone.
@@ -330,6 +359,7 @@ export class RoomEditor {
     this._corner = undefined;
     this._press = undefined;
     this._dragging = false;
+    this._grab = undefined;
     this._preview(undefined);
   }
 
@@ -448,6 +478,13 @@ export class RoomEditor {
       await this._apply({ before: { [id]: current ?? null }, after: { [id]: footprint } });
       if (this._floor === floor) this._setActive(nextActive(this._order(), this._linked()));
     });
+  }
+
+  private _drop({ areaId, footprint, from }: Grab, to: Position) {
+    this._preview(undefined);
+    this._whileSaving(() =>
+      this._apply({ before: { [areaId]: footprint }, after: { [areaId]: movePolygon(footprint, from, to) } }),
+    );
   }
 
   private async _apply(change: Change) {

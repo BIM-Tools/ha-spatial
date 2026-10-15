@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 // Checks drawing, adjusting and undoing rooms in the panel against a fake MapLibre and a scripted Home Assistant connection.
 import area from "@turf/area";
+import distance from "@turf/distance";
 import type { Polygon } from "geojson";
 import { afterEach, expect, test, vi } from "vitest";
 import {
@@ -135,7 +136,7 @@ const startDrawing = async (panel: HTMLElement, floor = "Ground floor") => {
 
 const mouse = (x: number, y: number) => {
   const [lng, lat] = unprojectPixel([x, y]);
-  return { point: { x, y }, lngLat: { lng, lat }, originalEvent: { button: 0, target: null } };
+  return { point: { x, y }, lngLat: { lng, lat }, originalEvent: { button: 0, target: null }, preventDefault: vi.fn() };
 };
 
 const tap = (x: number, y: number) => {
@@ -283,6 +284,85 @@ test("two taps 0.1 m apart save nothing", async () => {
   tap(101, 1);
   await settle(panel);
   expect(saves(connection)).toEqual([]);
+});
+
+const expectCornersNear = (actual: Polygon, expected: Polygon) =>
+  actual.coordinates[0].forEach((corner, index) =>
+    expect(distance(corner, expected.coordinates[0][index], { units: "meters" })).toBeLessThan(0.01),
+  );
+
+const activateKitchen = async (panel: HTMLElement) => {
+  chip(panel, "Kitchen").click();
+  await settle(panel);
+};
+
+test("in Draw a drag inside the active room moves it in one batch, and undo puts it back", async () => {
+  const { panel, connection } = mountEditor();
+  await startDrawing(panel);
+  await activateKitchen(panel);
+  handlers.mousedown(mouse(25, 25));
+  handlers.mousemove(mouse(45, 25));
+  expectCornersNear(sources["spatial-draft"].data as Polygon, pixelBox(20, 0, 70, 50));
+  handlers.mouseup(mouse(45, 25));
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  const [{ areas }] = saves(connection);
+  expect(Object.keys(areas)).toEqual(["kitchen"]);
+  expectCornersNear(areas.kitchen, pixelBox(20, 0, 70, 50));
+  expect(area(areas.kitchen)).toBeCloseTo(25, 1);
+  await vi.waitFor(() => expect(barButton(panel, "Undo")!.disabled).toBe(false));
+  barButton(panel, "Undo")!.click();
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
+  expect(saves(connection)[1].areas).toEqual({ kitchen: KITCHEN });
+});
+
+test("in Draw a click inside the active room sets a corner and a second click finishes the box", async () => {
+  const { panel, connection } = mountEditor();
+  await startDrawing(panel);
+  await activateKitchen(panel);
+  tap(25, 25);
+  tap(75, 50);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  expect(area(saves(connection)[0].areas.kitchen)).toBeCloseTo(31.25, 1);
+});
+
+test("a rejected move reloads the rooms, says so and records nothing", async () => {
+  const { panel, connection } = mountEditor(async (message) => {
+    if (message.type === "spatial/area/update_geometries") throw new Error("not allowed");
+    return undefined;
+  });
+  vi.spyOn(console, "error").mockImplementationOnce(() => {});
+  await startDrawing(panel);
+  await activateKitchen(panel);
+  const feedLoads = sent(connection, "spatial/geojson").length;
+  drag([25, 25], [45, 25]);
+  await vi.waitFor(() => expect(barText(panel)).toContain("Could not save"));
+  expect(sent(connection, "spatial/geojson").length).toBe(feedLoads + 1);
+  expect(barButton(panel, "Undo")!.disabled).toBe(true);
+});
+
+test("a drag starting inside a room that is not active draws a box", async () => {
+  const { panel, connection } = mountEditor();
+  await startDrawing(panel);
+  drag([25, 25], [65, 55]);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  const [{ areas }] = saves(connection);
+  expect(Object.keys(areas)).toEqual(["bath"]);
+  expect(area(areas.bath)).toBeCloseTo(12, 1);
+});
+
+test("in Adjust a drag inside the active room moves it without panning, and a tap still selects", async () => {
+  const { panel, connection } = mountEditor();
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  const press = mouse(25, 25);
+  handlers.mousedown(press);
+  expect(press.preventDefault).toHaveBeenCalled();
+  handlers.mousemove(mouse(45, 25));
+  handlers.mouseup(mouse(45, 25));
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  expectCornersNear(saves(connection)[0].areas.kitchen, pixelBox(20, 0, 70, 50));
+  await tapRoom(panel, "bath");
+  expect(activeChip(panel)).toBe("Bath");
 });
 
 test("with New area active a box first creates Room 1 on the floor, then saves its footprint", async () => {
