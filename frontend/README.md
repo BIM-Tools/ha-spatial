@@ -26,10 +26,10 @@ next area without a footprint is highlighted. A drag that starts inside the high
 footprint moves it instead; a click there still sets a corner. **+ New area** creates "Room 1", "Room 2" and so
 on, on this floor. Tapping the highlighted area again renames it. Hold Space and drag to pan;
 Escape cancels a box. **All** shows the floors in 3D and does not draw.
-**Adjust**, on a floor: a tap on a room makes its area active; the Building pill makes the outline active. When the room is a rectangle along
-the site axis, each side shows its length as a button; tap one, type the length in metres and
-press Enter to save (at least 0.20 m; the side's start corner stays). Dragging the active room
-moves it, as in Draw. **Undo** and **Redo**
+**Adjust**, on a floor: a tap on a room makes its area active; the Building pill makes the
+outline active. When the room is a rectangle along the site axis, each side shows its length
+as a button; tap one, type the length in metres and press Enter to save (at least 0.20 m; the
+side's start corner stays). Dragging the active room moves it, as in Draw. **Undo** and **Redo**
 (Ctrl+Z, Ctrl+Shift+Z) undo every saved change of this session, each as one save. Undo restores
 footprints only: an area created by drawing stays in Home Assistant.
 On a dashboard, add a card with `type: custom:spatial-map-card`, best in a panel view; its
@@ -82,7 +82,7 @@ licences of the bundled MapLibre, Lit, turf and polyclip-ts (with bignumber.js a
   "Could not save" and keeps the history position. Side lengths are MapLibre Markers holding a
   native number field.
 - Align sends only `bearing_deg`: the direction of the OSM building's outer edge nearest the
-  click, as its counter-clockwise ring runs.
+  click, with the building on its left.
 - The OSM building is the `buildings` part under the click, as MapLibre renders it from one
   tile: a building cut by a tile border gives only the part in that tile.
 

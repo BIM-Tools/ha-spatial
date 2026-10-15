@@ -32,3 +32,8 @@ test.each([
 ])("wallBearingAt near the wall from %j gives its bearing", (from, to, expected) => {
   expect(Math.abs(wallBearingAt(building, midpoint(from, to)) - expected)).toBeLessThan(0.5);
 });
+
+test("wallBearingAt reads a clockwise ring as its counter-clockwise twin", () => {
+  const clockwise = polygon([[p0, p3, p2, p1, p0]]).geometry as Polygon;
+  expect(Math.abs(wallBearingAt(clockwise, midpoint(p0, p1)) - 20)).toBeLessThan(0.5);
+});
