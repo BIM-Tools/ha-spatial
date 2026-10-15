@@ -4,14 +4,13 @@ import type { FeatureCollection, MultiPolygon, Polygon } from "geojson";
 import { LitElement, type PropertyValues, css, html, nothing } from "lit";
 import {
   type GeoJSONSource,
-  Marker,
   type MapMouseEvent,
   Map as MapLibreMap,
   type StyleSpecification,
   setWorkerUrl,
 } from "maplibre-gl";
 import { bounds, floorsByLevel, mapBearing, styleUrl, withMapTilesToken } from "./map-view";
-import { alignOutline, buildingAt, outlineBearing } from "./outline";
+import { buildingAt, wallBearingAt } from "./outline";
 import { RoomEditor, type Tool } from "./room-editor";
 
 // The parts of Home Assistant's `hass` object this panel uses.
@@ -128,7 +127,6 @@ class SpatialPanel extends LitElement {
   private _unsubscribe?: () => void;
   private _areas: FeatureCollection = EMPTY;
   private _outline: Polygon | FeatureCollection = EMPTY;
-  private _handles: Marker[] = [];
   // Only the admin panel edits; the card stays read-only.
   private _editor?: RoomEditor;
 
@@ -179,14 +177,8 @@ class SpatialPanel extends LitElement {
           : nothing}
         ${this.card
           ? nothing
-          : html`<button @click=${this._toggleBuilding}>Building</button>`}
-        ${this._picking
-          ? html`<span>
-              Click a building near the wall to align with${this._handles.length
-                ? ", or drag a corner"
-                : nothing}
-            </span>`
-          : nothing}
+          : html`<button aria-pressed=${this._picking} @click=${this._toggleAlign}>Align</button>`}
+        ${this._picking ? html`<span>Click your house near the wall the rooms follow</span>` : nothing}
         ${this._message ? html`<span>${this._message}</span>` : nothing}
         ${this._editor?.status ? html`<span>${this._editor.status}</span>` : nothing}
         ${this._failed ? html`<span>Map could not load</span>` : nothing}
@@ -225,8 +217,6 @@ class SpatialPanel extends LitElement {
     this.hass?.connection.removeEventListener("ready", this._keepToken);
     clearInterval(this._tokenTimer);
     this._unsubscribe?.();
-    for (const handle of this._handles) handle.remove();
-    this._handles = [];
     this._picking = false;
     this._editor?.detach();
     this._editor = undefined;
@@ -261,23 +251,25 @@ class SpatialPanel extends LitElement {
 
     const loadAreas = async () => {
       const feed = call<FeatureCollection>("spatial/geojson");
-      await editor?.refresh(feed);
+      const site = call<Site>("spatial/site");
+      await editor?.refresh(feed, site);
       this._areas = await feed;
       this._floors = floorsByLevel(this._areas);
       this._map?.getSource<GeoJSONSource>("areas")?.setData(this._areas);
+      this._outline = (await site).outline ?? EMPTY;
+      this._map?.getSource<GeoJSONSource>("outline")?.setData(this._outline);
+      return site;
     };
     const editor = this.card
       ? undefined
       : new RoomEditor(hass.connection, () => this.requestUpdate(), loadAreas, () => this._bearing);
     this._editor = editor;
-    await loadAreas();
+    const site = await loadAreas();
     if (stopped()) return;
     // Only a new bearing is applied; re-centring would move the camera while
     // the user looks around. A static map has no user, so it frames again.
     const onUpdate = async () => {
-      await loadAreas();
-      const { bearing_deg, outline } = await call<Site>("spatial/site");
-      this._showOutline(outline);
+      const { bearing_deg } = await loadAreas();
       if (this.floor) {
         this._bearing = bearing_deg;
         this._fit();
@@ -304,9 +296,7 @@ class SpatialPanel extends LitElement {
     }
     this._unsubscribe = unsubscribe;
 
-    const site = await call<Site>("spatial/site");
     this._bearing = site.bearing_deg;
-    this._outline = site.outline ?? EMPTY;
     this._darkMode = hass.themes.darkMode;
     const style = await loadStyle(this._darkMode);
     if (stopped()) return;
@@ -387,87 +377,20 @@ class SpatialPanel extends LitElement {
   private _toggleTool(tool: Tool) {
     this._picking = false;
     this._message = "";
-    this._placeHandles();
     this._editor?.setTool(this._editor.tool === tool ? undefined : tool);
   }
 
-  private _showOutline(outline: Polygon | null) {
-    this._outline = outline ?? EMPTY;
-    this._drawOutline();
-  }
-
-  private _drawOutline() {
-    this._map?.getSource<GeoJSONSource>("outline")?.setData(this._outline);
-    this._placeHandles();
-  }
-
-  private _toggleBuilding() {
+  private _toggleAlign() {
     this._picking = !this._picking;
     this._message = "";
     this._editor?.setTool(undefined);
-    this._placeHandles();
   }
 
-  // In building mode, one draggable handle per corner of the stored outline; the
-  // closing vertex shares the first.
-  private _placeHandles() {
-    for (const handle of this._handles) handle.remove();
-    this._handles = [];
-    // The hint offers a corner drag only while there are handles; the render runs after this.
-    this.requestUpdate();
-    const map = this._map;
-    if (!this._picking || !map || this._outline.type !== "Polygon") return;
-    this._handles = this._outline.coordinates[0].slice(0, -1).map((corner) => {
-      const handle = new Marker({ draggable: true }).setLngLat(corner as [number, number]).addTo(map);
-      handle.on("dragend", this._moveCorner);
-      return handle;
-    });
-  }
-
-  private _moveCorner = () => {
-    if (!this._handles.length) return;
-    const ring = this._handles.map((handle) => {
-      const { lng, lat } = handle.getLngLat();
-      return [lng, lat];
-    });
-    ring.push(ring[0]);
-    const holes = this._outline.type === "Polygon" ? this._outline.coordinates.slice(1) : [];
-    // Interior rings (courtyards) of the stored outline stay as they are.
-    const outline: Polygon = {
-      type: "Polygon",
-      coordinates: [ring, ...holes],
-    };
-    this._map?.getSource<GeoJSONSource>("outline")?.setData(outline);
-    this._save(outline, outlineBearing(outline));
-  };
-
-  // The saved outline comes back through `spatial/subscribe`, which draws it and turns
-  // the map; a rejected save puts the stored outline back.
-  private _save(outline: Polygon, bearingDeg: number) {
-    this.hass!.connection.sendMessagePromise({
-      type: "spatial/site/update",
-      outline,
-      bearing_deg: bearingDeg,
-    }).then(
-      () => {
-        this._message = "";
-      },
-      (err) => {
-        console.error(err);
-        this._message = "Could not save the outline";
-        this._drawOutline();
-      },
-    );
-  }
-
-  // One tap picks the building under it and the wall nearest to it, and ends the mode.
+  // One tap sets the site axis from the wall of the building nearest to it, and ends the mode.
+  // The new bearing comes back through `spatial/subscribe`, which turns the map.
   private _pick(event: MapMouseEvent) {
     if (!this._picking) return;
-    // A click on a handle reaches the map too.
-    const target = event.originalEvent.target as Node | null;
-    if (this._handles.some((handle) => handle.getElement().contains(target))) return;
     this._picking = false;
-    this._placeHandles();
     const map = this._map!;
     const layers = map
       .getStyle()
@@ -482,12 +405,15 @@ class SpatialPanel extends LitElement {
       this._message = "No building here";
       return;
     }
-    const aligned = alignOutline(building, at);
-    if (!aligned) {
-      this._message = "Building too small or irregular";
-      return;
-    }
-    this._save(aligned.outline, aligned.bearingDeg);
+    this.hass!.connection.sendMessagePromise({ type: "spatial/site/update", bearing_deg: wallBearingAt(building, at) }).then(
+      () => {
+        this._message = "";
+      },
+      (err) => {
+        console.error(err);
+        this._message = "Could not save";
+      },
+    );
   }
 
   private _applyFloor() {

@@ -5,8 +5,8 @@ The map panel and the dashboard card. Source here, built into `custom_components
 ## Why
 
 - See the floors and rooms on Home Assistant's own map.
-- Pick the building and the wall the site aligns to, with one click on the map.
-- Draw each room as boxes along that wall, straight onto its Home Assistant area; type exact side lengths; undo and redo.
+- Pick the wall the site aligns to, with one click on a building on the map.
+- Draw the building outline and each room as boxes along that wall, straight onto its Home Assistant area; type exact side lengths; undo and redo.
 - The panel opens from the integration, no dashboard needed.
 - The card shows the same view on a dashboard, also for non-admin users.
 
@@ -14,20 +14,19 @@ The map panel and the dashboard card. Source here, built into `custom_components
 
 Open Settings > Devices & services > Spatial > Configure. **All** stacks the floors in 3D;
 a floor button shows that floor as a plan with room outlines.
-**Building**, then a click on your building just inside one wall, saves the building outline
-(0.25 m inside the OSM outline) and turns the map so that wall is horizontal. **Building** again
-shows a handle on every corner; dragging one saves the outline, and moving one of the first
-wall's two corners turns the map. **Building** once more hides the handles. The card shows the
-outline but has no Building button.
-**Draw**, on a floor, draws rooms. The strip under the toolbar lists the floor's areas, those
-without a footprint first; the highlighted one is drawn next. Press and drag from one corner to
+**Align**, then a click on your house near the wall the rooms follow, saves that wall's bearing
+and turns the map so that wall is horizontal. The card shows the outline but has no Align button.
+**Draw**, on a floor, draws the building outline and rooms. The strip under the toolbar starts
+with **Building**, then lists the floor's areas, those without a footprint first; the highlighted
+one is drawn next and its shape is outlined on the map. Without an outline, Building comes first
+on every floor: draw it along the facade as the map shows it. Press and drag from one corner to
 the opposite one, or click one corner and then the other (two taps on a phone). Each box is saved
 at once; a box against the area's footprint joins it, a box apart from it is refused. Then the
 next area without a footprint is highlighted. A drag that starts inside the highlighted area's
 footprint moves it instead; a click there still sets a corner. **+ New area** creates "Room 1", "Room 2" and so
 on, on this floor. Tapping the highlighted area again renames it. Hold Space and drag to pan;
 Escape cancels a box. **All** shows the floors in 3D and does not draw.
-**Adjust**, on a floor: a tap on a room makes its area active. When the room is a rectangle along
+**Adjust**, on a floor: a tap on a room makes its area active; the Building pill makes the outline active. When the room is a rectangle along
 the site axis, each side shows its length as a button; tap one, type the length in metres and
 press Enter to save (at least 0.20 m; the side's start corner stays). Dragging the active room
 moves it, as in Draw. **Undo** and **Redo**
@@ -45,7 +44,7 @@ On a dashboard, add a card with `type: custom:spatial-map-card`, best in a panel
 
 The build output is not in git. Run a build or the `frontend` service before opening the panel
 locally. On a published GitHub release, `.github/workflows/release.yml` builds it, adds the
-licences of the bundled MapLibre, Lit, turf, JSTS, d3 and polyclip-ts (with bignumber.js and splaytree-ts) code and uploads `spatial.zip`, which HACS installs.
+licences of the bundled MapLibre, Lit, turf and polyclip-ts (with bignumber.js and splaytree-ts) code and uploads `spatial.zip`, which HACS installs.
 
 ## Architecture
 
@@ -54,12 +53,12 @@ licences of the bundled MapLibre, Lit, turf, JSTS, d3 and polyclip-ts (with bign
 | File | Purpose |
 | --- | --- |
 | `src/spatial-panel.ts` | The panel element: floor buttons, the MapLibre map, websocket calls |
-| `src/room-editor.ts` | Drawing, moving and adjusting in the panel: the area strip, mouse and tap input, side length fields, undo and redo, saving each action, area creation and rename |
-| `src/area-strip.ts` | The strip of area chips: order, next area, new area names, rename |
+| `src/room-editor.ts` | Drawing, moving and adjusting rooms and the building outline in the panel: the area strip, mouse and tap input, side length fields, undo and redo, saving each action, area creation and rename |
+| `src/area-strip.ts` | The strip of pills, Building first: order, next area, new area names, rename |
 | `src/history.ts` | Session undo and redo of footprint changes |
 | `src/spatial-card.ts` | The card: wraps the panel element, without the menu button; loads the panel bundle when created |
 | `src/map-view.ts` | Pure helpers: map bearing, style URL, map tiles token, floor order, room bounds |
-| `src/outline.ts` | Building outline from an OSM building: inset, orientation and start wall, all with turf |
+| `src/outline.ts` | The OSM building under a click and the bearing of its nearest wall, with turf |
 | `src/plan.ts` | Box from screen corners, side lengths, resizing, moving and joining footprints, all with turf |
 | `test/` | Unit tests (vitest) |
 
@@ -73,17 +72,17 @@ licences of the bundled MapLibre, Lit, turf, JSTS, d3 and polyclip-ts (with bign
 | Versions | Packages shared with Home Assistant's frontend use its exact versions, set by `tools/sync_frontend_versions.py` |
 
 - Uses only the public websocket API and Home Assistant's area and floor registry commands. Its
-  geometry (the outline, boxes, joining a box to a footprint) is done with turf; lengths and m²
+  geometry (the wall bearing, boxes, joining a box to a footprint) is done with turf; lengths and m²
   shown while drawing are previews, a saved room's `area_m2` comes from the integration.
 - A box is a screen rectangle, unprojected corner by corner, on the flat map turned to the site
   axis, so its sides follow the picked wall. Draw turns the map back to that axis and disables
   rotating and tilting until it ends.
-- Every box, move, resize, undo and redo is one `spatial/area/update_geometries` batch, one at a
-  time; boxes, moves and resizes are recorded in the session history. A rejected save reloads the rooms, says
+- Every box, move, resize, undo and redo is one save, one at a time: `spatial/site/update`
+  with `outline` for the building, else one `spatial/area/update_geometries` batch; boxes, moves and resizes are recorded in the session history. A rejected save reloads the rooms, says
   "Could not save" and keeps the history position. Side lengths are MapLibre Markers holding a
   native number field.
-- The outline is the outer shell only: courtyards (holes) of the OSM building are dropped, and a
-  click is matched to the outer walls.
+- Align sends only `bearing_deg`: the direction of the OSM building's outer edge nearest the
+  click, as its counter-clockwise ring runs.
 - The OSM building is the `buildings` part under the click, as MapLibre renders it from one
   tile: a building cut by a tile border gives only the part in that tile.
 

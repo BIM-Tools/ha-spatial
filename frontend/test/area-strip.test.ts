@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // Checks the area strip's ordering helpers and how a user taps and renames its chips.
 import { expect, test, vi } from "vitest";
-import { NEW_AREA, nextActive, newAreaName, stripOrder, type AreaEntry } from "../src/area-strip";
+import { BUILDING, NEW_AREA, nextActive, newAreaName, stripOrder, type AreaEntry } from "../src/area-strip";
 
 const area = (area_id: string, name: string, floor_id: string | null = "f1"): AreaEntry => ({
   area_id,
@@ -55,9 +55,9 @@ test("tapping a chip selects its area, and the last chip selects a new one", asy
   const selected = vi.fn();
   strip.addEventListener("area-select", (e) => selected((e as CustomEvent).detail));
   const all = chips(strip);
-  expect(all.map((c) => c.textContent?.trim())).toEqual(["Kitchen", "Bath", "+ New area"]);
-  all[1].click();
+  expect(all.map((c) => c.textContent?.trim())).toEqual(["Building", "Kitchen", "Bath", "+ New area"]);
   all[2].click();
+  all[3].click();
   expect(selected).toHaveBeenNthCalledWith(1, { areaId: "b" });
   expect(selected).toHaveBeenNthCalledWith(2, { areaId: NEW_AREA });
 });
@@ -66,12 +66,12 @@ test("tapping the active chip again shows a rename field only on that chip", asy
   const strip = mountStrip("a");
   await strip.updateComplete;
   expect(strip.shadowRoot!.querySelector("input")).toBeNull();
-  chips(strip)[1].click();
+  chips(strip)[2].click();
   await strip.updateComplete;
   expect(strip.shadowRoot!.querySelector("input")).toBeNull();
   strip.active = "a";
   await strip.updateComplete;
-  chips(strip)[0].click();
+  chips(strip)[1].click();
   await strip.updateComplete;
   expect(strip.shadowRoot!.querySelectorAll("input")).toHaveLength(1);
 });
@@ -82,7 +82,7 @@ test("Enter renames the active area and Escape cancels", async () => {
   const renamed = vi.fn();
   strip.addEventListener("area-rename", (e) => renamed((e as CustomEvent).detail));
   const open = async () => {
-    chips(strip)[0].click();
+    chips(strip)[1].click();
     await strip.updateComplete;
     return strip.shadowRoot!.querySelector("input")!;
   };
@@ -110,14 +110,14 @@ test("tapping the active chip opens the rename field without selecting", async (
   await strip.updateComplete;
   const selected = vi.fn();
   strip.addEventListener("area-select", selected);
-  chips(strip)[0].click();
+  chips(strip)[1].click();
   expect(selected).not.toHaveBeenCalled();
 });
 
 test("a new active area closes the rename field", async () => {
   const strip = mountStrip("a");
   await strip.updateComplete;
-  chips(strip)[0].click();
+  chips(strip)[1].click();
   await strip.updateComplete;
   strip.active = "b";
   await strip.updateComplete;
@@ -139,5 +139,23 @@ test("an area with the id new and the new-area chip are never both active", asyn
   const strip = mountStrip("new");
   strip.order = [area("new", "New")];
   await strip.updateComplete;
-  expect(chips(strip).map((c) => c.getAttribute("aria-pressed"))).toEqual(["true", "false"]);
+  expect(chips(strip).map((c) => c.getAttribute("aria-pressed"))).toEqual(["false", "true", "false"]);
+});
+
+test("the Building pill comes first, linked when there is an outline, and is never renamed", async () => {
+  const strip = mountStrip(BUILDING);
+  await strip.updateComplete;
+  const selected = vi.fn();
+  strip.addEventListener("area-select", (e) => selected((e as CustomEvent).detail));
+  expect(chips(strip)[0].getAttribute("data-linked")).toBe("false");
+  strip.linked = new Set([BUILDING]);
+  await strip.updateComplete;
+  expect(chips(strip)[0].getAttribute("data-linked")).toBe("true");
+  chips(strip)[0].click();
+  await strip.updateComplete;
+  expect(strip.shadowRoot!.querySelector("input")).toBeNull();
+  strip.active = "a";
+  await strip.updateComplete;
+  chips(strip)[0].click();
+  expect(selected).toHaveBeenCalledWith({ areaId: BUILDING });
 });

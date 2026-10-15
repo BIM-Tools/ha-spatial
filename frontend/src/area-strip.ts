@@ -1,4 +1,4 @@
-// The row of area chips the user picks the next room to draw from, with in-place rename.
+// The row of pills, the building and then its areas, the user picks the next space to draw from, with in-place rename.
 
 import { LitElement, css, html, nothing } from "lit";
 
@@ -8,8 +8,9 @@ export interface AreaEntry {
   floor_id: string | null;
 }
 
-// Empty, so it is never a registry id.
+// Neither is ever a registry id.
 export const NEW_AREA = "";
+export const BUILDING = "#building";
 
 export const stripOrder = (
   areas: AreaEntry[],
@@ -88,20 +89,13 @@ class SpatialAreaStrip extends LitElement {
   }
 
   render() {
-    return html`${this.order.map((area) =>
+    return html`${this._pill(BUILDING, "Building")}${this.order.map((area) =>
         this._renaming && area.area_id === this.active
           ? html`<input
               .value=${area.name}
               @keydown=${(e: KeyboardEvent) => this._key(e, area.area_id)}
             />`
-          : html`<button
-              aria-pressed=${area.area_id === this.active}
-              data-linked=${this.linked.has(area.area_id)}
-              title=${this.linked.has(area.area_id) ? nothing : "No shape yet"}
-              @click=${() => this._tap(area.area_id)}
-            >
-              ${area.name}
-            </button>`,
+          : this._pill(area.area_id, area.name),
       )}
       <button
         aria-pressed=${this.active === NEW_AREA}
@@ -127,8 +121,19 @@ class SpatialAreaStrip extends LitElement {
     }
   }
 
+  private _pill(areaId: string, name: string) {
+    return html`<button
+      aria-pressed=${areaId === this.active}
+      data-linked=${this.linked.has(areaId)}
+      title=${this.linked.has(areaId) ? nothing : "No shape yet"}
+      @click=${() => this._tap(areaId)}
+    >
+      ${name}
+    </button>`;
+  }
+
   private _tap(areaId: string) {
-    if (areaId === this.active && areaId !== NEW_AREA) {
+    if (areaId === this.active && areaId !== NEW_AREA && areaId !== BUILDING) {
       this._renaming = true;
       return;
     }

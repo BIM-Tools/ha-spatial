@@ -109,6 +109,8 @@ def draw_kitchen(websocket):
         panel.locator(".maplibregl-canvas").wait_for()
         panel.get_by_role("button", name="Ground", exact=True).click()
         panel.get_by_role("button", name="Draw", exact=True).click()
+        # Without an outline the Building pill comes first.
+        panel.get_by_role("button", name="Kitchen", exact=True).click()
         box = panel.locator("#map").bounding_box()
         x = box["x"] + box["width"] / 2 - 75
         y = box["y"] + box["height"] / 2 - 75

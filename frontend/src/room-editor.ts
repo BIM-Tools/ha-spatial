@@ -1,10 +1,10 @@
-// Draws, moves and adjusts rooms on the panel's map along the site axis, saving each action at once to Home Assistant.
+// Draws, moves and adjusts rooms and the building outline on the panel's map along the site axis, saving each action at once to Home Assistant.
 
 import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
 import type { FeatureCollection, Polygon, Position } from "geojson";
 import { html, nothing } from "lit";
 import { type GeoJSONSource, type LngLat, Marker, type MapMouseEvent, type Map as MapLibreMap } from "maplibre-gl";
-import { type AreaEntry, NEW_AREA, newAreaName, nextActive, stripOrder } from "./area-strip";
+import { type AreaEntry, BUILDING, NEW_AREA, newAreaName, nextActive, stripOrder } from "./area-strip";
 import { type Change, type FootprintBatch, History } from "./history";
 import { byLevel, mapBearing } from "./map-view";
 import {
@@ -67,7 +67,7 @@ export class RoomEditor {
   private _corner?: LngLat;
   private _press?: Pixel;
   private _dragging = false;
-  // Set when a press starts inside the active room's footprint: a drag then moves the room.
+  // Set when a press starts inside the active space's footprint: a drag then moves it.
   private _grab?: Grab;
   private _spaceHeld = false;
   private _saving = false;
@@ -109,15 +109,17 @@ export class RoomEditor {
   }
 
   addLayers(map: MapLibreMap) {
+    const paint = {
+      "line-color": getComputedStyle(map.getContainer()).getPropertyValue("--primary-color").trim() || "#03a9f4",
+      "line-width": 4,
+    };
+    map.addLayer({ id: "spatial-active", type: "line", source: "areas", filter: this._activeFilter(), paint });
     map.addLayer({
-      id: "spatial-active",
+      id: "spatial-active-building",
       type: "line",
-      source: "areas",
-      filter: this._activeFilter(),
-      paint: {
-        "line-color": getComputedStyle(map.getContainer()).getPropertyValue("--primary-color").trim() || "#03a9f4",
-        "line-width": 4,
-      },
+      source: "outline",
+      layout: { visibility: this._buildingVisibility() },
+      paint,
     });
     map.addSource("spatial-draft", { type: "geojson", data: EMPTY });
     map.addLayer({
@@ -134,8 +136,8 @@ export class RoomEditor {
     this._map = undefined;
   }
 
-  /** Takes the footprints from the requested feed and re-reads the area and floor registries. */
-  async refresh(feedRequest: Promise<FeatureCollection>) {
+  /** Takes the footprints from the requested feed and site, and re-reads the area and floor registries. */
+  async refresh(feedRequest: Promise<FeatureCollection>, siteRequest: Promise<{ outline: Polygon | null }>) {
     const started = ++this._changes;
     const registries = Promise.all([
       this._connection.sendMessagePromise<AreaEntry[]>({ type: "config/area_registry/list" }),
@@ -145,7 +147,7 @@ export class RoomEditor {
       console.error(err);
       return undefined;
     });
-    const [feed, lists] = await Promise.all([feedRequest, registries]);
+    const [feed, { outline }, lists] = await Promise.all([feedRequest, siteRequest, registries]);
     // A save acknowledged or a refresh started since then knows newer footprints.
     if (started !== this._changes) return;
     if (lists) {
@@ -153,9 +155,10 @@ export class RoomEditor {
       this.floors = [...lists[1]].sort(byLevel);
     }
     this._footprints = new Map(feed.features.map((feature) => [String(feature.id), feature.geometry as Polygon]));
+    if (outline) this._footprints.set(BUILDING, outline);
     this._sizesM2 = new Map(feed.features.map((feature) => [String(feature.id), feature.properties?.area_m2]));
     const order = this._order();
-    if (this._active !== NEW_AREA && !order.some((area) => area.area_id === this._active)) {
+    if (![NEW_AREA, BUILDING, ...order.map((area) => area.area_id)].includes(this._active)) {
       this._setActive(order[0]?.area_id ?? NEW_AREA);
     }
     this._showSides();
@@ -167,7 +170,7 @@ export class RoomEditor {
     this._message = "";
     this._cancel();
     this._applyInput();
-    this._select(nextActive(this._order(), this._linked()));
+    this._select(this._nextActive());
   }
 
   setTool(tool: Tool | undefined) {
@@ -239,9 +242,20 @@ export class RoomEditor {
     return ["==", ["get", "area_id"], this._active];
   }
 
+  private _buildingVisibility() {
+    return this._active === BUILDING ? "visible" : "none";
+  }
+
   private _setActive(areaId: string) {
     this._active = areaId;
-    if (this._map?.getLayer("spatial-active")) this._map.setFilter("spatial-active", this._activeFilter());
+    if (!this._map?.getLayer("spatial-active")) return;
+    this._map.setFilter("spatial-active", this._activeFilter());
+    this._map.setLayoutProperty("spatial-active-building", "visibility", this._buildingVisibility());
+  }
+
+  // The outline comes first, as it frames the rooms.
+  private _nextActive() {
+    return this._footprints.has(BUILDING) ? nextActive(this._order(), this._linked()) : BUILDING;
   }
 
   private _select(areaId: string) {
@@ -278,6 +292,7 @@ export class RoomEditor {
     const held = event.type === "keydown";
     if (held === this._spaceHeld) return;
     this._spaceHeld = held;
+    if (held && this._grab) this._cancel();
     this._applyInput(false);
   };
 
@@ -476,7 +491,7 @@ export class RoomEditor {
       // A retry after a failed save goes to the created area, not to another new one.
       if (this._floor === floor) this._setActive(id);
       await this._apply({ before: { [id]: current ?? null }, after: { [id]: footprint } });
-      if (this._floor === floor) this._setActive(nextActive(this._order(), this._linked()));
+      if (this._floor === floor) this._setActive(this._nextActive());
     });
   }
 
@@ -513,10 +528,15 @@ export class RoomEditor {
     if (failed) await this._reloadRooms().catch(console.error);
   }
 
-  private async _send(areas: FootprintBatch) {
-    await this._connection.sendMessagePromise({ type: "spatial/area/update_geometries", areas });
+  // Every batch holds one key, so it is either the site outline or areas, never both.
+  private async _send(batch: FootprintBatch) {
+    await this._connection.sendMessagePromise(
+      BUILDING in batch
+        ? { type: "spatial/site/update", outline: batch[BUILDING] }
+        : { type: "spatial/area/update_geometries", areas: batch },
+    );
     this._changes++;
-    for (const [areaId, footprint] of Object.entries(areas)) {
+    for (const [areaId, footprint] of Object.entries(batch)) {
       if (footprint) this._footprints.set(areaId, footprint);
       else this._footprints.delete(areaId);
     }

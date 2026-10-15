@@ -11,7 +11,7 @@ Room footprints for Home Assistant areas, on the same map as your zones.
 
 ## Status
 
-Early version. The API and storage format can still change. The editor can only pick the building outline so far.
+Early version. The API and storage format can still change. The editor draws the building outline and the rooms as boxes along one wall.
 
 ## Parts
 
@@ -46,7 +46,7 @@ Early version. The API and storage format can still change. The editor can only 
 | Area | `area_m2` is net: the drawn polygon shrunk by 50 mm on every side |
 | Building, sub-spaces | Home Assistant labels |
 | Site anchor | One bearing and optional building outline per installation; the centre follows the footprints, else the outline; aligns views only |
-| Finding the building | OSM buildings from Home Assistant's own map tiles |
+| Finding the building | OSM buildings in Home Assistant's map tiles set the axis only; the outline is drawn on the map |
 | Dependencies | Pure Python |
 | Concepts | Structure of the W3C Building Topology Ontology (BOT), Home Assistant naming |
 

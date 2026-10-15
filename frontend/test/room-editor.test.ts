@@ -45,8 +45,9 @@ const pixelBox = (x1: number, y1: number, x2: number, y2: number): Polygon => {
 };
 
 const KITCHEN = pixelBox(0, 0, 50, 50);
+const OUTLINE = pixelBox(0, 100, 100, 200);
 
-const mountEditor = (overrides: Reply = async () => undefined) => {
+const mountEditor = (overrides: Reply = async () => undefined, outline: Polygon | null = OUTLINE) => {
   let registry = [
     { area_id: "kitchen", name: "Kitchen", floor_id: "ground" },
     { area_id: "bath", name: "Bath", floor_id: "ground" },
@@ -59,7 +60,7 @@ const mountEditor = (overrides: Reply = async () => undefined) => {
     if (overridden !== undefined) return overridden;
     switch (message.type) {
       case "spatial/site":
-        return { lon: 5, lat: 52, bearing_deg: SITE_BEARING, outline: null };
+        return { lon: 5, lat: 52, bearing_deg: SITE_BEARING, outline };
       case "spatial/geojson":
         return { type: "FeatureCollection", features: feed };
       case "config/area_registry/list":
@@ -172,7 +173,7 @@ test("the panel's floor buttons come from the floor registry, with No floor and 
   await vi.waitFor(() =>
     expect(
       [...(panel.shadowRoot?.querySelectorAll(".bar > button") ?? [])].map((b) => b.textContent?.trim()),
-    ).toEqual(["All", "Ground floor", "Loft", "No floor", "Draw", "Adjust", "Undo", "Redo", "Building"]),
+    ).toEqual(["All", "Ground floor", "Loft", "No floor", "Draw", "Adjust", "Undo", "Redo", "Align"]),
   );
 });
 
@@ -206,7 +207,7 @@ test("the strip is shown in the panel and not in the card", async () => {
 test("on a floor the first area without a footprint is active", async () => {
   const { panel } = mountEditor();
   await showFloor(panel);
-  await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Bath", "Hall", "Kitchen", "+ New area"]));
+  await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Building", "Bath", "Hall", "Kitchen", "+ New area"]));
   expect(activeChip(panel)).toBe("Bath");
 });
 
@@ -435,7 +436,7 @@ test("an update that removes the active area makes the first area in the order a
   ]);
   setFeed([]);
   await onUpdateOf(connection)();
-  await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Bath", "Hall", "+ New area"]));
+  await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Building", "Bath", "Hall", "+ New area"]));
   expect(activeChip(panel)).toBe("Bath");
   expect(activeFilter()).toEqual(["==", ["get", "area_id"], "bath"]);
 });
@@ -561,10 +562,10 @@ test("a failed registry read does not stop the map", async () => {
   errors.mockRestore();
 });
 
-test("Draw clears a building message", async () => {
+test("Draw clears an Align message", async () => {
   const { panel } = mountEditor();
   await showFloor(panel);
-  barButton(panel, "Building")!.click();
+  barButton(panel, "Align")!.click();
   handlers.click(mouse(0, 0));
   await vi.waitFor(() => expect(barText(panel)).toContain("No building here"));
   barButton(panel, "Draw")!.click();
@@ -871,13 +872,14 @@ test("a refresh held back until after a save is acknowledged keeps the saved foo
 
 test("Draw chosen before the map attaches takes effect when it does", async () => {
   let release = () => {};
-  let hold = true;
-  const { panel } = mountEditor(async (message) => {
-    if (message.type !== "spatial/site" || !hold) return undefined;
-    hold = false;
-    await new Promise<void>((resolve) => (release = resolve));
-    return undefined;
-  });
+  // Holds the map style, the last step before the map is created.
+  vi.mocked(fetch).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => resolve({ json: async () => ({ sprite: [], glyphs: "/g", layers: [] }) } as Response);
+      }),
+  );
+  const { panel } = mountEditor();
   await vi.waitFor(() => expect(barButton(panel, "Ground floor")).toBeDefined());
   barButton(panel, "Ground floor")!.click();
   await settle(panel);
@@ -900,8 +902,8 @@ test("a pan between the two taps keeps the box on the first tapped spot", async 
 test("pills tell linked areas from unlinked ones by data-linked, without a dot", async () => {
   const { panel } = mountEditor();
   await showFloor(panel);
-  await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Bath", "Hall", "Kitchen", "+ New area"]));
-  expect(chips(panel).map((c) => c.getAttribute("data-linked"))).toEqual(["false", "false", "true", null]);
+  await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Building", "Bath", "Hall", "Kitchen", "+ New area"]));
+  expect(chips(panel).map((c) => c.getAttribute("data-linked"))).toEqual(["true", "false", "false", "true", null]);
 });
 
 test("the map highlights the active area's polygon and nothing for an unlinked or new area", async () => {
@@ -917,4 +919,96 @@ test("the map highlights the active area's polygon and nothing for an unlinked o
   chip(panel, "+ New area").click();
   await settle(panel);
   expect(activeFilter()).toEqual(["==", ["get", "area_id"], ""]);
+});
+
+const siteSaves = (connection: { sendMessagePromise: unknown }) =>
+  sent(connection, "spatial/site/update") as unknown as { type: string; outline: Polygon | null }[];
+
+const buildingHighlight = () =>
+  layers.find((layer) => layer.id === "spatial-active-building")?.layout?.visibility;
+
+test("without an outline the Building pill is active on every floor; a box saves the outline, then the first unlinked area is active", async () => {
+  const { panel, connection } = mountEditor(undefined, null);
+  await startDrawing(panel);
+  await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Building", "Bath", "Hall", "Kitchen", "+ New area"]));
+  expect(activeChip(panel)).toBe("Building");
+  expect(chip(panel, "Building").getAttribute("data-linked")).toBe("false");
+  barButton(panel, "Loft")!.click();
+  await settle(panel);
+  expect(activeChip(panel)).toBe("Building");
+  barButton(panel, "Ground floor")!.click();
+  await settle(panel);
+  tap(100, 0);
+  tap(140, 30);
+  await vi.waitFor(() => expect(siteSaves(connection)).toHaveLength(1));
+  const [saved] = siteSaves(connection);
+  expect(Object.keys(saved)).toEqual(["type", "outline"]);
+  expect(area(saved.outline!)).toBeCloseTo(12, 1);
+  expect(saves(connection)).toEqual([]);
+  await vi.waitFor(() => expect(activeChip(panel)).toBe("Bath"));
+  expect(chip(panel, "Building").getAttribute("data-linked")).toBe("true");
+});
+
+test("undo of the first outline box removes the outline", async () => {
+  const { panel, connection } = mountEditor(undefined, null);
+  await startDrawing(panel);
+  tap(100, 0);
+  tap(140, 30);
+  await vi.waitFor(() => expect(barButton(panel, "Undo")!.disabled).toBe(false));
+  barButton(panel, "Undo")!.click();
+  await vi.waitFor(() => expect(siteSaves(connection)).toHaveLength(2));
+  expect(siteSaves(connection)[1]).toEqual({ type: "spatial/site/update", outline: null });
+});
+
+test("with the Building pill active the outline is highlighted and a box against it joins it", async () => {
+  const { panel, connection } = mountEditor();
+  await startDrawing(panel);
+  expect(buildingHighlight()).toBe("none");
+  chip(panel, "Building").click();
+  await settle(panel);
+  expect(buildingHighlight()).toBe("visible");
+  tap(90, 120);
+  tap(150, 170);
+  await vi.waitFor(() => expect(siteSaves(connection)).toHaveLength(1));
+  expect(area(siteSaves(connection)[0].outline!)).toBeCloseTo(125, 0);
+  expect(saves(connection)).toEqual([]);
+  chip(panel, "Kitchen").click();
+  await settle(panel);
+  expect(buildingHighlight()).toBe("none");
+});
+
+test("a drag inside the outline with the Building pill active moves the outline", async () => {
+  const { panel, connection } = mountEditor();
+  await startDrawing(panel);
+  chip(panel, "Building").click();
+  await settle(panel);
+  handlers.mousedown(mouse(50, 150));
+  handlers.mousemove(mouse(70, 150));
+  handlers.mouseup(mouse(70, 150));
+  await vi.waitFor(() => expect(siteSaves(connection)).toHaveLength(1));
+  expectCornersNear(siteSaves(connection)[0].outline!, pixelBox(20, 100, 120, 200));
+});
+
+test("typing a side of the outline in Adjust saves the outline", async () => {
+  const { panel, connection } = mountEditor();
+  await startAdjusting(panel);
+  chip(panel, "Building").click();
+  await settle(panel);
+  typeSide(0, "12");
+  await vi.waitFor(() => expect(siteSaves(connection)).toHaveLength(1));
+  expect(edgeLengths(siteSaves(connection)[0].outline!)[0]).toBeCloseTo(12, 3);
+});
+
+test("Space during a move cancels it", async () => {
+  const { panel, connection } = mountEditor();
+  await startDrawing(panel);
+  await activateKitchen(panel);
+  handlers.mousedown(mouse(25, 25));
+  handlers.mousemove(mouse(45, 25));
+  key("keydown", " ");
+  expect(sources["spatial-draft"].data).toEqual(EMPTY);
+  handlers.mouseup(mouse(45, 25));
+  key("keyup", " ");
+  await settle(panel);
+  expect(saves(connection)).toEqual([]);
 });

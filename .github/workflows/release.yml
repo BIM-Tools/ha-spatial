@@ -25,8 +25,7 @@ jobs:
 
       # Every package that esbuild bundles into the panel and card, plus the copied MapLibre
       # chunks, needs its licence in the zip. All turf packages share one MIT notice (their
-      # LICENSE files are identical) and the JSTS notice is kept in the repository because
-      # the npm package ships none. Re-check the list when a dependency changes:
+      # LICENSE files are identical). Re-check the list when a dependency changes:
       # esbuild --metafile lists the bundled node_modules packages.
       - run: |
           out=custom_components/spatial/frontend
@@ -39,9 +38,6 @@ jobs:
           lit-element frontend/node_modules/lit-element/LICENSE
           lit-reactive-element frontend/node_modules/@lit/reactive-element/LICENSE
           turf frontend/node_modules/@turf/helpers/LICENSE
-          jsts frontend/licenses/LICENSE-jsts.txt
-          d3-array frontend/node_modules/d3-array/LICENSE
-          d3-geo frontend/node_modules/d3-geo/LICENSE
           point-in-polygon-hao frontend/node_modules/point-in-polygon-hao/LICENSE
           robust-predicates frontend/node_modules/robust-predicates/LICENSE
           polyclip-ts frontend/node_modules/polyclip-ts/LICENSE
