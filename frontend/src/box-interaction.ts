@@ -125,7 +125,7 @@ export class BoxInteraction {
     this._grab = footprint && booleanPointInPolygon(at, footprint) ? { footprint, from: at } : undefined;
     if (!this._grab && !canDraw) return;
     // Keeps MapLibre from panning the map under the room in Adjust.
-    if (this._grab) event.originalEvent.preventDefault?.();
+    if (this._grab) event.preventDefault();
     this._press = event.point;
     this._dragging = false;
   };

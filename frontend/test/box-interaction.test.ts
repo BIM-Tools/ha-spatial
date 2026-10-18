@@ -7,6 +7,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import {
   dragPan,
   dragRotate,
+  fakeMapLibre,
   handlers,
   queryRenderedFeatures,
   resetFakes,
@@ -65,7 +66,8 @@ const pointEvent = (x: number, y: number, button = 0) => {
   return {
     point: { x, y },
     lngLat: { lng, lat },
-    originalEvent: { button, preventDefault: vi.fn() },
+    originalEvent: { button },
+    preventDefault: vi.fn(),
   };
 };
 
