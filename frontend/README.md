@@ -53,7 +53,8 @@ licences of the bundled MapLibre, Lit, turf and polyclip-ts (with bignumber.js a
 | File | Purpose |
 | --- | --- |
 | `src/spatial-panel.ts` | The panel element: floor buttons, the MapLibre map, websocket calls |
-| `src/room-editor.ts` | Drawing, moving and adjusting rooms and the building outline in the panel: the area strip, mouse and tap input, side length fields, undo and redo, saving each action, area creation and rename |
+| `src/room-editor.ts` | The space editor controller: the area strip, side length fields, undo and redo, saving each action, area creation and rename |
+| `src/box-interaction.ts` | Pointer and keyboard drafting input on the map, screen-rectangle projection, Space pan, draft preview |
 | `src/area-strip.ts` | The strip of pills, Building first: order, next area, new area names, rename |
 | `src/history.ts` | Session undo and redo of footprint changes |
 | `src/spatial-card.ts` | The card: wraps the panel element, without the menu button; loads the panel bundle when created |
