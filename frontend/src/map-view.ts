@@ -41,25 +41,30 @@ export const withMapTilesToken = (
   return { url: onInstance.href, headers: { [TOKEN_HEADER]: token } };
 };
 
+export interface FloorLevel {
+  floor_id: string | null;
+  level: number | null;
+}
+
+/** Orders floors by level: floors without a level after those with one, no floor (`null`) last. */
+export const byLevel = (a: FloorLevel, b: FloorLevel) => {
+  const group = (floor: FloorLevel) => (floor.floor_id === null ? 2 : floor.level === null ? 1 : 0);
+  return group(a) - group(b) || (a.level ?? 0) - (b.level ?? 0);
+};
+
 /**
- * Distinct `properties.floor_id` of the features, by level: floors without a
- * level after those with one, `null` (no floor) last. Several floors may share
- * a level; they keep feed order.
+ * Distinct `properties.floor_id` of the features, by level. Several floors may
+ * share a level; they keep feed order.
  */
 export const floorsByLevel = (collection: FeatureCollection): (string | null)[] => {
   const levelOf = new Map<string | null, number | null>();
   for (const feature of collection.features) {
     levelOf.set(feature.properties?.floor_id ?? null, feature.properties?.level ?? null);
   }
-  const sortKey = (floorId: string | null) => {
-    const level = levelOf.get(floorId) ?? null;
-    return [floorId === null ? 2 : level === null ? 1 : 0, level ?? 0];
-  };
-  return [...levelOf.keys()].sort((a, b) => {
-    const [groupA, levelA] = sortKey(a);
-    const [groupB, levelB] = sortKey(b);
-    return groupA - groupB || levelA - levelB;
-  });
+  return [...levelOf]
+    .map(([floor_id, level]) => ({ floor_id, level }))
+    .sort(byLevel)
+    .map((floor) => floor.floor_id);
 };
 
 /**

@@ -1,85 +1,45 @@
-// Checks the outline against turf geometry built in metres, independent of the code under test.
+// Checks the building pick against turf geometry built in metres, independent of the code under test.
 
-import area from "@turf/area";
-import booleanClockwise from "@turf/boolean-clockwise";
 import destination from "@turf/destination";
-import distance from "@turf/distance";
-import { lineString, point, polygon } from "@turf/helpers";
-import nearestPointOnLine from "@turf/nearest-point-on-line";
-import transformRotate from "@turf/transform-rotate";
+import { polygon } from "@turf/helpers";
 import type { Polygon } from "geojson";
 import { expect, test } from "vitest";
-import { OUTLINE_OFFSET_M, alignOutline, buildingAt, outlineBearing } from "../src/outline";
+import { buildingAt, wallAt, wallBearingAt } from "../src/outline";
 
-const ROTATION = 20;
 type Pos = [number, number];
 
-// 10 m x 8 m rectangle at 52 N, built with turf in metres and rotated 20 degrees clockwise
-// around its south-west corner. Its south wall runs at bearing 110.
-const sw: Pos = [5, 52];
-const se = destination(sw, 10, 90, { units: "meters" }).geometry.coordinates as Pos;
-const ne = destination(se, 8, 0, { units: "meters" }).geometry.coordinates as Pos;
-const nw = destination(sw, 8, 0, { units: "meters" }).geometry.coordinates as Pos;
-const unrotated = polygon([[sw, se, ne, nw, sw]]);
-const building = transformRotate(unrotated, ROTATION, { pivot: sw }).geometry as Polygon;
-const ring = building.coordinates[0] as Pos[];
+// A 10 m x 8 m rectangle at 52 N whose first wall runs at bearing 20, walked counter-clockwise.
+const p0: Pos = [5, 52];
+const p1 = destination(p0, 10, 20, { units: "meters" }).geometry.coordinates as Pos;
+const p2 = destination(p1, 8, 290, { units: "meters" }).geometry.coordinates as Pos;
+const p3 = destination(p2, 10, 200, { units: "meters" }).geometry.coordinates as Pos;
+const building = polygon([[p0, p1, p2, p3, p0]]).geometry as Polygon;
 const midpoint = (a: Pos, b: Pos): Pos => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
 
 test("buildingAt returns the part containing the point", () => {
   const far = polygon([[[6, 52], [6.001, 52], [6.001, 52.001], [6, 52.001], [6, 52]]]).geometry;
   const multi = { type: "MultiPolygon" as const, coordinates: [far.coordinates, building.coordinates] };
-  expect(buildingAt(multi, midpoint(ring[0], ring[2]))).toEqual(building);
+  expect(buildingAt(multi, midpoint(p0, p2))).toEqual(building);
   expect(buildingAt(multi, [5.5, 52.5])).toBeUndefined();
-  expect(buildingAt(building, midpoint(ring[0], ring[2]))).toEqual(building);
+  expect(buildingAt(building, midpoint(p0, p2))).toEqual(building);
 });
 
-test("alignOutline insets, rewinds and starts at the clicked wall", () => {
-  const { outline, bearingDeg } = alignOutline(building, midpoint(ring[0], ring[1]))!;
-  const outlineRing = outline.coordinates[0] as Pos[];
-  expect(OUTLINE_OFFSET_M).toBe(0.25);
-  expect(booleanClockwise(outlineRing)).toBe(false);
-  expect(outlineRing[0]).toEqual(outlineRing[outlineRing.length - 1]);
-  // The first edge lies on the south wall shifted 0.25 m inward (to its left).
-  const shifted = lineString([
-    destination(ring[0], 0.25, ROTATION, { units: "meters" }).geometry.coordinates,
-    destination(ring[1], 0.25, ROTATION, { units: "meters" }).geometry.coordinates,
-  ]);
-  for (const vertex of outlineRing.slice(0, 2)) {
-    const near = nearestPointOnLine(shifted, point(vertex), { units: "meters" });
-    expect(distance(point(vertex), near, { units: "meters" })).toBeLessThan(0.05);
-  }
-  // The area loses the offset band: perimeter 36 m * 0.25 m - 4 * 0.25^2.
-  const expected = area(unrotated) - (36 * 0.25 - 4 * 0.25 * 0.25);
-  expect(Math.abs(area(polygon([outlineRing])) - expected) / expected).toBeLessThan(0.02);
-  expect(Math.abs(bearingDeg - (90 + ROTATION))).toBeLessThan(0.5);
-  expect(outlineBearing(outline)).toBeCloseTo(bearingDeg, 6);
+test.each([
+  [p0, p1, 20],
+  [p1, p2, 290],
+  [p2, p3, 200],
+  [p3, p0, 110],
+])("wallBearingAt near the wall from %j gives its bearing", (from, to, expected) => {
+  expect(Math.abs(wallBearingAt(building, midpoint(from, to)) - expected)).toBeLessThan(0.5);
 });
 
-test("alignOutline on the east wall turns the bearing 90 degrees left, as the ring runs counter-clockwise", () => {
-  const south = alignOutline(building, midpoint(ring[0], ring[1]))!;
-  const east = alignOutline(building, midpoint(ring[1], ring[2]))!;
-  expect(Math.abs(east.bearingDeg - (south.bearingDeg - 90))).toBeLessThan(0.5);
-  expect(outlineBearing(east.outline)).toBeCloseTo(east.bearingDeg, 6);
+test("wallBearingAt reads a clockwise ring as its counter-clockwise twin", () => {
+  const clockwise = polygon([[p0, p3, p2, p1, p0]]).geometry as Polygon;
+  expect(Math.abs(wallBearingAt(clockwise, midpoint(p0, p1)) - 20)).toBeLessThan(0.5);
 });
 
-// A position x metres east and y metres north of the south-west corner.
-const at = (x: number, y: number): Pos => {
-  const east = destination(sw, x, 90, { units: "meters" });
-  return destination(east, y, 0, { units: "meters" }).geometry.coordinates as Pos;
-};
-
-test("alignOutline has no outline for a building smaller than the inset", () => {
-  const shed = polygon([[at(0, 0), at(0.4, 0), at(0.4, 0.4), at(0, 0.4), at(0, 0)]]).geometry;
-  expect(alignOutline(shed, at(0.2, 0))).toBeUndefined();
-});
-
-test("alignOutline has no outline when the inset splits the building", () => {
-  // Two 5 m squares joined by a 0.3 m wide passage, narrower than twice the inset.
-  const dumbbell = polygon([
-    [
-      at(0, 0), at(5, 0), at(5, 2.35), at(7, 2.35), at(7, 0), at(12, 0),
-      at(12, 5), at(7, 5), at(7, 2.65), at(5, 2.65), at(5, 5), at(0, 5), at(0, 0),
-    ],
-  ]).geometry;
-  expect(alignOutline(dumbbell, at(2.5, 0))).toBeUndefined();
+test("wallAt gives the two ends of the wall nearest to the point, counter-clockwise", () => {
+  expect(wallAt(building, midpoint(p1, p2))).toEqual([p1, p2]);
+  const clockwise = polygon([[p0, p3, p2, p1, p0]]).geometry as Polygon;
+  expect(wallAt(clockwise, midpoint(p0, p1))).toEqual([p0, p1]);
 });

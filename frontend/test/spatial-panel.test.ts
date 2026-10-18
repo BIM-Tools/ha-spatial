@@ -1,164 +1,26 @@
 // @vitest-environment happy-dom
 // Checks the panel against a fake MapLibre and a scripted Home Assistant connection.
 import { afterEach, expect, test, vi } from "vitest";
+import {
+  EMPTY,
+  answer,
+  fitBounds,
+  handlers,
+  layers,
+  mapCreated,
+  mountPanel,
+  queryRenderedFeatures,
+  resetFakes,
+  setBearing,
+  easeTo,
+  sources,
+} from "./panel-harness";
 
-const mapCreated = vi.fn();
-const setBearing = vi.fn();
-const fitBounds = vi.fn();
-const queryRenderedFeatures = vi.fn((): object[] => []);
-let handlers: Record<string, (event?: object) => void> = {};
-let sources: Record<string, { data: unknown }> = {};
-let layers: { id: string; type: string; source: string }[] = [];
+vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
 
-interface FakeMarker {
-  options: object;
-  lngLat: { lng: number; lat: number };
-  handlers: Record<string, () => void>;
-  removed: boolean;
-  element: HTMLElement;
-}
-let markers: FakeMarker[] = [];
-const handles = () => markers.filter((marker) => !marker.removed);
-
-// MapLibre needs WebGL; the panel's own behaviour does not.
-vi.mock("maplibre-gl", () => ({
-  setWorkerUrl: vi.fn(),
-  Marker: class implements FakeMarker {
-    options: object;
-    lngLat = { lng: 0, lat: 0 };
-    handlers: Record<string, () => void> = {};
-    removed = false;
-    element = document.createElement("div");
-    constructor(options: object) {
-      this.options = options;
-      markers.push(this);
-    }
-    setLngLat([lng, lat]: [number, number]) {
-      this.lngLat = { lng, lat };
-      return this;
-    }
-    getElement() {
-      return this.element;
-    }
-    getLngLat() {
-      return this.lngLat;
-    }
-    addTo() {
-      return this;
-    }
-    on(event: string, handler: () => void) {
-      this.handlers[event] = handler;
-      return this;
-    }
-    remove() {
-      this.removed = true;
-      return this;
-    }
-  },
-  Map: class {
-    constructor(options: object) {
-      mapCreated(options);
-      handlers = {};
-      sources = {};
-      layers = [];
-    }
-    on(event: string, handler: () => void) {
-      handlers[event] = handler;
-    }
-    remove() {}
-    addSource(id: string, source: { data: unknown }) {
-      sources[id] = { data: source.data };
-    }
-    getSource(id: string) {
-      const source = sources[id];
-      return source && { setData: (data: unknown) => (source.data = data) };
-    }
-    addLayer(layer: { id: string; type: string; source: string }) {
-      layers.push(layer);
-    }
-    getLayer(id: string) {
-      return layers.find((layer) => layer.id === id);
-    }
-    setLayoutProperty() {}
-    setFilter() {}
-    getStyle() {
-      return {
-        layers: [
-          { id: "water", type: "fill", "source-layer": "water" },
-          { id: "building-3d", type: "fill-extrusion", "source-layer": "buildings" },
-        ],
-      };
-    }
-    queryRenderedFeatures(...args: unknown[]) {
-      return (queryRenderedFeatures as (...a: unknown[]) => object[])(...args);
-    }
-    setBearing(bearing: number) {
-      setBearing(bearing);
-    }
-    fitBounds(...args: unknown[]) {
-      fitBounds(...args);
-    }
-  },
-}));
-
-import { alignOutline, outlineBearing } from "../src/outline";
 import "../src/spatial-panel";
 
-const EMPTY = { type: "FeatureCollection", features: [] };
-
-type Reply = (message: { type: string }) => Promise<unknown>;
-
-const answer: Reply = async ({ type }) => {
-  if (type === "map_tiles/access_token") return { token: "t" };
-  if (type === "spatial/site") return { lon: 5, lat: 52, bearing_deg: 0, outline: null };
-  if (type === "spatial/site/update") return null;
-  if (type === "spatial/geojson") return EMPTY;
-  throw new Error(type);
-};
-
-const mountPanel = (reply: Reply = answer, floors = {}, card = false, floor?: string) => {
-  const sendMessagePromise = vi.fn(reply);
-  const unsubscribe = vi.fn(async () => {});
-  const listeners: Record<string, () => void> = {};
-  const connection = {
-    sendMessagePromise,
-    subscribeMessage: vi.fn(async () => unsubscribe),
-    addEventListener: vi.fn((event: string, listener: () => void) => {
-      listeners[event] = listener;
-    }),
-    removeEventListener: vi.fn((event: string) => {
-      delete listeners[event];
-    }),
-  };
-  const panel = document.createElement("spatial-panel") as HTMLElement & {
-    hass: object;
-    floor?: string;
-  };
-  panel.floor = floor;
-  panel.hass = { connection, floors, themes: { darkMode: false } };
-  panel.toggleAttribute("card", card);
-  document.body.append(panel);
-  const tokenCalls = () =>
-    sendMessagePromise.mock.calls.filter(([message]) => message.type === "map_tiles/access_token").length;
-  return { panel, connection, listeners, unsubscribe, tokenCalls };
-};
-
-vi.stubGlobal(
-  "fetch",
-  vi.fn(async () => ({ json: async () => ({ sprite: [], glyphs: "/g", layers: [] }) })),
-);
-
-afterEach(() => {
-  document.body.replaceChildren();
-  vi.useRealTimers();
-  mapCreated.mockClear();
-  setBearing.mockClear();
-  fitBounds.mockClear();
-  queryRenderedFeatures.mockReset();
-  handlers = {};
-  markers = [];
-  queryRenderedFeatures.mockReturnValue([]);
-});
+afterEach(resetFakes);
 
 test("the panel refreshes the map tiles token every 20 minutes", async () => {
   vi.useFakeTimers();
@@ -192,7 +54,7 @@ test("the panel says so when the map cannot load", async () => {
 test("leaving the panel during startup leaves nothing behind", async () => {
   vi.useFakeTimers();
   const pending: (() => void)[] = [];
-  const { panel, connection, listeners, unsubscribe } = mountPanel(
+  const { panel, connection, listeners, unsubscribe, unsubscribeEvents } = mountPanel(
     (message) => new Promise((resolve) => pending.push(() => resolve(answer(message)))),
   );
   await vi.advanceTimersByTimeAsync(0);
@@ -206,6 +68,7 @@ test("leaving the panel during startup leaves nothing behind", async () => {
   expect(vi.getTimerCount()).toBe(0);
   expect(listeners).toEqual({});
   expect(connection.subscribeMessage.mock.calls.length).toBe(unsubscribe.mock.calls.length);
+  expect(connection.subscribeEvents.mock.calls.length).toBe(unsubscribeEvents.mock.calls.length);
 });
 
 test("the panel has Home Assistant's menu button for narrow screens", async () => {
@@ -219,7 +82,7 @@ const room = (floor_id: string | null, level: number | null) => ({
   properties: { floor_id, level },
 });
 
-test("the panel has one button per floor, named by Home Assistant", async () => {
+test("the card has one button per floor in the rooms, named by Home Assistant", async () => {
   const collection = {
     type: "FeatureCollection",
     features: [room("loft", 1), room("ground", 0), room("annex", 0), room(null, null)],
@@ -227,13 +90,14 @@ test("the panel has one button per floor, named by Home Assistant", async () => 
   const { panel } = mountPanel(
     async (message) => (message.type === "spatial/geojson" ? collection : answer(message)),
     { ground: { name: "Ground floor" }, loft: { name: "Loft" } },
+    true,
   );
   const buttons = () =>
     [...(panel.shadowRoot?.querySelectorAll(".bar > button") ?? [])].map((button) =>
       button.textContent?.trim(),
     );
   await vi.waitFor(() =>
-    expect(buttons()).toEqual(["All", "Ground floor", "annex", "Loft", "No floor", "Building"]),
+    expect(buttons()).toEqual(["All", "Ground floor", "annex", "Loft", "No floor"]),
   );
 });
 
@@ -359,9 +223,9 @@ test("a new floor option rebuilds the map, as interactivity is fixed at creation
 
 const barText = (panel: HTMLElement) => panel.shadowRoot?.querySelector(".bar")?.textContent ?? "";
 
-const buildingButton = (panel: HTMLElement) =>
+const alignButton = (panel: HTMLElement) =>
   [...(panel.shadowRoot?.querySelectorAll("button") ?? [])].find(
-    (button) => button.textContent?.trim() === "Building",
+    (button) => button.textContent?.trim() === "Align",
   );
 
 // About 14 m x 11 m, counter-clockwise.
@@ -373,21 +237,14 @@ const SHED = {
   type: "Polygon",
   coordinates: [[[5, 52], [5.000001, 52], [5.000001, 52.000001], [5, 52.000001], [5, 52]]],
 };
-const SOUTH_WALL = { lng: 5.0001, lat: 52.00001 };
+const EAST_WALL = { lng: 5.00019, lat: 52.00005 };
 
-const click = (lngLat = SOUTH_WALL, target: Node | null = null) =>
-  handlers.click({ point: { x: 1, y: 2 }, lngLat, originalEvent: { target } });
+const click = (lngLat = EAST_WALL) =>
+  handlers.click({ point: { x: 1, y: 2 }, lngLat });
 
-const startPicking = async (panel: HTMLElement) => {
+const startAligning = async (panel: HTMLElement) => {
   await vi.waitFor(() => expect(handlers.click).toBeDefined());
-  buildingButton(panel)!.click();
-};
-
-// A second tap does nothing once the mode has ended, so the map is not queried again.
-const expectModeEnded = async () => {
-  const queried = queryRenderedFeatures.mock.calls.length;
-  click();
-  expect(queryRenderedFeatures).toHaveBeenCalledTimes(queried);
+  alignButton(panel)!.click();
 };
 
 const updates = (connection: { sendMessagePromise: { mock: { calls: [{ type: string }][] } } }) =>
@@ -395,15 +252,15 @@ const updates = (connection: { sendMessagePromise: { mock: { calls: [{ type: str
     .map(([message]) => message)
     .filter((message) => message.type === "spatial/site/update");
 
-test("the panel has a Building button, the card does not", async () => {
+test("the panel has an Align button, the card does not", async () => {
   const { panel } = mountPanel();
-  await vi.waitFor(() => expect(buildingButton(panel)).toBeDefined());
+  await vi.waitFor(() => expect(alignButton(panel)).toBeDefined());
   const card = mountPanel(answer, {}, true).panel;
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalledTimes(2));
-  expect(buildingButton(card)).toBeUndefined();
+  expect(alignButton(card)).toBeUndefined();
 });
 
-test("in building mode a click on a building saves its outline, aligned to the nearest wall", async () => {
+test("in Align a click on a building saves only the bearing of the wall nearest to it, and ends the mode", async () => {
   const { panel, connection } = mountPanel();
   // The buildings layer is one MultiPolygon per tile.
   const tile = { type: "MultiPolygon", coordinates: [SHED.coordinates, HOUSE.coordinates] };
@@ -411,34 +268,71 @@ test("in building mode a click on a building saves its outline, aligned to the n
   await vi.waitFor(() => expect(handlers.click).toBeDefined());
   click();
   expect(updates(connection)).toEqual([]);
-  await startPicking(panel);
+  await startAligning(panel);
+  await vi.waitFor(() => expect(barText(panel)).toContain("Click your house near the wall the rooms follow"));
   click();
   expect(queryRenderedFeatures).toHaveBeenLastCalledWith({ x: 1, y: 2 }, { layers: ["building-3d"] });
-  const { outline, bearingDeg } = alignOutline(HOUSE as never, [SOUTH_WALL.lng, SOUTH_WALL.lat])!;
-  expect(updates(connection)).toEqual([
-    { type: "spatial/site/update", outline, bearing_deg: bearingDeg },
-  ]);
-  // One tap ends the mode.
+  const [saved] = updates(connection) as unknown as [{ bearing_deg: number }];
+  expect(Object.keys(saved)).toEqual(["type", "bearing_deg"]);
+  // The counter-clockwise ring runs north along the east wall.
+  expect(saved.bearing_deg).toBeCloseTo(0, 1);
   click();
   expect(updates(connection)).toHaveLength(1);
+  await vi.waitFor(() => expect(barText(panel)).not.toContain("Click your house"));
 });
 
-test("in building mode a click without a building saves nothing", async () => {
+test("in Align a click turns the camera so the wall lies low in the view, and the update does not turn it again", async () => {
+  Object.defineProperty(document.body, "clientHeight", { value: 600, configurable: true });
   const { panel, connection } = mountPanel();
-  await startPicking(panel);
+  queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
+  await startAligning(panel);
+  click();
+  await vi.waitFor(() => expect(easeTo).toHaveBeenCalled());
+  expect(easeTo).toHaveBeenCalledWith({ bearing: 270, center: EAST_WALL, offset: [0, 180] });
+  const [[onUpdate]] = connection.subscribeMessage.mock.calls as unknown as [[() => Promise<void>]];
+  setBearing.mockClear();
+  await onUpdate();
+  expect(setBearing).not.toHaveBeenCalled();
+});
+
+const wallSource = () => sources["spatial-wall"].data as { geometry?: { coordinates: number[][] } };
+const hover = (lngLat = EAST_WALL) => handlers.mousemove({ point: { x: 1, y: 2 }, lngLat });
+
+test("in Align hovering a building draws the wall a click would pick, and leaving it clears the wall", async () => {
+  const { panel } = mountPanel();
+  queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
+  await startAligning(panel);
+  handlers["style.load"]();
+  expect(layers.find((layer) => layer.id === "spatial-wall")).toMatchObject({ type: "line", source: "spatial-wall" });
+  hover();
+  expect(wallSource().geometry?.coordinates).toEqual([[5.0002, 52], [5.0002, 52.0001]]);
+  queryRenderedFeatures.mockReturnValue([]);
+  hover();
+  expect(sources["spatial-wall"].data).toEqual(EMPTY);
+});
+
+test("the wall is cleared when Align ends, and hovering outside Align does nothing", async () => {
+  const { panel } = mountPanel();
+  queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
+  hover();
+  expect(sources["spatial-wall"].data).toEqual(EMPTY);
+  await startAligning(panel);
+  hover();
+  expect(wallSource().geometry).toBeDefined();
+  alignButton(panel)!.click();
+  await vi.waitFor(() => expect(sources["spatial-wall"].data).toEqual(EMPTY));
+});
+
+test("in Align a click without a building saves nothing", async () => {
+  const { panel, connection } = mountPanel();
+  await startAligning(panel);
   click();
   await vi.waitFor(() => expect(barText(panel)).toContain("No building here"));
-  await expectModeEnded();
-  expect(updates(connection)).toEqual([]);
-});
-
-test("in building mode a building too small to inset saves nothing", async () => {
-  const { panel, connection } = mountPanel();
-  queryRenderedFeatures.mockReturnValue([{ geometry: SHED }]);
-  await startPicking(panel);
-  click({ lng: 5.0000005, lat: 52.0000005 });
-  await vi.waitFor(() => expect(barText(panel)).toContain("Building too small or irregular"));
-  await expectModeEnded();
+  const queried = queryRenderedFeatures.mock.calls.length;
+  click();
+  expect(queryRenderedFeatures).toHaveBeenCalledTimes(queried);
   expect(updates(connection)).toEqual([]);
 });
 
@@ -463,168 +357,58 @@ test.each([false, true])("the stored outline is drawn on start and after updates
   expect(sources.outline.data).toEqual(EMPTY);
 });
 
-test("in building mode a failed save says so", async () => {
+test("in Align a failed save says so and turns the map back", async () => {
   const { panel } = mountPanel(async (message) => {
     if (message.type === "spatial/site/update") throw new Error("connection lost");
     return answer(message);
   });
   queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
   vi.spyOn(console, "error").mockImplementationOnce(() => {});
-  await startPicking(panel);
+  await startAligning(panel);
   click();
   await vi.waitFor(() => expect(barText(panel)).toContain("Could not save"));
+  // The fixture's stored bearing gives the same map bearing as the clicked wall.
+  expect(easeTo).toHaveBeenLastCalledWith({ bearing: 270 });
 });
 
-const mountWithOutline = (reply: Reply = answer) =>
-  mountPanel(async (message) =>
-    message.type === "spatial/site"
-      ? { lon: 5, lat: 52, bearing_deg: 90, outline: HOUSE }
-      : reply(message),
-  );
-
-const corners = () => handles().map(({ lngLat }) => [lngLat.lng, lngLat.lat]);
-
-const startEditing = async (panel: HTMLElement) => {
-  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
-  handlers["style.load"]();
-  buildingButton(panel)!.click();
-  await vi.waitFor(() => expect(handles()).toHaveLength(4));
-};
-
-test("in building mode each corner of the stored outline gets a draggable handle", async () => {
-  const { panel } = mountWithOutline();
-  await vi.waitFor(() => expect(handlers.click).toBeDefined());
-  expect(handles()).toEqual([]);
-  buildingButton(panel)!.click();
-  // The closing vertex shares the first handle.
-  await vi.waitFor(() => expect(corners()).toEqual(HOUSE.coordinates[0].slice(0, -1)));
-  expect(handles().map((marker) => marker.options)).toEqual(
-    Array(4).fill(expect.objectContaining({ draggable: true })),
-  );
-  // Pressing Building again leaves the mode.
-  buildingButton(panel)!.click();
-  await vi.waitFor(() => expect(handles()).toEqual([]));
-  // A pick also ends the mode.
-  buildingButton(panel)!.click();
-  await vi.waitFor(() => expect(handles()).toHaveLength(4));
-  click();
-  await vi.waitFor(() => expect(handles()).toEqual([]));
-});
-
-test("in building mode without an outline there are no handles", async () => {
-  const { panel } = mountPanel();
-  await startPicking(panel);
-  await vi.waitFor(() => expect(barText(panel)).toContain("Click a building"));
-  expect(handles()).toEqual([]);
-});
-
-// The expected bearings are plane trigonometry on the local metres per degree at 52 N
-// (111 257 m north, 111 320 cos 52 = 68 535 m east), an independent reference for turf.
-test.each([
-  [0, [5.0001, 51.9999], 31.6],
-  [1, [5.0002, 51.9999], 129.1],
-])("dragging corner %i saves the outline and its first wall's bearing", async (index, to, expected) => {
-  const { panel, connection } = mountWithOutline();
-  await startEditing(panel);
-  const marker = handles()[index];
-  marker.lngLat = { lng: to[0], lat: to[1] };
-  marker.handlers.dragend();
-  const ring = HOUSE.coordinates[0].map((vertex, i) => (i % 4 === index ? to : vertex));
-  const outline = { type: "Polygon", coordinates: [ring] };
-  const [saved] = updates(connection) as unknown as [{ bearing_deg: number }];
-  expect(saved).toEqual({
-    type: "spatial/site/update",
-    outline,
-    bearing_deg: outlineBearing(outline as never),
-  });
-  expect(saved.bearing_deg).toBeCloseTo(expected, 0);
-  expect(sources.outline.data).toEqual(outline);
-});
-
-test("dragging a corner keeps the courtyards of the stored outline", async () => {
-  const hole = [
-    [5.00005, 52.00003],
-    [5.00007, 52.00003],
-    [5.00007, 52.00005],
-    [5.00005, 52.00003],
-  ];
-  const withHole = { type: "Polygon", coordinates: [...HOUSE.coordinates, hole] };
-  const { panel, connection } = mountPanel(async (message) =>
-    message.type === "spatial/site"
-      ? { lon: 5, lat: 52, bearing_deg: 90, outline: withHole }
-      : answer(message),
-  );
-  await startEditing(panel);
-  const marker = handles()[0];
-  marker.lngLat = { lng: 5.0001, lat: 51.9999 };
-  marker.handlers.dragend();
-  const [saved] = updates(connection) as unknown as [{ outline: { coordinates: unknown[] } }];
-  expect(saved.outline.coordinates.slice(1)).toEqual([hole]);
-});
-
-test("a rejected corner drag restores the stored outline and says so", async () => {
-  const { panel } = mountWithOutline(async (message) => {
-    if (message.type === "spatial/site/update") throw new Error("not allowed");
+test("Align turns the map before the save is answered", async () => {
+  let answerSave = () => {};
+  const { panel } = mountPanel(async (message) => {
+    if (message.type === "spatial/site/update") return new Promise<null>((resolve) => (answerSave = () => resolve(null)));
     return answer(message);
   });
-  vi.spyOn(console, "error").mockImplementationOnce(() => {});
-  await startEditing(panel);
-  const marker = handles()[2];
-  marker.lngLat = { lng: 5.0003, lat: 52.0002 };
-  marker.handlers.dragend();
-  await vi.waitFor(() => expect(barText(panel)).toContain("Could not save the outline"));
-  expect(sources.outline.data).toEqual(HOUSE);
-  expect(corners()).toEqual(HOUSE.coordinates[0].slice(0, -1));
-});
-
-test("a click on a handle is not a pick", async () => {
-  const { panel, connection } = mountWithOutline();
   queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
-  await startEditing(panel);
-  const pin = document.createElement("span");
-  handles()[1].element.append(pin);
-  click(SOUTH_WALL, pin);
-  expect(updates(connection)).toEqual([]);
-  expect(handles()).toHaveLength(4);
-});
-
-test("removing the panel removes the corner handles", async () => {
-  const { panel } = mountWithOutline();
-  await startEditing(panel);
-  panel.remove();
-  expect(handles()).toEqual([]);
+  await startAligning(panel);
+  click();
+  expect(easeTo).toHaveBeenCalledWith(expect.objectContaining({ bearing: 270, center: EAST_WALL }));
+  answerSave();
 });
 
 test("a removed panel does not start again", async () => {
-  const { panel } = mountWithOutline();
-  await startEditing(panel);
+  const { panel } = mountPanel();
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
   panel.remove();
   await new Promise((resolve) => setTimeout(resolve, 20));
   expect(mapCreated).toHaveBeenCalledTimes(1);
 });
 
-test("an outline that arrives during building mode offers the corner drag", async () => {
-  let outline: object | null = null;
-  const { panel, connection } = mountPanel(async (message) =>
-    message.type === "spatial/site" ? { lon: 5, lat: 52, bearing_deg: 0, outline } : answer(message),
-  );
-  await startPicking(panel);
-  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
-  handlers["style.load"]();
-  await vi.waitFor(() => expect(barText(panel)).toContain("Click a building"));
-  expect(barText(panel)).not.toContain("drag a corner");
-  outline = HOUSE;
-  const [[onUpdate]] = connection.subscribeMessage.mock.calls as unknown as [[() => Promise<void>]];
-  await onUpdate();
-  await vi.waitFor(() => expect(barText(panel)).toContain("drag a corner"));
+
+test("the panel reads the areas and floors again on registry changes, until it is left", async () => {
+  const { panel, connection, unsubscribeEvents } = mountPanel();
+  await vi.waitFor(() => expect(connection.subscribeEvents).toHaveBeenCalledTimes(2));
+  const subscriptions = connection.subscribeEvents.mock.calls as unknown as [() => void, string][];
+  expect(subscriptions.map(([, eventType]) => eventType)).toEqual(["area_registry_updated", "floor_registry_updated"]);
+  const reads = () =>
+    connection.sendMessagePromise.mock.calls.filter(([message]) => message.type === "config/area_registry/list").length;
+  const before = reads();
+  for (const [onEvent] of subscriptions) onEvent();
+  await vi.waitFor(() => expect(reads()).toBe(before + 2));
+  panel.remove();
+  expect(unsubscribeEvents).toHaveBeenCalledTimes(2);
 });
 
-test("a drag that ends after the handles are gone saves nothing", async () => {
-  const { panel, connection } = mountWithOutline();
-  await startEditing(panel);
-  const { dragend } = handles()[0].handlers;
-  buildingButton(panel)!.click();
-  await vi.waitFor(() => expect(handles()).toEqual([]));
-  dragend();
-  expect(updates(connection)).toEqual([]);
+test("the card does not follow the registries", async () => {
+  const { connection } = mountPanel(answer, {}, true);
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
+  expect(connection.subscribeEvents).not.toHaveBeenCalled();
 });

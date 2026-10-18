@@ -17,9 +17,28 @@ services:
 
   homeassistant:
     # Keep in sync with the homeassistant version pinned by requirements_test.txt.
-    image: ghcr.io/home-assistant/home-assistant:2026.10.1
+    image: &homeassistant-image ghcr.io/home-assistant/home-assistant:2026.10.1
     volumes:
       - ./.ha-config:/config
       - ./custom_components:/config/custom_components:ro
     ports:
       - "8123:8123"
+
+  # A fresh, throwaway Home Assistant for the e2e smoke test; it forgets everything on stop.
+  homeassistant-e2e:
+    image: *homeassistant-image
+    tmpfs:
+      - /config
+    volumes:
+      - ./custom_components:/config/custom_components:ro
+
+  e2e:
+    image: mcr.microsoft.com/playwright/python:v1.55.0-noble
+    depends_on:
+      - homeassistant-e2e
+    environment:
+      HA_URL: http://homeassistant-e2e:8123
+    volumes:
+      - ./e2e:/e2e:ro
+    # Keep the pip playwright version equal to the image tag.
+    command: sh -c "pip install --quiet --break-system-packages --root-user-action=ignore --disable-pip-version-check playwright==1.55.0 websockets==15.0.1 && python /e2e/draw_room.py"

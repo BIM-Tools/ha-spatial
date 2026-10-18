@@ -33,6 +33,7 @@ prefix `docker` commands with `MSYS_NO_PATHCONV=1`.
 | Panel build, rebuilt on change | `docker compose up -d frontend` |
 | Real Home Assistant | `docker compose up homeassistant` |
 | Frontend (typecheck, test, build) | `MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/frontend":/app -v "$(pwd -W)/custom_components":/custom_components -w /app node:24-alpine sh -c "npm ci && npm run typecheck && npm test && npm run build"` |
+| E2E smoke test (build the panel first) | `docker compose run --rm e2e; docker compose rm -sf homeassistant-e2e` |
 | Sync frontend versions | `python tools/sync_frontend_versions.py` (`--check` only compares) |
 | Tools | Run them against the real Home Assistant, see `tools/README.md` |
 
@@ -45,12 +46,12 @@ Change these only through an issue that names the reason.
 | Coordinates | WGS84 GeoJSON, the same world as Home Assistant zones |
 | Measurement | In the integration, local tangent plane with exact WGS84 radii; never UTM, national grids, Mercator or screen space |
 | Footprint | One area has at most one `Polygon`; no MultiPolygon, its parts cannot carry identity |
-| Adjacency | Derived from shared edges on the same floor, never stored; interior walls on centrelines, exterior walls on the outline 0.25 m inside the facade |
+| Adjacency | Derived from shared edges on the same floor; interior walls on centrelines, exterior walls on a line 0.25 m inside the drawn facade; both derived, never stored |
 | Area | `area_m2` is net: the drawn polygon shrunk by 50 mm on every side |
 | Building, sub-spaces | Home Assistant labels; no code |
 | Site anchor | One direction per installation; the centre follows all footprints, else the outline; aligns views only; stored geometry never moves with it |
 | Dependencies | Pure Python in the integration; no shapely or other compiled packages |
-| Finding the building | OSM buildings from Home Assistant's map tiles; national datasets are out of scope, users can import their own polygon |
+| Finding the building | OSM buildings in Home Assistant's map tiles set the axis only; the outline is drawn on the map |
 | Frontend packages | Packages shared with Home Assistant's frontend use the exact version that frontend ships |
 | Domain | `spatial` |
 
@@ -72,7 +73,8 @@ way".
 
 ## Single implementations
 
-- All measurement geometry is in `custom_components/spatial/geometry.py`; the panel only picks the outline, with turf (`frontend/src/outline.ts`).
+- All measurement geometry is in `custom_components/spatial/geometry.py`. The panel's drawing geometry is turf in
+  `frontend/src/plan.ts`; the Align pick is in `frontend/src/outline.ts`.
 - Tools, bridges and frontends use only the websocket API; nothing else reads
   `.storage/spatial` or imports the integration.
 - Home Assistant owns areas and floors. Data is keyed by `area_id` and `floor_id`; names,
@@ -141,6 +143,8 @@ What is and is not checked automatically:
 - On every push and pull request to `main`: `CI Tests` (tests, line coverage with a 99% floor,
   mypy strict), `Validate` (hassfest, HACS, ruff, no-`CLAUDE.md` check) and `Frontend` (tsc,
   vitest, a build, `sync_frontend_versions.py --check`).
+- `E2E` runs on the same triggers but is not a required check yet: it covers one room drawn with
+  the mouse in the panel of a fresh Home Assistant, and nothing else of the panel.
 - On a published GitHub release: `Release` builds the panel and uploads `spatial.zip` (the
   integration with the bundle and licences, version taken from the tag). Untested until the
   first release; check the zip then.
