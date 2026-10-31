@@ -1,10 +1,10 @@
-// Draws, moves and adjusts rooms and the building outline on the panel's map along the site axis, saving each action at once to Home Assistant.
+// Keeps the panel's room edits in step with Home Assistant: the area strip, side lengths, and each edit saved at once with undo and redo.
 
-import type { FeatureCollection, Polygon, Position } from "geojson";
+import type { FeatureCollection, Polygon } from "geojson";
 import { html, nothing } from "lit";
 import { Marker, type Map as MapLibreMap } from "maplibre-gl";
 import { type AreaEntry, BUILDING, NEW_AREA, newAreaName, nextActive, stripOrder } from "./area-strip";
-import { BoxInteraction } from "./box-interaction";
+import { type ActiveRoom, BoxInteraction, LABEL_STYLE } from "./box-interaction";
 import { type Change, type FootprintBatch, History } from "./history";
 import { byLevel } from "./map-view";
 import {
@@ -13,7 +13,6 @@ import {
   centreOf,
   edgeLengths,
   isAxisRectangle,
-  movePolygon,
   resizeSide,
   sideLabels,
 } from "./plan";
@@ -31,8 +30,6 @@ export interface FloorEntry {
 export type Tool = "draw" | "adjust";
 
 const SIDE_STYLE = "font: 12px sans-serif; background: #fff; color: #212121; border: 1px solid #ff5722; border-radius: 3px";
-const LABEL_STYLE =
-  "font: 12px sans-serif; background: rgba(255, 255, 255, 0.85); color: #212121; padding: 0 3px; border-radius: 3px; pointer-events: none";
 // A side button or field sits on the map, inside a Marker that would block focus; its presses and keys stay its own.
 const MAP_EVENTS = ["mousedown", "touchstart", "click", "dblclick", "keydown"];
 
@@ -76,16 +73,19 @@ export class RoomEditor {
   attach(map: MapLibreMap) {
     this._map = map;
     this._interaction = new BoxInteraction(map, {
-      canDraw: () => this.tool === "draw" && this._floor !== "all" && !this._saving,
-      canAdjust: () => this.tool === "adjust" && this._floor !== "all" && !this._saving,
-      activeFootprint: () => this._footprints.get(this._active),
+      tool: () => this.tool,
+      floorPicked: () => this._floor !== "all",
+      saving: () => this._saving,
+      activeRoom: () => {
+        const footprint = this._footprints.get(this._active);
+        return footprint && { areaId: this._active, footprint };
+      },
       siteBearing: () => this._siteBearing(),
       onBox: (box) => this._finishBox(box),
-      onMove: (from, to) => this._dropMove(from, to),
+      onMove: (room, moved) => this._saveMove(room, moved),
       onPickRoom: (areaId) => this._select(areaId),
     });
     window.addEventListener("keydown", this._undoKey);
-    this._interaction.applyInput();
     this._showSides();
   }
 
@@ -153,8 +153,7 @@ export class RoomEditor {
   setTool(tool: Tool | undefined) {
     this.tool = tool;
     this._message = "";
-    this._interaction?.cancel();
-    this._interaction?.applyInput();
+    this._interaction?.toolChanged();
     this._select(this._active);
   }
 
@@ -317,13 +316,8 @@ export class RoomEditor {
     });
   }
 
-  private _dropMove(from: Position, to: Position) {
-    const areaId = this._active;
-    const footprint = this._footprints.get(areaId);
-    if (!footprint) return;
-    this._whileSaving(() =>
-      this._apply({ before: { [areaId]: footprint }, after: { [areaId]: movePolygon(footprint, from, to) } }),
-    );
+  private _saveMove({ areaId, footprint }: ActiveRoom, moved: Polygon) {
+    this._whileSaving(() => this._apply({ before: { [areaId]: footprint }, after: { [areaId]: moved } }));
   }
 
   private async _apply(change: Change) {

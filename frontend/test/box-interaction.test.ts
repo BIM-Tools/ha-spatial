@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // Checks map pointer, drag and keyboard events that draft boxes, move rooms and pick areas.
 
-import type { Polygon, Position } from "geojson";
+import type { Polygon } from "geojson";
 import type { Map as MapLibreMap } from "maplibre-gl";
 import { afterEach, expect, test, vi } from "vitest";
 import {
@@ -17,9 +17,16 @@ import {
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
 
-import { BoxInteraction } from "../src/box-interaction";
+import { type ActiveRoom, BoxInteraction } from "../src/box-interaction";
+import type { Tool } from "../src/room-editor";
 
-afterEach(resetFakes);
+let mounted: BoxInteraction | undefined;
+
+afterEach(() => {
+  mounted?.destroy();
+  mounted = undefined;
+  resetFakes();
+});
 
 const pixelBox = (x1: number, y1: number, x2: number, y2: number): Polygon => {
   const ring = [
@@ -34,31 +41,23 @@ const pixelBox = (x1: number, y1: number, x2: number, y2: number): Polygon => {
 
 const ROOM = pixelBox(0, 0, 50, 50);
 
-const mountInteraction = (overrides: Partial<{
-  canDraw: boolean;
-  canAdjust: boolean;
-  activeFootprint: Polygon | undefined;
-  siteBearing: number;
-  onBox: (box: Polygon) => void;
-  onMove: (from: Position, to: Position) => void;
-  onPickRoom: (areaId: string) => void;
-}> = {}) => {
-  const map = new (fakeMapLibre.Map)({ bearing: 300 }) as unknown as MapLibreMap;
-  const onBox = overrides.onBox ?? vi.fn();
-  const onMove = overrides.onMove ?? vi.fn();
-  const onPickRoom = overrides.onPickRoom ?? vi.fn();
-
-  const interaction = new BoxInteraction(map, {
-    canDraw: () => overrides.canDraw ?? true,
-    canAdjust: () => overrides.canAdjust ?? false,
-    activeFootprint: () => overrides.activeFootprint,
-    siteBearing: () => overrides.siteBearing ?? 30,
+const mountInteraction = (tool: Tool = "draw", activeRoom?: ActiveRoom) => {
+  const map = new fakeMapLibre.Map({ bearing: 300 }) as unknown as MapLibreMap;
+  const onBox = vi.fn();
+  const onMove = vi.fn();
+  const onPickRoom = vi.fn();
+  mounted = new BoxInteraction(map, {
+    tool: () => tool,
+    floorPicked: () => true,
+    saving: () => false,
+    activeRoom: () => activeRoom,
+    siteBearing: () => 30,
     onBox,
     onMove,
     onPickRoom,
   });
-  interaction.addLayers();
-  return { map, interaction, onBox, onMove, onPickRoom };
+  mounted.addLayers();
+  return { onBox, onMove, onPickRoom };
 };
 
 const pointEvent = (x: number, y: number, button = 0) => {
@@ -72,17 +71,15 @@ const pointEvent = (x: number, y: number, button = 0) => {
 };
 
 test("while drawing is enabled the map does not rotate or pan, except with Space", () => {
-  const { interaction } = mountInteraction();
+  mountInteraction();
   expect(dragPan.isEnabled()).toBe(false);
-  expect(dragRotate.isRotationEnabled()).toBe(false);
+  expect(dragRotate.isEnabled()).toBe(false);
 
   window.dispatchEvent(new KeyboardEvent("keydown", { key: " " }));
   expect(dragPan.isEnabled()).toBe(true);
 
   window.dispatchEvent(new KeyboardEvent("keyup", { key: " " }));
   expect(dragPan.isEnabled()).toBe(false);
-
-  interaction.destroy();
 });
 
 test("a mouse drag drafts a box and saves it on mouseup", () => {
@@ -107,7 +104,7 @@ test("two clicks draft a box along the site axis", () => {
 });
 
 test("a drag inside the active footprint moves it", () => {
-  const { onMove, onBox } = mountInteraction({ activeFootprint: ROOM });
+  const { onMove, onBox } = mountInteraction("draw", { areaId: "room", footprint: ROOM });
   handlers.mousedown(pointEvent(25, 25));
   handlers.mousemove(pointEvent(45, 25));
   handlers.mouseup(pointEvent(45, 25));
@@ -117,7 +114,7 @@ test("a drag inside the active footprint moves it", () => {
 });
 
 test("a click without movement inside the active footprint starts drafting a box", () => {
-  const { onBox, onMove } = mountInteraction({ activeFootprint: ROOM });
+  const { onBox, onMove } = mountInteraction("draw", { areaId: "room", footprint: ROOM });
   handlers.mousedown(pointEvent(25, 25));
   handlers.mouseup(pointEvent(25, 25));
   handlers.click(pointEvent(25, 25));
@@ -129,7 +126,7 @@ test("a click without movement inside the active footprint starts drafting a box
 });
 
 test("in adjust mode a click on a room picks it", () => {
-  const { onPickRoom } = mountInteraction({ canDraw: false, canAdjust: true });
+  const { onPickRoom } = mountInteraction("adjust");
   queryRenderedFeatures.mockReturnValueOnce([{ properties: { area_id: "living_room" } }]);
 
   handlers.click(pointEvent(10, 10));

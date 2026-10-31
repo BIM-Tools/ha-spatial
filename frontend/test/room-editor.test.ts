@@ -9,6 +9,7 @@ import {
   type Reply,
   answer,
   dragPan,
+  dragRotate,
   handlers,
   liveMarkers,
   layers,
@@ -1011,4 +1012,72 @@ test("Space during a move cancels it", async () => {
   key("keyup", " ");
   await settle(panel);
   expect(saves(connection)).toEqual([]);
+});
+
+test("outside Draw Space and Escape keep their usual meaning, also when Space was held on leaving Draw", async () => {
+  const { panel, connection } = mountEditor();
+  await startDrawing(panel);
+  key("keydown", " ");
+  barButton(panel, "Adjust")!.click();
+  await tapRoom(panel, "kitchen");
+  const space = new KeyboardEvent("keydown", { key: " ", cancelable: true });
+  window.dispatchEvent(space);
+  expect(space.defaultPrevented).toBe(false);
+  handlers.mousedown(mouse(25, 25));
+  handlers.mousemove(mouse(45, 25));
+  key("keydown", "Escape");
+  handlers.mouseup(mouse(45, 25));
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+});
+
+test("Space during a save in Draw leaves the map flat and turned to the site axis", async () => {
+  let release = () => {};
+  const { panel, connection } = mountEditor(async (message) => {
+    if (message.type !== "spatial/area/update_geometries") return undefined;
+    await new Promise<void>((resolve) => (release = resolve));
+    return { area_m2: {} };
+  });
+  await startDrawing(panel);
+  tap(100, 0);
+  tap(140, 30);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  key("keydown", " ");
+  key("keyup", " ");
+  expect(dragPan.isEnabled()).toBe(false);
+  expect(dragRotate.isEnabled()).toBe(false);
+  release();
+});
+
+test("the box from a first tap follows the mouse while an undo is saving", async () => {
+  let hold = false;
+  let release = () => {};
+  const { panel, connection } = mountEditor(async (message) => {
+    if (message.type !== "spatial/area/update_geometries" || !hold) return undefined;
+    await new Promise<void>((resolve) => (release = resolve));
+    return { area_m2: {} };
+  });
+  await startDrawing(panel);
+  tap(100, 0);
+  tap(140, 30);
+  await vi.waitFor(() => expect(barButton(panel, "Undo")!.disabled).toBe(false));
+  tap(100, 100);
+  hold = true;
+  ctrlZ();
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
+  handlers.mousemove(mouse(140, 130));
+  expect(sources["spatial-draft"].data).not.toEqual(EMPTY);
+  release();
+});
+
+test("an update during a move saves the room as it was grabbed", async () => {
+  const { panel, connection, setFeed } = mountEditor();
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  handlers.mousedown(mouse(25, 25));
+  setFeed([{ type: "Feature", id: "kitchen", geometry: pixelBox(0, 0, 60, 60), properties: { floor_id: "ground", level: 0 } }]);
+  await onUpdateOf(connection)();
+  handlers.mousemove(mouse(45, 25));
+  handlers.mouseup(mouse(45, 25));
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  expectCornersNear(saves(connection)[0].areas.kitchen, pixelBox(20, 0, 70, 50));
 });

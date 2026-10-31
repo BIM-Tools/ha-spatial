@@ -92,12 +92,13 @@ export const fakeMapLibre = {
       layers = [];
       mapBearingNow = options.bearing ?? 0;
     }
+    listeners: Record<string, ((event?: object) => void)[]> = {};
     on(event: string, handler: (event?: object) => void) {
-      const before = handlers[event];
-      handlers[event] = (e) => {
-        before?.(e);
-        handler(e);
-      };
+      (this.listeners[event] ??= []).push(handler);
+      handlers[event] = (e) => this.listeners[event].forEach((listener) => listener(e));
+    }
+    off(event: string, handler: (event?: object) => void) {
+      this.listeners[event] = this.listeners[event].filter((listener) => listener !== handler);
     }
     remove() {}
     getContainer() {
