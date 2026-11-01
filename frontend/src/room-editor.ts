@@ -27,7 +27,8 @@ export interface FloorEntry {
   level: number | null;
 }
 
-export type Tool = "draw" | "adjust";
+// Exactly one is active; Adjust is the default.
+export type Tool = "align" | "draw" | "adjust";
 
 const SIDE_STYLE = "font: 12px sans-serif; background: #fff; color: #212121; border: 1px solid #ff5722; border-radius: 3px";
 // A side button or field sits on the map, inside a Marker that would block focus; its presses and keys stay its own.
@@ -35,7 +36,7 @@ const MAP_EVENTS = ["mousedown", "touchstart", "click", "dblclick", "keydown"];
 
 export class RoomEditor {
   floors: FloorEntry[] = [];
-  tool?: Tool;
+  tool: Tool = "adjust";
   private readonly _history = new History();
   private _message = "";
   private _areas: AreaEntry[] = [];
@@ -59,7 +60,7 @@ export class RoomEditor {
   ) {}
 
   get status(): string {
-    return this.tool && this._floor === "all" ? `Pick a floor to ${this.tool}` : this._message;
+    return this._message;
   }
 
   get canUndo() {
@@ -106,7 +107,8 @@ export class RoomEditor {
   }
 
   detach() {
-    this.setTool(undefined);
+    // Adjust leaves the map's own panning and rotating on.
+    this.setTool("adjust");
     window.removeEventListener("keydown", this._undoKey);
     this._interaction?.destroy();
     this._interaction = undefined;
@@ -150,7 +152,7 @@ export class RoomEditor {
     this._select(this._nextActive());
   }
 
-  setTool(tool: Tool | undefined) {
+  setTool(tool: Tool) {
     this.tool = tool;
     this._message = "";
     this._interaction?.toolChanged();

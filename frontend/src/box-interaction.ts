@@ -18,7 +18,7 @@ export interface ActiveRoom {
 }
 
 export interface BoxInteractionCallbacks {
-  readonly tool: () => Tool | undefined;
+  readonly tool: () => Tool;
   readonly floorPicked: () => boolean;
   readonly saving: () => boolean;
   readonly activeRoom: () => ActiveRoom | undefined;
@@ -112,8 +112,10 @@ export class BoxInteraction {
     else map.dragPan.enable();
   }
 
-  private _toolOnFloor(): Tool | undefined {
-    return this._callbacks.floorPicked() ? this._callbacks.tool() : undefined;
+  // Align picks a wall on the map, so only Draw and Adjust edit rooms.
+  private _toolOnFloor(): "draw" | "adjust" | undefined {
+    const tool = this._callbacks.tool();
+    return this._callbacks.floorPicked() && tool !== "align" ? tool : undefined;
   }
 
   private _canDraw() {

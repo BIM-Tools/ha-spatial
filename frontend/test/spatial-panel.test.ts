@@ -4,14 +4,21 @@ import { afterEach, expect, test, vi } from "vitest";
 import {
   EMPTY,
   answer,
+  buttonNamed,
+  buttonsIn,
   fitBounds,
+  floorButtonNames,
   handlers,
   layers,
   mapCreated,
+  messageText,
   mountPanel,
   queryRenderedFeatures,
   resetFakes,
+  resetNorth,
   setBearing,
+  setStyle,
+  settle,
   easeTo,
   sources,
 } from "./panel-harness";
@@ -71,9 +78,17 @@ test("leaving the panel during startup leaves nothing behind", async () => {
   expect(connection.subscribeEvents.mock.calls.length).toBe(unsubscribeEvents.mock.calls.length);
 });
 
-test("the panel has Home Assistant's menu button for narrow screens", async () => {
+test("the panel has a header with back and help, the card none", async () => {
   const { panel } = mountPanel();
-  await vi.waitFor(() => expect(panel.shadowRoot?.querySelector("ha-menu-button")).not.toBeNull());
+  await vi.waitFor(() => expect(panel.shadowRoot?.querySelector("spatial-panel-header")).not.toBeNull());
+  await settle(panel);
+  const header = panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!;
+  expect(header.textContent).toContain("Spaces");
+  expect(header.querySelector("a")?.getAttribute("href")).toBe("https://github.com/BIM-Tools/ha-spatial");
+  expect(header.querySelector("a")?.getAttribute("target")).toBe("_blank");
+  const card = mountPanel(answer, {}, true).panel;
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalledTimes(2));
+  expect(card.shadowRoot?.querySelector("spatial-panel-header")).toBeNull();
 });
 
 const room = (floor_id: string | null, level: number | null) => ({
@@ -92,12 +107,8 @@ test("the card has one button per floor in the rooms, named by Home Assistant", 
     { ground: { name: "Ground floor" }, loft: { name: "Loft" } },
     true,
   );
-  const buttons = () =>
-    [...(panel.shadowRoot?.querySelectorAll(".bar > button") ?? [])].map((button) =>
-      button.textContent?.trim(),
-    );
   await vi.waitFor(() =>
-    expect(buttons()).toEqual(["All", "Ground floor", "annex", "Loft", "No floor"]),
+    expect(floorButtonNames(panel)).toEqual(["All", "Ground floor", "annex", "Loft", "No floor"]),
   );
 });
 
@@ -133,12 +144,6 @@ test("the 3D rooms extrude from base_m to top_m of each feature", async () => {
   });
 });
 
-test("inside a card the panel has no menu button", async () => {
-  const { panel } = mountPanel(answer, {}, true);
-  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
-  expect(panel.shadowRoot?.querySelector("ha-menu-button")).toBeNull();
-});
-
 const square = (floor_id: string, west: number, south: number) => ({
   type: "Feature",
   geometry: {
@@ -169,7 +174,7 @@ const mountStatic = (floor: string, geojson: () => object = () => TWO_FLOORS) =>
     floor,
   );
 
-const buttons = (panel: HTMLElement) => panel.shadowRoot?.querySelectorAll("button").length;
+const buttons = (panel: HTMLElement) => buttonsIn(panel.shadowRoot!).length;
 
 test("without a floor the map is interactive, with floor buttons", async () => {
   const { panel } = mountPanel(answer, {}, true);
@@ -221,12 +226,7 @@ test("a new floor option rebuilds the map, as interactivity is fixed at creation
   expect(mapCreated.mock.calls[1][0]).not.toHaveProperty("interactive", false);
 });
 
-const barText = (panel: HTMLElement) => panel.shadowRoot?.querySelector(".bar")?.textContent ?? "";
-
-const alignButton = (panel: HTMLElement) =>
-  [...(panel.shadowRoot?.querySelectorAll("button") ?? [])].find(
-    (button) => button.textContent?.trim() === "Align",
-  );
+const alignButton = (panel: HTMLElement) => buttonNamed(panel, "Align");
 
 // About 14 m x 11 m, counter-clockwise.
 const HOUSE = {
@@ -242,9 +242,14 @@ const EAST_WALL = { lng: 5.00019, lat: 52.00005 };
 const click = (lngLat = EAST_WALL) =>
   handlers.click({ point: { x: 1, y: 2 }, lngLat });
 
+// All floors is a view only, so Align needs a floor.
 const startAligning = async (panel: HTMLElement) => {
   await vi.waitFor(() => expect(handlers.click).toBeDefined());
+  await settle(panel);
+  buttonNamed(panel, "No floor")!.click();
+  await settle(panel);
   alignButton(panel)!.click();
+  await settle(panel);
 };
 
 const updates = (connection: { sendMessagePromise: { mock: { calls: [{ type: string }][] } } }) =>
@@ -264,12 +269,12 @@ test("in Align a click on a building saves only the bearing of the wall nearest 
   const { panel, connection } = mountPanel();
   // The buildings layer is one MultiPolygon per tile.
   const tile = { type: "MultiPolygon", coordinates: [SHED.coordinates, HOUSE.coordinates] };
-  queryRenderedFeatures.mockReturnValue([{ geometry: tile }]);
+  queryRenderedFeatures.mockReturnValue([{ geometry: tile, properties: {} }]);
   await vi.waitFor(() => expect(handlers.click).toBeDefined());
   click();
   expect(updates(connection)).toEqual([]);
   await startAligning(panel);
-  await vi.waitFor(() => expect(barText(panel)).toContain("Click your house near the wall the rooms follow"));
+  await vi.waitFor(() => expect(messageText(panel)).toContain("Click your house near the wall the rooms follow"));
   click();
   expect(queryRenderedFeatures).toHaveBeenLastCalledWith({ x: 1, y: 2 }, { layers: ["building-3d"] });
   const [saved] = updates(connection) as unknown as [{ bearing_deg: number }];
@@ -278,7 +283,7 @@ test("in Align a click on a building saves only the bearing of the wall nearest 
   expect(saved.bearing_deg).toBeCloseTo(0, 1);
   click();
   expect(updates(connection)).toHaveLength(1);
-  await vi.waitFor(() => expect(barText(panel)).not.toContain("Click your house"));
+  await vi.waitFor(() => expect(messageText(panel)).not.toContain("Click your house"));
 });
 
 test("in Align a click turns the camera so the wall lies low in the view, and the update does not turn it again", async () => {
@@ -321,7 +326,7 @@ test("the wall is cleared when Align ends, and hovering outside Align does nothi
   await startAligning(panel);
   hover();
   expect(wallSource().geometry).toBeDefined();
-  alignButton(panel)!.click();
+  buttonNamed(panel, "Adjust")!.click();
   await vi.waitFor(() => expect(sources["spatial-wall"].data).toEqual(EMPTY));
 });
 
@@ -329,10 +334,12 @@ test("in Align a click without a building saves nothing", async () => {
   const { panel, connection } = mountPanel();
   await startAligning(panel);
   click();
-  await vi.waitFor(() => expect(barText(panel)).toContain("No building here"));
-  const queried = queryRenderedFeatures.mock.calls.length;
+  await vi.waitFor(() => expect(messageText(panel)).toContain("No building here"));
+  const buildingQueries = () =>
+    queryRenderedFeatures.mock.calls.filter((call) => JSON.stringify(call).includes("building-3d")).length;
+  const queried = buildingQueries();
   click();
-  expect(queryRenderedFeatures).toHaveBeenCalledTimes(queried);
+  expect(buildingQueries()).toBe(queried);
   expect(updates(connection)).toEqual([]);
 });
 
@@ -366,7 +373,7 @@ test("in Align a failed save says so and turns the map back", async () => {
   vi.spyOn(console, "error").mockImplementationOnce(() => {});
   await startAligning(panel);
   click();
-  await vi.waitFor(() => expect(barText(panel)).toContain("Could not save"));
+  await vi.waitFor(() => expect(messageText(panel)).toContain("Could not save"));
   // The fixture's stored bearing gives the same map bearing as the clicked wall.
   expect(easeTo).toHaveBeenLastCalledWith({ bearing: 270 });
 });
@@ -411,4 +418,98 @@ test("the card does not follow the registries", async () => {
   const { connection } = mountPanel(answer, {}, true);
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
   expect(connection.subscribeEvents).not.toHaveBeenCalled();
+});
+
+const pressedTools = (panel: HTMLElement) =>
+  ["Align", "Draw", "Adjust"].filter((name) => buttonNamed(panel, name)?.getAttribute("aria-pressed") === "true");
+
+const showNoFloor = async (panel: HTMLElement) => {
+  await vi.waitFor(() => expect(buttonNamed(panel, "No floor")).toBeDefined());
+  buttonNamed(panel, "No floor")!.click();
+  await settle(panel);
+};
+
+test("Adjust is the default tool, and exactly one tool is active", async () => {
+  const { panel } = mountPanel();
+  await showNoFloor(panel);
+  expect(pressedTools(panel)).toEqual(["Adjust"]);
+  for (const name of ["Draw", "Draw", "Align", "Adjust"]) {
+    buttonNamed(panel, name)!.click();
+    await settle(panel);
+    expect(pressedTools(panel)).toEqual([name]);
+  }
+});
+
+test("in All floors every tool is disabled and none is pressed; Align ends there", async () => {
+  const { panel } = mountPanel();
+  await vi.waitFor(() => expect(buttonNamed(panel, "Align")).toBeDefined());
+  await settle(panel);
+  for (const name of ["Align", "Draw", "Adjust", "Undo", "Redo"]) expect(buttonNamed(panel, name)!.disabled).toBe(true);
+  expect(pressedTools(panel)).toEqual([]);
+  await startAligning(panel);
+  buttonNamed(panel, "All")!.click();
+  buttonNamed(panel, "No floor")!.click();
+  await settle(panel);
+  expect(pressedTools(panel)).toEqual(["Adjust"]);
+});
+
+test("the selected floor is pressed and stays enabled", async () => {
+  const { panel } = mountPanel();
+  await vi.waitFor(() => expect(buttonNamed(panel, "All")).toBeDefined());
+  await settle(panel);
+  expect(buttonNamed(panel, "All")!.getAttribute("aria-pressed")).toBe("true");
+  await showNoFloor(panel);
+  expect(buttonNamed(panel, "No floor")!.getAttribute("aria-pressed")).toBe("true");
+  expect(buttonNamed(panel, "No floor")!.disabled).toBe(false);
+  expect(buttonNamed(panel, "All")!.getAttribute("aria-pressed")).toBe("false");
+});
+
+const groundOnly = (style: { layers: { type: string }[] }) => style.layers.map((layer) => layer.type).join() === "background";
+
+test("the map toggle is on by default; off shows the plan on plain ground, and it is remembered", async () => {
+  const { panel } = mountPanel();
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
+  await settle(panel);
+  expect(groundOnly(mapCreated.mock.calls[0][0].style)).toBe(false);
+  expect(buttonNamed(panel, "Show map")!.getAttribute("aria-pressed")).toBe("true");
+  buttonNamed(panel, "Show map")!.click();
+  await settle(panel);
+  expect(buttonNamed(panel, "Show map")!.getAttribute("aria-pressed")).toBe("false");
+  await vi.waitFor(() => expect(setStyle).toHaveBeenCalledTimes(1));
+  expect(groundOnly(setStyle.mock.calls[0][0])).toBe(true);
+  panel.remove();
+  const again = mountPanel().panel;
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalledTimes(2));
+  await settle(again);
+  expect(groundOnly(mapCreated.mock.calls[1][0].style)).toBe(true);
+  expect(buttonNamed(again, "Show map")!.getAttribute("aria-pressed")).toBe("false");
+});
+
+test("Align turns the map on with the toggle disabled, and its end turns it off again", async () => {
+  localStorage.setItem("spatial-show-map", "false");
+  const { panel } = mountPanel();
+  await startAligning(panel);
+  expect(buttonNamed(panel, "Show map")!.disabled).toBe(true);
+  expect(buttonNamed(panel, "Show map")!.getAttribute("aria-pressed")).toBe("true");
+  await vi.waitFor(() => expect(setStyle).toHaveBeenCalledTimes(1));
+  expect(groundOnly(setStyle.mock.calls[0][0])).toBe(false);
+  buttonNamed(panel, "Adjust")!.click();
+  await settle(panel);
+  await vi.waitFor(() => expect(setStyle).toHaveBeenCalledTimes(2));
+  expect(groundOnly(setStyle.mock.calls[1][0])).toBe(true);
+  expect(buttonNamed(panel, "Show map")!.disabled).toBe(false);
+});
+
+test("the compass turns with the map and a click faces north", async () => {
+  const { panel } = mountPanel();
+  await vi.waitFor(() => expect(handlers.rotate).toBeDefined());
+  await settle(panel);
+  const needle = () => buttonNamed(panel, "Face north")!.querySelector("ha-svg-icon")!.getAttribute("style");
+  // Site bearing 0 turns the map to 270.
+  expect(needle()).toContain("rotate(-270deg)");
+  buttonNamed(panel, "Face north")!.click();
+  expect(resetNorth).toHaveBeenCalledTimes(1);
+  handlers.rotate();
+  await settle(panel);
+  expect(needle()).toContain("rotate(0deg)");
 });

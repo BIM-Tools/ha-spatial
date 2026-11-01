@@ -9,6 +9,9 @@ export const setBearing = vi.fn();
 export const easeTo = vi.fn();
 export const fitBounds = vi.fn();
 export const jumpTo = vi.fn();
+export const resetNorth = vi.fn();
+export const zoomIn = vi.fn();
+export const setStyle = vi.fn();
 export const queryRenderedFeatures = vi.fn((): object[] => []);
 export let handlers: Record<string, (event?: object) => void> = {};
 export let sources: Record<string, { data: unknown }> = {};
@@ -151,6 +154,20 @@ export const fakeMapLibre = {
     fitBounds(...args: unknown[]) {
       fitBounds(...args);
     }
+    getBearing() {
+      return mapBearingNow;
+    }
+    resetNorth() {
+      mapBearingNow = 0;
+      resetNorth();
+    }
+    zoomIn() {
+      zoomIn();
+    }
+    zoomOut() {}
+    setStyle(...args: unknown[]) {
+      setStyle(...args);
+    }
     project(lngLat: { lng: number; lat: number }) {
       return projectLngLat(lngLat);
     }
@@ -215,6 +232,10 @@ export const resetFakes = () => {
   fitBounds.mockClear();
   easeTo.mockClear();
   jumpTo.mockClear();
+  resetNorth.mockClear();
+  zoomIn.mockClear();
+  setStyle.mockClear();
+  localStorage.clear();
   queryRenderedFeatures.mockReset();
   queryRenderedFeatures.mockReturnValue([]);
   handlers = {};
@@ -229,3 +250,29 @@ vi.stubGlobal(
   "fetch",
   vi.fn(async () => ({ json: async () => ({ sprite: [], glyphs: "/g", layers: [] }) })),
 );
+
+// Every button in the panel, its floating controls and the area strip, through their shadow roots.
+export const buttonsIn = (root: ParentNode): HTMLButtonElement[] =>
+  [...root.querySelectorAll("*")].flatMap((element) => [
+    ...(element instanceof HTMLButtonElement ? [element] : []),
+    ...(element.shadowRoot ? buttonsIn(element.shadowRoot) : []),
+  ]);
+
+/** A button by its aria-label, else by its text. */
+export const buttonNamed = (panel: HTMLElement, name: string) =>
+  buttonsIn(panel.shadowRoot!).find((button) => (button.getAttribute("aria-label") ?? button.textContent?.trim()) === name);
+
+export const floorButtonNames = (panel: HTMLElement) =>
+  [...(panel.shadowRoot?.querySelector("spatial-floor-selector")?.shadowRoot?.querySelectorAll("button") ?? [])].map(
+    (button) => button.textContent?.trim(),
+  );
+
+export const messageText = (panel: HTMLElement) => panel.shadowRoot?.querySelector(".messages")?.textContent ?? "";
+
+type Updating = Element & { updateComplete?: Promise<boolean> };
+
+/** Waits for the panel and the elements it renders to finish rendering. */
+export const settle = async (panel: HTMLElement) => {
+  await (panel as Updating).updateComplete;
+  for (const element of panel.shadowRoot?.querySelectorAll<Updating>("*") ?? []) await element.updateComplete;
+};

@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@mdi/js": "7.4.47",
     "@turf/area": "7.4.0",
     "@turf/bearing": "7.4.0",
     "@turf/boolean-point-in-polygon": "7.4.0",

@@ -12,11 +12,16 @@ The map panel and the dashboard card. Source here, built into `custom_components
 
 ## How to use
 
-Open Settings > Devices & services > Spatial > Configure. **All** stacks the floors in 3D;
-a floor button shows that floor as a plan with room outlines.
-**Align**, then a click on your house near the wall the rooms follow, saves that wall's bearing
-and turns the map so that wall is horizontal. The card shows the outline but has no Align button.
-**Draw**, on a floor, draws the building outline and rooms. The strip under the toolbar starts
+Open Settings > Devices & services > Spatial > Configure. The map fills the page under a header with
+Back and Help; the floors float top left, the tools top right, the map controls bottom right.
+**All** stacks the floors in 3D and disables the tools; a floor button shows that floor as a plan
+with room outlines. One tool is always active, **Adjust** by default.
+**Align**, on a floor, then a click on your house near the wall the rooms follow, saves that wall's
+bearing, turns the map so that wall is horizontal and goes back to Adjust. The card shows the
+outline but has no tools.
+The map button hides the map under the plan (remembered in this browser; Align turns it back on
+while it is active); the compass faces north again.
+**Draw**, on a floor, draws the building outline and rooms. The strip at the bottom starts
 with **Building**, then lists the floor's areas, those without a footprint first; the highlighted
 one is drawn next and its shape is outlined on the map. Without an outline, Building comes first
 on every floor: draw it along the facade as the map shows it. Press and drag from one corner to
@@ -44,7 +49,7 @@ On a dashboard, add a card with `type: custom:spatial-map-card`, best in a panel
 
 The build output is not in git. Run a build or the `frontend` service before opening the panel
 locally. On a published GitHub release, `.github/workflows/release.yml` builds it, adds the
-licences of the bundled MapLibre, Lit, turf and polyclip-ts (with bignumber.js and splaytree-ts) code and uploads `spatial.zip`, which HACS installs.
+licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and splaytree-ts) and @mdi/js code and uploads `spatial.zip`, which HACS installs.
 
 ## Architecture
 
@@ -52,12 +57,16 @@ licences of the bundled MapLibre, Lit, turf and polyclip-ts (with bignumber.js a
 
 | File | Purpose |
 | --- | --- |
-| `src/spatial-panel.ts` | The panel element: floor buttons, the MapLibre map, websocket calls |
+| `src/spatial-panel.ts` | The panel element: layout, the MapLibre map and its style, Align, websocket calls |
+| `src/panel-header.ts` | The panel's header in the look of Home Assistant's subpage: Back, title, Help |
+| `src/floor-selector.ts` | Floor buttons: a floating segmented control, or a chip row on a phone |
+| `src/editor-toolbar.ts` | Align, Draw, Adjust, Undo and Redo: floating, or a bottom bar on a phone |
+| `src/map-stack.ts` | Map toggle, zoom and compass |
 | `src/room-editor.ts` | The space editor controller: the area strip, side length fields, undo and redo, saving each action, area creation and rename |
 | `src/box-interaction.ts` | Pointer and keyboard drafting input on the map, screen-rectangle projection, Space pan, draft preview |
 | `src/area-strip.ts` | The strip of pills, Building first: order, next area, new area names, rename |
 | `src/history.ts` | Session undo and redo of footprint changes |
-| `src/spatial-card.ts` | The card: wraps the panel element, without the menu button; loads the panel bundle when created |
+| `src/spatial-card.ts` | The card: wraps the panel element, without the header and tools; loads the panel bundle when created |
 | `src/map-view.ts` | Pure helpers: map bearing, style URL, map tiles token, floor order, room bounds |
 | `src/outline.ts` | The OSM building under a click and the bearing of its nearest wall, with turf |
 | `src/plan.ts` | Box from screen corners, side lengths, resizing, moving and joining footprints, all with turf |
@@ -72,6 +81,10 @@ licences of the bundled MapLibre, Lit, turf and polyclip-ts (with bignumber.js a
 | MapLibre worker and shared chunk | `maplibre-gl-worker.mjs` and `maplibre-gl-shared.mjs` are copied next to the bundle; the shared chunk stays external |
 | Versions | Packages shared with Home Assistant's frontend use its exact versions, set by `tools/sync_frontend_versions.py` |
 
+- The header, floor buttons, toolbar and map stack are own Lit elements styled with Home Assistant's theme
+  variables; they use only the Home Assistant elements that are always loaded (`ha-icon-button`,
+  `ha-svg-icon`), as `hass-subpage` and its toggle groups are undefined on a deep link. Icons are
+  `@mdi/js` named imports. Below 600 px the panel switches to the phone layout.
 - Uses only the public websocket API and Home Assistant's area and floor registry commands. Its
   geometry (the wall bearing, boxes, joining a box to a footprint) is done with turf; lengths and m²
   shown while drawing are previews, a saved room's `area_m2` comes from the integration.

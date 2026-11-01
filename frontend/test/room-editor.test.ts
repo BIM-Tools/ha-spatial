@@ -8,17 +8,21 @@ import {
   EMPTY,
   type Reply,
   answer,
+  buttonNamed,
   dragPan,
   dragRotate,
   handlers,
+  floorButtonNames,
   liveMarkers,
   layers,
   mapCreated,
+  messageText,
   mountPanel,
   onUpdateOf,
   panMap,
   queryRenderedFeatures,
   resetFakes,
+  settle,
   sources,
   touchZoomRotate,
   unprojectPixel,
@@ -91,12 +95,9 @@ const mountEditor = (overrides: Reply = async () => undefined, outline: Polygon 
 
 type Panel = HTMLElement & { updateComplete: Promise<boolean> };
 
-const barButton = (panel: HTMLElement, name: string) =>
-  [...(panel.shadowRoot?.querySelectorAll(".bar > button") ?? [])].find(
-    (button) => button.textContent?.trim() === name,
-  ) as HTMLButtonElement | undefined;
+const barButton = buttonNamed;
 
-const barText = (panel: HTMLElement) => panel.shadowRoot?.querySelector(".bar")?.textContent ?? "";
+const barText = messageText;
 
 const strip = (panel: HTMLElement) =>
   panel.shadowRoot?.querySelector("spatial-area-strip") as
@@ -116,11 +117,6 @@ const activeChip = (panel: HTMLElement) =>
 
 const chip = (panel: HTMLElement, name: string) =>
   chips(panel).find((c) => c.textContent?.trim() === name)!;
-
-const settle = async (panel: HTMLElement) => {
-  await (panel as Panel).updateComplete;
-  await strip(panel)?.updateComplete;
-};
 
 const showFloor = async (panel: HTMLElement, floor = "Ground floor") => {
   await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
@@ -169,13 +165,10 @@ const saves = (connection: { sendMessagePromise: unknown }) =>
     areas: Record<string, Polygon>;
   }[];
 
-test("the panel's floor buttons come from the floor registry, with No floor and a Draw button", async () => {
+test("the panel's floor buttons come from the floor registry, with No floor, and the toolbar has the tools", async () => {
   const { panel } = mountEditor();
-  await vi.waitFor(() =>
-    expect(
-      [...(panel.shadowRoot?.querySelectorAll(".bar > button") ?? [])].map((b) => b.textContent?.trim()),
-    ).toEqual(["All", "Ground floor", "Loft", "No floor", "Draw", "Adjust", "Undo", "Redo", "Align"]),
-  );
+  await vi.waitFor(() => expect(floorButtonNames(panel)).toEqual(["All", "Ground floor", "Loft", "No floor"]));
+  for (const name of ["Align", "Draw", "Adjust", "Undo", "Redo"]) expect(barButton(panel, name)).toBeDefined();
 });
 
 test("floors out of level order in the registry show in level order", async () => {
@@ -187,11 +180,7 @@ test("floors out of level order in the registry show in level order", async () =
         ]
       : undefined,
   );
-  await vi.waitFor(() =>
-    expect(
-      [...(panel.shadowRoot?.querySelectorAll(".bar > button") ?? [])].map((b) => b.textContent?.trim()).slice(0, 4),
-    ).toEqual(["All", "Ground floor", "Loft", "No floor"]),
-  );
+  await vi.waitFor(() => expect(floorButtonNames(panel)).toEqual(["All", "Ground floor", "Loft", "No floor"]));
 });
 
 test("the strip is shown in the panel and not in the card", async () => {
@@ -237,7 +226,7 @@ test("in Draw the map pans only while Space is held, and leaving Draw restores p
   expect(dragPan.isEnabled()).toBe(true);
   key("keyup", " ");
   expect(dragPan.isEnabled()).toBe(false);
-  barButton(panel, "Draw")!.click();
+  barButton(panel, "Adjust")!.click();
   expect(dragPan.isEnabled()).toBe(true);
 });
 
@@ -412,13 +401,12 @@ test("Escape after the first tap cancels the box", async () => {
   expect(saves(connection)).toEqual([]);
 });
 
-test("on All taps draw nothing and the bar asks for a floor", async () => {
+test("on All the tools are disabled, and Draw chosen on a floor draws nothing there", async () => {
   const { panel, connection } = mountEditor();
-  await vi.waitFor(() => expect(barButton(panel, "Draw")).toBeDefined());
-  await vi.waitFor(() => expect(handlers.click).toBeDefined());
-  barButton(panel, "Draw")!.click();
+  await startDrawing(panel);
+  barButton(panel, "All")!.click();
   await settle(panel);
-  expect(barText(panel)).toContain("Pick a floor to draw");
+  expect(barButton(panel, "Draw")!.disabled).toBe(true);
   expect(dragPan.isEnabled()).toBe(true);
   tap(100, 0);
   tap(140, 30);
@@ -670,7 +658,7 @@ test("a refusal message is gone once the tool changes", async () => {
   await tapRoom(panel, "kitchen");
   typeSide(0, "0.1");
   await settle(panel);
-  barButton(panel, "Adjust")!.click();
+  barButton(panel, "Draw")!.click();
   await settle(panel);
   expect(barText(panel)).not.toContain("A side is at least");
 });
@@ -691,7 +679,7 @@ test("in Adjust taps and drags save nothing, and leaving leaves no side markers"
   drag([100, 0], [160, 40]);
   await settle(panel);
   expect(saves(connection)).toEqual([]);
-  const leavers = ["Draw", "Loft", "Adjust"];
+  const leavers = ["Draw", "Loft", "Align"];
   for (const name of leavers) {
     await tapRoom(panel, "kitchen");
     expect(sideButtons()).toHaveLength(4);

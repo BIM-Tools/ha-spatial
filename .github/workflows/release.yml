@@ -43,6 +43,7 @@ jobs:
           polyclip-ts frontend/node_modules/polyclip-ts/LICENSE
           bignumber.js frontend/node_modules/bignumber.js/LICENCE.md
           splaytree-ts frontend/node_modules/splaytree-ts/LICENSE
+          mdi-js frontend/node_modules/@mdi/js/LICENSE
           LIST
 
       # The tag is the version, so manifest.json in the repository is not bumped by hand.
