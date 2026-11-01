@@ -38,7 +38,7 @@ Without HACS: download `spatial.zip` from the
 | `tools/` | GeoJSON importer, example house, version sync | [README](tools/README.md) |
 | `frontend/` | Map panel and dashboard card source, built into the integration | [README](frontend/README.md) |
 | `tests/` | Tests against a real Home Assistant | - |
-| `e2e/` | A browser smoke test: one room drawn in the panel | - |
+| `e2e/` | A browser smoke test (one room drawn in the panel) and a state gallery (every panel and card state as screenshots, both themes and sizes) | Commands in [AGENTS.md](AGENTS.md) |
 | `AGENTS.md` | Rules for contributors and coding agents | - |
 
 ## Try it
