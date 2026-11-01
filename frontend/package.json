@@ -5,7 +5,7 @@
   "scripts": {
     "build": "npm run copy-maplibre && esbuild src/spatial-panel.ts src/spatial-card.ts --bundle --format=esm --minify --external:*/maplibre-gl-shared.mjs --outdir=../custom_components/spatial/frontend",
     "copy-maplibre": "cp node_modules/maplibre-gl/dist/maplibre-gl-worker.mjs node_modules/maplibre-gl/dist/maplibre-gl-shared.mjs ../custom_components/spatial/frontend/",
-    "watch": "npm run build -- --watch=forever",
+    "watch": "npm run build -- --sourcemap --watch=forever",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
