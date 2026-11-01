@@ -29,7 +29,7 @@ Development tools. Not part of the integration.
 
 | Part | Content |
 | --- | --- |
-| `features[]` | `Polygon` with properties `area` (name) and `floor` (name) |
+| `features[]` | `Polygon` with properties `area` (name), `floor` (name) and optionally `icon` (an `mdi:` name, set on the area) |
 | `floors[]` (optional) | `name`, `level`, `elevation_m`, `height_m` |
 | `site` (optional) | `bearing_deg`, sent only when present (`lon` and `lat` in older files are ignored) |
 

@@ -28,7 +28,8 @@
    "type": "Feature",
    "properties": {
     "area": "Living room",
-    "floor": "Ground floor"
+    "floor": "Ground floor",
+    "icon": "mdi:television"
    },
    "geometry": {
     "type": "Polygon",
@@ -62,7 +63,8 @@
    "type": "Feature",
    "properties": {
     "area": "Kitchen",
-    "floor": "Ground floor"
+    "floor": "Ground floor",
+    "icon": "mdi:silverware-fork-knife"
    },
    "geometry": {
     "type": "Polygon",
@@ -96,7 +98,8 @@
    "type": "Feature",
    "properties": {
     "area": "Toilet",
-    "floor": "Ground floor"
+    "floor": "Ground floor",
+    "icon": "mdi:toilet"
    },
    "geometry": {
     "type": "Polygon",
@@ -130,7 +133,8 @@
    "type": "Feature",
    "properties": {
     "area": "Hall",
-    "floor": "Ground floor"
+    "floor": "Ground floor",
+    "icon": "mdi:door"
    },
    "geometry": {
     "type": "Polygon",
@@ -164,7 +168,8 @@
    "type": "Feature",
    "properties": {
     "area": "Bedroom",
-    "floor": "First floor"
+    "floor": "First floor",
+    "icon": "mdi:bed-king"
    },
    "geometry": {
     "type": "Polygon",
@@ -198,7 +203,8 @@
    "type": "Feature",
    "properties": {
     "area": "Kids room",
-    "floor": "First floor"
+    "floor": "First floor",
+    "icon": "mdi:teddy-bear"
    },
    "geometry": {
     "type": "Polygon",
@@ -232,7 +238,8 @@
    "type": "Feature",
    "properties": {
     "area": "Bathroom",
-    "floor": "First floor"
+    "floor": "First floor",
+    "icon": "mdi:shower"
    },
    "geometry": {
     "type": "Polygon",
@@ -266,7 +273,8 @@
    "type": "Feature",
    "properties": {
     "area": "Landing",
-    "floor": "First floor"
+    "floor": "First floor",
+    "icon": "mdi:stairs"
    },
    "geometry": {
     "type": "Polygon",
@@ -300,7 +308,8 @@
    "type": "Feature",
    "properties": {
     "area": "Attic",
-    "floor": "Attic"
+    "floor": "Attic",
+    "icon": "mdi:home-roof"
    },
    "geometry": {
     "type": "Polygon",
