@@ -14,6 +14,14 @@ from homeassistant.helpers import floor_registry as fr
 
 from .const import DOMAIN, ERR_CONFLICT, EVENT_SPATIAL_UPDATED
 from .coordinator import SpatialCoordinator
+from .geocode import (
+    ATTRIBUTION,
+    DEFAULT_LIMIT,
+    MAX_LIMIT,
+    MAX_QUERY_LENGTH,
+    GeocodeError,
+    async_get_nominatim_client,
+)
 from .geometry import validate_polygon
 
 POSITIVE_METRES = vol.All(vol.Coerce(float), vol.Range(min=0, min_included=False))
@@ -47,6 +55,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_site)
     websocket_api.async_register_command(hass, ws_update_site)
     websocket_api.async_register_command(hass, ws_subscribe)
+    websocket_api.async_register_command(hass, ws_geocode)
 
 
 def _coordinator(hass: HomeAssistant) -> SpatialCoordinator:
@@ -236,3 +245,37 @@ def ws_subscribe(
 
     connection.subscriptions[msg["id"]] = hass.bus.async_listen(EVENT_SPATIAL_UPDATED, forward)
     connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "spatial/geocode",
+        vol.Required("query"): str,
+        vol.Optional("limit", default=DEFAULT_LIMIT): vol.All(int, vol.Range(min=1, max=MAX_LIMIT)),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_geocode(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Search an address with OpenStreetMap Nominatim.
+
+    The query is checked here, not in the schema: Home Assistant logs a schema
+    error with the offending value, and an address search must never be logged.
+    """
+    query = msg["query"].strip()
+    if not 0 < len(query) <= MAX_QUERY_LENGTH:
+        connection.send_error(
+            msg["id"],
+            websocket_api.ERR_INVALID_FORMAT,
+            f"Give a query of 1 to {MAX_QUERY_LENGTH} characters",
+        )
+        return
+    client = await async_get_nominatim_client(hass)
+    try:
+        results = await client.search(query, msg["limit"])
+    except GeocodeError as err:
+        connection.send_error(msg["id"], err.code, str(err))
+        return
+    connection.send_result(msg["id"], {"results": results, "attribution": ATTRIBUTION})

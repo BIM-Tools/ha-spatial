@@ -70,6 +70,7 @@
 | `spatial/area/update_geometries` | yes | `areas`?: `{area_id: polygon or null}` (null removes); `site`?: `{bearing_deg?, origin?, outline?}` (null removes one); `expected_rev`?: `{area_id: rev or null}` (null: expect no footprint); `expected_site_rev`?; areas and/or site | `{area_m2: {area_id: m²}, rev: {area_id: rev or null}, site_rev}` |
 | `spatial/floor/update` | yes | `floor_id`, `elevation_m`?, `height_m`? (null clears one; omitted ones are kept) | - |
 | `spatial/site/update` | yes | `bearing_deg`? (0 to under 360, or null to remove), `outline`? (Polygon, or null to remove); at least one | - |
+| `spatial/geocode` | yes | `query` (1 to 200 characters), `limit`? (1 to 10, default 5) | `{results: [{name, lat, lon, bbox}], attribution: "Search by OpenStreetMap"}` (`bbox` is `[west, south, east, north]` or null) |
 
 - Feature properties: `area_id`, `name`, `floor_id`, `level`, `area_m2`, `base_m`, `top_m`
   (ready for MapLibre `fill-extrusion`), `rev`.
@@ -79,6 +80,21 @@
   writer wins.
 - Errors: `not_found` (unknown area or floor), `invalid_format` (bad input), `conflict` (an
   expected rev no longer matches; the message lists the area ids and `site`), `unauthorized`.
+- `spatial/geocode` finds the home by address during onboarding, when no map building lies under
+  Home Assistant's home location. It searches OpenStreetMap Nominatim only when called, through
+  Home Assistant's shared HTTP session, with the User-Agent `HomeAssistant-Spatial/<version>
+  (+<repository URL>)`. Following Nominatim's usage policy it sends at most one request per
+  second for the whole installation: a search within a second of the last one waits for the rest
+  of it, and one queued for more than 5 seconds gives up. The answer carries the attribution to
+  show with the results.
+- Its errors: `geocode_unavailable` (Nominatim cannot be reached or does not answer within 10
+  seconds), `geocode_failed` (an HTTP error or an unreadable answer), `geocode_rate_limited`
+  (Nominatim answered 429, or the search queued too long), plus `invalid_format` and
+  `unauthorized`.
+- Privacy: an address search is personal data. Spatial never logs the query, the results or the
+  home location, and checks the query itself so that Home Assistant's schema errors do not log it
+  either. Home Assistant's own debug log for `websocket_api`, when enabled, records every
+  websocket message, searches included.
 - Event `spatial_updated` fires after every change; non-admin users follow it through `spatial/subscribe`.
 
 ### Panel
@@ -118,4 +134,5 @@ Settings > Devices & services > Spatial > Configure opens the admin-only Spatial
 | `coordinator.py` | Data access, registry sync, queries |
 | `store.py` | Persistence and migration of data saved by older releases |
 | `geometry.py` | All geometry: validation, m², point in polygon, shared edges |
+| `geocode.py` | Address search with OpenStreetMap Nominatim, rate limited |
 | `websocket_api.py` | Websocket commands and validation |
