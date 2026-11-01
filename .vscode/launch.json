@@ -5,6 +5,20 @@
       "name": "Attach to Home Assistant",
       "type": "debugpy",
       "request": "attach",
+      "preLaunchTask": "Start test server and wait for debugger",
+      "connect": { "host": "localhost", "port": 5678 },
+      "pathMappings": [
+        {
+          "localRoot": "${workspaceFolder}/custom_components",
+          "remoteRoot": "/config/custom_components"
+        }
+      ]
+    },
+    {
+      "name": "Restart and attach to Home Assistant",
+      "type": "debugpy",
+      "request": "attach",
+      "preLaunchTask": "Restart test server and wait for debugger",
       "connect": { "host": "localhost", "port": 5678 },
       "pathMappings": [
         {
