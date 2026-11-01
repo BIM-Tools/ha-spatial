@@ -693,3 +693,29 @@ test("dark mode paints the rooms with the stronger dark fills", async () => {
   handlers["style.load"]();
   expect(paintOf("areas-2d")).toEqual({ "fill-color": "rgba(0,128,0,0.12)" });
 });
+
+// Home Assistant can hand over its themes before it has resolved darkMode, and then resolve it much later.
+test("a dark Home Assistant without darkMode in its themes gets the dark map, and the light one once it says light", async () => {
+  const fetchMock = vi.mocked(fetch);
+  fetchMock.mockClear();
+  const query = vi.spyOn(window, "matchMedia").mockImplementation(
+    (media: string) =>
+      ({
+        matches: media === "(prefers-color-scheme: dark)",
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }) as unknown as MediaQueryList,
+  );
+  const unresolved = { default_theme: "default", default_dark_theme: null, themes: {} };
+  const { panel } = mountPanel();
+  panel.style.setProperty("--primary-color", "rgb(0, 128, 0)");
+  panel.hass = { ...panel.hass, themes: unresolved };
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  expect(fetchMock).toHaveBeenLastCalledWith("/static/map/dark.json");
+  handlers["style.load"]();
+  expect(paintOf("areas-2d")).toEqual({ "fill-color": "rgba(0,128,0,0.12)" });
+  panel.hass = { ...panel.hass, themes: { ...unresolved, darkMode: false } };
+  await vi.waitFor(() => expect(setStyle).toHaveBeenCalled());
+  expect(fetchMock).toHaveBeenLastCalledWith("/static/map/light.json");
+  query.mockRestore();
+});
