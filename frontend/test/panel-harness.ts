@@ -9,7 +9,6 @@ export const setBearing = vi.fn();
 export const easeTo = vi.fn();
 export const fitBounds = vi.fn();
 export const jumpTo = vi.fn();
-export const resetNorth = vi.fn();
 export const zoomIn = vi.fn();
 export const zoomOut = vi.fn();
 export const setStyle = vi.fn();
@@ -158,10 +157,6 @@ export const fakeMapLibre = {
     getBearing() {
       return mapBearingNow;
     }
-    resetNorth() {
-      mapBearingNow = 0;
-      resetNorth();
-    }
     zoomIn() {
       zoomIn();
     }
@@ -235,7 +230,6 @@ export const resetFakes = () => {
   fitBounds.mockClear();
   easeTo.mockClear();
   jumpTo.mockClear();
-  resetNorth.mockClear();
   zoomIn.mockClear();
   zoomOut.mockClear();
   setStyle.mockClear();

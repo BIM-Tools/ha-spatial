@@ -12,10 +12,10 @@ import {
   layers,
   mapCreated,
   messageText,
+  onUpdateOf,
   mountPanel,
   queryRenderedFeatures,
   resetFakes,
-  resetNorth,
   setBearing,
   setStyle,
   settle,
@@ -500,18 +500,31 @@ test("Align turns the map on with the toggle disabled, and its end turns it off 
   expect(buttonNamed(panel, "Show map")!.disabled).toBe(false);
 });
 
-test("the compass turns with the map and a click faces north", async () => {
-  const { panel } = mountPanel();
+test("the compass turns with the map", async () => {
+  let bearing = 0;
+  const { panel, connection } = mountPanel(async (message) =>
+    message.type === "spatial/site" ? { lon: 5, lat: 52, bearing_deg: bearing, outline: null } : answer(message),
+  );
   await vi.waitFor(() => expect(handlers.rotate).toBeDefined());
   await settle(panel);
-  const needle = () => buttonNamed(panel, "Face north")!.querySelector("ha-svg-icon")!.getAttribute("style");
+  const needle = () => buttonNamed(panel, "Face the house")!.querySelector("ha-svg-icon")!.getAttribute("style");
   // Site bearing 0 turns the map to 270.
   expect(needle()).toContain("rotate(-270deg)");
-  buttonNamed(panel, "Face north")!.click();
-  expect(resetNorth).toHaveBeenCalledTimes(1);
+  bearing = 90;
+  await onUpdateOf(connection)();
   handlers.rotate();
   await settle(panel);
   expect(needle()).toContain("rotate(0deg)");
+});
+
+test("a stored bearing of 0 is a wall direction too: the compass returns the view to 270, also in Draw", async () => {
+  const { panel } = mountPanel();
+  await showNoFloor(panel);
+  buttonNamed(panel, "Draw")!.click();
+  await settle(panel);
+  expect(buttonNamed(panel, "Face the house")!.disabled).toBe(false);
+  buttonNamed(panel, "Face the house")!.click();
+  expect(easeTo).toHaveBeenLastCalledWith({ bearing: 270 });
 });
 
 test("zoom in and zoom out zoom the map", async () => {
@@ -589,33 +602,4 @@ test("on a phone the floors are chips under the header, the tools a bottom bar, 
   expect(buttonNamed(panel, "Zoom in")).toBeUndefined();
   expect(buttonNamed(panel, "Undo")?.textContent?.trim()).toBe("Undo");
   query.mockRestore();
-});
-
-const mountAligned = () =>
-  mountPanel(async (message) =>
-    message.type === "spatial/site" ? { lon: 5, lat: 52, bearing_deg: 30, outline: null } : answer(message),
-  );
-
-test("once aligned, the compass turns the house back into view instead of facing north", async () => {
-  const { panel } = mountAligned();
-  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
-  await settle(panel);
-  expect(buttonNamed(panel, "Face north")).toBeUndefined();
-  buttonNamed(panel, "Face the house")!.click();
-  expect(easeTo).toHaveBeenLastCalledWith({ bearing: 300 });
-  expect(resetNorth).not.toHaveBeenCalled();
-});
-
-test("in Draw the compass faces the house, but cannot face north before any Align", async () => {
-  const aligned = mountAligned().panel;
-  await showNoFloor(aligned);
-  buttonNamed(aligned, "Draw")!.click();
-  await settle(aligned);
-  expect(buttonNamed(aligned, "Face the house")!.disabled).toBe(false);
-  aligned.remove();
-  const { panel } = mountPanel();
-  await showNoFloor(panel);
-  buttonNamed(panel, "Draw")!.click();
-  await settle(panel);
-  expect(buttonNamed(panel, "Face north")!.disabled).toBe(true);
 });

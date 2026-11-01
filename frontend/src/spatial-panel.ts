@@ -101,8 +101,6 @@ class SpatialPanel extends LitElement {
     _message: { state: true },
     _mapShown: { state: true },
     _phone: { state: true },
-    // The stored site direction; the compass label depends on it.
-    _bearing: { state: true },
   };
 
   static styles = css`
@@ -218,7 +216,6 @@ class SpatialPanel extends LitElement {
   declare _message: string;
   declare _mapShown: boolean;
   declare _phone: boolean;
-  declare _bearing: number;
 
   private _map?: MapLibreMap;
   private _started = false;
@@ -230,6 +227,7 @@ class SpatialPanel extends LitElement {
   // Not reactive: the compass follows every rotate frame without rendering the panel.
   private _mapBearingDeg = 0;
   private _token = "";
+  private _bearing = 0;
   private _tokenTimer?: ReturnType<typeof setInterval>;
   private _unsubscribe?: () => void;
   private _areas: FeatureCollection = EMPTY;
@@ -245,7 +243,6 @@ class SpatialPanel extends LitElement {
     this._message = "";
     this._mapShown = readMapShown();
     this._phone = false;
-    this._bearing = 0;
   }
 
   connectedCallback() {
@@ -288,8 +285,6 @@ class SpatialPanel extends LitElement {
               .mapShown=${this._mapShown}
               .mapForced=${this._aligning}
               .bearing=${this._mapBearingDeg}
-              .aligned=${this._aligned}
-              .compassDisabled=${onFloor && editor.tool === "draw" && !this._aligned}
               @map-toggle=${this._toggleMap}
               @zoom-in=${() => this._map?.zoomIn()}
               @zoom-out=${() => this._map?.zoomOut()}
@@ -590,15 +585,9 @@ class SpatialPanel extends LitElement {
     );
   }
 
-  // A stored bearing of exactly 0 is the default of a site that was never aligned.
-  private get _aligned() {
-    return this._bearing !== 0;
-  }
-
-  // The compass turns the house back the way Align set it, or faces north before any Align.
+  // The compass turns the house back the way Align set it. Draw keeps this view, so it is safe there too.
   private _faceSite() {
-    if (this._aligned) this._map?.easeTo({ bearing: mapBearing(this._bearing) });
-    else this._map?.resetNorth();
+    this._map?.easeTo({ bearing: mapBearing(this._bearing) });
   }
 
   private _selectTool(tool: Tool) {
