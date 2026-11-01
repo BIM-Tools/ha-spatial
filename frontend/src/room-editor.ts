@@ -216,7 +216,9 @@ export class RoomEditor {
     this._select(this._active);
   }
 
+  // An empty history saves nothing, so it must not count as a save that supersedes a failed one.
   undo = () =>
+    this._history.canUndo &&
     this._whileSaving(async () => {
       const change = this._history.undo();
       if (!change) return;
@@ -227,6 +229,7 @@ export class RoomEditor {
     });
 
   redo = () =>
+    this._history.canRedo &&
     this._whileSaving(async () => {
       const change = this._history.redo();
       if (!change) return;
@@ -442,7 +445,8 @@ export class RoomEditor {
       if (shape) this._interaction?.keepShape(shape);
       this._saveFailed(() => this._whileSaving(action, shape));
     } else {
-      if (shape) this._interaction?.dropShape(shape);
+      // Any save that succeeds supersedes a failed one, also a removal or an undo.
+      this._interaction?.dropShape();
       this._saveSucceeded();
     }
     this._showSides();
@@ -482,26 +486,21 @@ export class RoomEditor {
     this._showHandles();
   }
 
-  // The area exists in Home Assistant at once, so its name can be typed before it has a shape.
-  private async _newArea() {
+  // The area exists in Home Assistant at once, so its name can be typed before it has a shape. It
+  // waits for a pending save, as it changes the active area; Retry creates it on the same floor.
+  private _newArea() {
     const floor = this._floor;
-    if (floor === "all") return;
-    let entry: AreaEntry;
-    try {
-      entry = await this._connection.sendMessagePromise<AreaEntry>({
+    if (floor === "all" || this._saving) return;
+    const name = newAreaName(this._areas.map((area) => area.name));
+    this._whileSaving(async () => {
+      const entry = await this._connection.sendMessagePromise<AreaEntry>({
         type: "config/area_registry/create",
-        name: newAreaName(this._areas.map((area) => area.name)),
+        name,
         ...(floor === null ? {} : { floor_id: floor }),
       });
-    } catch (err) {
-      console.error(err);
-      this._saveFailed(() => this._newArea());
-      return;
-    }
-    this._saveSucceeded();
-    this._areas = [...this._areas, entry];
-    if (this._floor !== floor) return;
-    this._startRename(entry.area_id);
+      this._areas = [...this._areas, entry];
+      if (this._floor === floor) this._startRename(entry.area_id);
+    });
   }
 
   private async _rename(change: { areaId: string; name: string }) {

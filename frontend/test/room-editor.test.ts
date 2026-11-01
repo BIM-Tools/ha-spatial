@@ -1261,3 +1261,88 @@ test("Delete without a shape, or in a field, removes nothing", async () => {
   await settle(panel);
   expect(saves(connection)).toEqual([]);
 });
+
+const failingFirstSave = () => {
+  let fail = true;
+  const mounted = mountEditor(async (message) => {
+    if (message.type === "spatial/area/update_geometries" && fail) {
+      fail = false;
+      throw new Error("connection lost");
+    }
+    return undefined;
+  });
+  vi.spyOn(console, "error").mockImplementationOnce(() => {});
+  return mounted;
+};
+
+const draftGeometry = () => (sources["spatial-draft"].data as Feature<Polygon>).geometry;
+
+test("a new map style keeps the shape of a failed save on the map", async () => {
+  const { panel } = failingFirstSave();
+  await startDrawing(panel);
+  tap(100, 0);
+  tap(140, 30);
+  await vi.waitFor(() => expect(toastMessages()).toEqual(["Could not save"]));
+  const kept = draftGeometry();
+  handlers["style.load"]();
+  expect(draftGeometry()).toEqual(kept);
+});
+
+test("Ctrl+Z with nothing to undo keeps the failure toast and the failed shape", async () => {
+  const { panel } = failingFirstSave();
+  await startDrawing(panel);
+  tap(100, 0);
+  tap(140, 30);
+  await vi.waitFor(() => expect(toastMessages()).toEqual(["Could not save"]));
+  ctrlZ();
+  ctrlZ(true);
+  await settle(panel);
+  expect(toasts).toHaveLength(1);
+  expect(draftGeometry()).toBeDefined();
+});
+
+test("a removal that saves after a failed move clears the failed shape and its toast", async () => {
+  const { panel, connection } = failingFirstSave();
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  drag([25, 25], [45, 25]);
+  await vi.waitFor(() => expect(toastMessages()).toEqual(["Could not save"]));
+  await vi.waitFor(() => expect(draftGeometry()).toBeDefined());
+  key("keydown", "Delete");
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
+  await vi.waitFor(() => expect(sources["spatial-draft"].data).toEqual(EMPTY));
+  expect(toasts.at(-1)).toMatchObject({ message: "", duration: 0 });
+});
+
+test("Retry of a failed New area creates it on the floor it was asked on, with the same name", async () => {
+  let fail = true;
+  const { panel, connection } = mountEditor(async (message) => {
+    if (message.type === "config/area_registry/create" && fail) {
+      fail = false;
+      throw new Error("connection lost");
+    }
+    return undefined;
+  });
+  vi.spyOn(console, "error").mockImplementationOnce(() => {});
+  await showFloor(panel);
+  chip(panel, "New area").click();
+  await vi.waitFor(() => expect(toastMessages()).toEqual(["Could not save"]));
+  buttonNamed(panel, "Loft")!.click();
+  await settle(panel);
+  toasts[0].action!.action();
+  await vi.waitFor(() => expect(sent(connection, "config/area_registry/create")).toHaveLength(2));
+  expect(sent(connection, "config/area_registry/create")[1]).toEqual({
+    type: "config/area_registry/create",
+    name: "Room 1",
+    floor_id: "ground",
+  });
+});
+
+test("two quick taps on New area create one area", async () => {
+  const { panel, connection } = mountEditor();
+  await showFloor(panel);
+  chip(panel, "New area").click();
+  chip(panel, "New area").click();
+  await vi.waitFor(() => expect(renameField(panel)?.value).toBe("Room 1"));
+  expect(sent(connection, "config/area_registry/create")).toHaveLength(1);
+});

@@ -54,6 +54,7 @@ class SpatialAreaStrip extends LitElement {
       scrollbar-width: none;
     }
     .pill {
+      position: relative;
       display: flex;
       flex: none;
       align-items: center;
@@ -87,6 +88,12 @@ class SpatialAreaStrip extends LitElement {
     }
     span.pill {
       cursor: default;
+    }
+    /* A 44 px target also where a touch screen reports a mouse as its main pointer. */
+    button.pill::after {
+      content: "";
+      position: absolute;
+      inset: -5px 0;
     }
     .square {
       flex: none;

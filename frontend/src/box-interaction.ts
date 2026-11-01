@@ -74,7 +74,9 @@ export class BoxInteraction {
   }
 
   addLayers(colours: LayerColours) {
-    this._map.addSource("spatial-draft", { type: "geojson", data: EMPTY });
+    // A new style, after a theme or map toggle, keeps the shape of a failed save.
+    const kept = this._kept;
+    this._map.addSource("spatial-draft", { type: "geojson", data: kept ? feature(kept, { apart: false }) : EMPTY });
     this._map.addLayer({ id: "spatial-draft-fill", type: "fill", source: "spatial-draft", paint: colours["spatial-draft-fill"] });
     this._map.addLayer({
       id: "spatial-draft",
@@ -99,8 +101,8 @@ export class BoxInteraction {
     this._map.getSource<GeoJSONSource>("spatial-draft")?.setData(feature(shape, { apart: false }));
   }
 
-  dropShape(shape: Polygon) {
-    if (this._kept === shape) this._preview(undefined);
+  dropShape() {
+    if (this._kept) this._preview(undefined);
   }
 
   // Space pans and Escape cancels only in Draw on a floor; elsewhere the keys keep their usual meaning.
