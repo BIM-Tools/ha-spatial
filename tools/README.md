@@ -4,8 +4,8 @@ Development tools. Not part of the integration.
 
 ## Why
 
-- Get footprints into Home Assistant before there is an editor.
-- See the result in the panel on Home Assistant's own map.
+- Get footprints drawn elsewhere into Home Assistant in one go.
+- Try the panel, the card and the state gallery on an example house without drawing one.
 
 ## How to use
 

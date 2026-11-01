@@ -12,46 +12,7 @@ The map panel and the dashboard card. Source here, built into `custom_components
 
 ## How to use
 
-Open Settings > Devices & services > Spatial > Configure, or **Open Spaces** right after adding Spatial;
-there is no sidebar entry. The map fills the page under a header with
-Back (always to the integration page) and Help (a short sheet of the symbols and keys, with a link to this documentation); the floors
-float top left, the tools top right, the map controls bottom right.
-**All** stacks the floors in 3D and disables the tools; a floor button shows that floor as a plan
-with room outlines. One tool is always active, **Adjust** by default.
-**Align**, on a floor, then a click on your house near the wall the rooms follow, saves that wall's
-bearing, turns the map so that wall is horizontal and goes back to Adjust. The card shows the
-outline but has no tools.
-The map button hides the map under the plan (remembered in this browser; Align turns it back on
-while it is active); the compass turns the house back the way Align set it, or north up before any Align.
-**Draw**, on a floor, draws the building outline and rooms. The strip at the bottom starts
-with **Building**, then lists the floor's areas in Home Assistant's order; a filled square means
-the space has a shape, a dashed one that it has none yet. The highlighted pill is drawn next and its
-shape is outlined on the map; pointing at a pill outlines its room and pointing at a room marks its
-pill. Choosing a pill without a shape picks Draw, and a line at the top says "Draw <area>" with how
-far the floor is. Without an outline, Building comes first on every floor: draw it along the facade
-as the map shows it. Press and drag from one corner to the opposite one, or click one corner and
-then the other (two taps on a phone). Each box is saved at once; a box against the area's footprint
-joins it, a box apart from it is refused. After an area's first shape the next area without one is
-highlighted. A drag that starts inside the highlighted area's footprint moves it instead; a click
-there still sets a corner. **New area** creates "Room 1", "Room 2" and so on in Home Assistant at
-once, on this floor, highlights it in Draw and opens its name. Clicking the highlighted pill again
-(a long press on a phone) renames the Home Assistant area: Enter or the check saves, Escape cancels.
-The arrow keys move between the pills. Hold Space and drag to pan; Escape cancels a box; Delete
-removes the highlighted shape. **All** shows the floors in 3D, does not draw, and the strip only
-shows the Building.
-**Adjust**, on a floor: a tap on a room makes its area active; the Building pill makes the
-outline active. When the room is a rectangle along the site axis, each side shows its length
-as a button; tap one, type the length in metres and press Enter to save (at least 0.20 m; the
-side's start corner stays). Dragging the active room moves it, as in Draw. **Undo** and **Redo**
-(Ctrl+Z, Ctrl+Shift+Z) undo every saved change of this session, each as one save. Undo restores
-footprints only: an area created with New area stays in Home Assistant.
-Refusals and failures use Home Assistant's toast; "Could not save" stays with **Retry**, and the
-shape that failed stays on the map until it saves or the next box replaces it.
-Each room on a floor shows its Home Assistant area icon and name, and in the panel its net m²; a
-smaller room drops the m², then the name (pointing at or tapping it shows the name), and a tiny room
-has no label. The outline shows "Building" until the floor has rooms.
-On a dashboard, add a card with `type: custom:spatial-map-card`, best in a panel view; its
-`floor` option (`all` or a `floor_id`) fixes the view, see `custom_components/spatial/README.md`.
+Using the panel and the card: [user guide](../docs/user-guide.md).
 
 | Task | Command (Git Bash, from the repository root) |
 | --- | --- |
@@ -119,6 +80,5 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 - The OSM building is the `buildings` part under the click, as MapLibre renders it from one
   tile: a building cut by a tile border gives only the part in that tile.
 
-Known limits: undo restores this session's footprints, also over changes made elsewhere. An undo for an
-area deleted in Home Assistant keeps failing; reload the panel to clear the history. A feed update
-while a side field is open resets the field.
+A feed update while a side field is open resets the field; the other known limits are in the
+[user guide](../docs/user-guide.md#known-limits).
