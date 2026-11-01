@@ -235,6 +235,7 @@ export const onUpdateOf = (connection: { subscribeMessage: { mock: { calls: unkn
 
 export const resetFakes = () => {
   document.body.replaceChildren();
+  toasts.length = 0;
   vi.useRealTimers();
   mapCreated.mockClear();
   setBearing.mockClear();
@@ -276,7 +277,28 @@ export const floorButtonNames = (panel: HTMLElement) =>
     (button) => button.textContent?.trim(),
   );
 
-export const messageText = (panel: HTMLElement) => panel.shadowRoot?.querySelector(".messages")?.textContent ?? "";
+/** The guide line's text and step, with single spaces. */
+/** The text of each part of the guide line, one space apart. */
+export const guideText = (panel: HTMLElement) =>
+  [...(panel.shadowRoot?.querySelector(".guide")?.children ?? [])].map((part) => part.textContent).join(" ");
+
+/** The text of each part of an element's shadow root, one space apart. */
+export const partsText = (element: Element) =>
+  [...(element.shadowRoot?.children ?? [])].map((part) => part.textContent?.trim()).join(" ");
+
+export interface ToastDetail {
+  message: string;
+  action?: { text: string; action: () => void };
+  duration?: number;
+  dismissable?: boolean;
+  id?: string;
+}
+
+/** Every toast the panel asked Home Assistant to show, in order. */
+export const toasts: ToastDetail[] = [];
+window.addEventListener("hass-notification", (event) => toasts.push((event as CustomEvent<ToastDetail>).detail));
+
+export const toastMessages = () => toasts.map((toast) => toast.message);
 
 type Updating = Element & { updateComplete?: Promise<boolean> };
 

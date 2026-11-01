@@ -18,7 +18,8 @@ import { type MapPaint, layerColours, readMapPaint, repaint } from "./map-paint"
 import { bounds, floorsByLevel, mapBearing, styleUrl, withMapTilesToken } from "./map-view";
 import { buildingAt, wallAt, wallBearingAt } from "./outline";
 import "./panel-header";
-import { RoomEditor, type Tool } from "./room-editor";
+import { BUILDING } from "./area-strip";
+import { type Guide, RoomEditor, type Toast, type Tool } from "./room-editor";
 import { type AreaInfo, RoomLabels, roomLabelStyles } from "./room-labels";
 import { floatingSurface, phoneBar } from "./styles";
 
@@ -103,7 +104,7 @@ class SpatialPanel extends LitElement {
     _floors: { state: true },
     _floor: { state: true },
     _failed: { state: true },
-    _message: { state: true },
+    _hovered: { state: true },
     _mapShown: { state: true },
     _phone: { state: true },
     // The stored site direction, which names the compass.
@@ -169,26 +170,48 @@ class SpatialPanel extends LitElement {
       right: var(--ha-space-3);
       bottom: auto;
     }
-    .messages {
+    /* A row of its own, so it sits centred under the floors and tools. */
+    .guide-row {
       display: flex;
       flex-basis: 100%;
-      flex-direction: column;
-      align-items: center;
-      gap: var(--ha-space-2);
+      justify-content: center;
       margin-top: 14px;
+      pointer-events: none;
     }
-    .top.phone .messages {
+    .top.phone .guide-row {
       margin-top: 0;
     }
-    .messages span {
+    .guide {
       display: flex;
       align-items: center;
+      gap: 10px;
+      min-width: 0;
       min-height: 40px;
       box-sizing: border-box;
       padding: 0 var(--ha-space-4);
       ${floatingSurface}
-      border-radius: var(--ha-border-radius-2xl);
+      border-radius: 20px;
       font-size: var(--ha-font-size-m);
+      pointer-events: auto;
+    }
+    .top.phone .guide {
+      gap: var(--ha-space-2);
+    }
+    .guide .text {
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .guide .step {
+      flex: none;
+      color: var(--secondary-text-color);
+    }
+    /* MapLibre's attribution sits bottom right, where a wide strip would cover it. */
+    .stage.with-strip .maplibregl-ctrl-bottom-right {
+      bottom: 68px;
+    }
+    .stage.with-strip .maplibregl-ctrl-bottom-right .maplibregl-ctrl {
+      margin: 0 var(--ha-space-4) var(--ha-space-1) 0;
     }
     /* Centred by its margins, so it can grow to the full stage width before it scrolls. */
     .strip {
@@ -223,7 +246,7 @@ class SpatialPanel extends LitElement {
   declare _floors: (string | null)[] | undefined;
   declare _floor: Floor;
   declare _failed: boolean;
-  declare _message: string;
+  declare _hovered: string | undefined;
   declare _mapShown: boolean;
   declare _phone: boolean;
   declare _bearing: number | null;
@@ -251,7 +274,7 @@ class SpatialPanel extends LitElement {
     super();
     this.card = false;
     this._floor = "all";
-    this._message = "";
+    this._hovered = undefined;
     this._mapShown = readMapShown();
     this._phone = false;
     this._bearing = null;
@@ -284,16 +307,15 @@ class SpatialPanel extends LitElement {
   render() {
     const editor = this._editor;
     const phone = this._phone && !this.card;
-    const onFloor = this._floor !== "all";
     return html`
       <link rel="stylesheet" href="/static/map/maplibre-gl.css" />
       ${this.card ? nothing : html`<spatial-panel-header ?narrow=${phone}></spatial-panel-header>`}
       ${phone ? this._floorSelector(true) : nothing}
-      <div class="stage">
+      <div class="stage ${editor && !phone ? "with-strip" : ""}">
         <div id="map"></div>
         <div class="top ${phone ? "phone" : ""}">
           ${phone ? nothing : this._floorSelector(false)}
-          ${editor && !phone ? this._toolbar(editor, false) : nothing} ${this._messages()}
+          ${editor && !phone ? this._toolbar(editor, false) : nothing} ${this._guide()}
         </div>
         ${editor
           ? html`<spatial-map-stack
@@ -309,9 +331,9 @@ class SpatialPanel extends LitElement {
               @compass=${this._faceSite}
             ></spatial-map-stack>`
           : nothing}
-        ${editor && onFloor && !phone ? html`<div class="strip">${editor.render()}</div>` : nothing}
+        ${editor && !phone ? html`<div class="strip" @area-hover=${this._hoverFromStrip}>${editor.render(this._hovered)}</div>` : nothing}
       </div>
-      ${editor && onFloor && phone ? html`<div class="strip-bar">${editor.render()}</div>` : nothing}
+      ${editor && phone ? html`<div class="strip-bar" @area-hover=${this._hoverFromStrip}>${editor.render(this._hovered)}</div>` : nothing}
       ${editor && phone ? this._toolbar(editor, true) : nothing}
     `;
   }
@@ -341,21 +363,37 @@ class SpatialPanel extends LitElement {
     ></spatial-editor-toolbar>`;
   }
 
-  private _messages() {
+  // One line at a time, and only when there is something to say; what went wrong first.
+  private _guide() {
     const noRooms =
       this._floors &&
       (this.floor && this.floor !== "all" ? !this._floors.includes(this.floor) : this._floors.length === 0);
-    const messages = [
-      noRooms ? "No rooms yet" : "",
-      this._aligning ? "Click your house near the wall the rooms follow" : "",
-      this._message,
-      this._editor?.message ?? "",
-      this._failed ? "Map could not load" : "",
-    ].filter(Boolean);
-    if (!messages.length) return nothing;
-    return html`<div class="messages">
-      ${messages.map((message) => html`<span>${message}</span>`)}
+    const guide: Guide | undefined = this._failed
+      ? { text: "Map could not load" }
+      : (this._editor?.guide ?? (noRooms ? { text: "No rooms yet" } : undefined));
+    if (!guide) return nothing;
+    return html`<div class="guide-row">
+      <div class="guide" role="status">
+        <span class="text">${guide.text}</span>${guide.step ? html`<span class="step">${guide.step}</span>` : nothing}
+      </div>
     </div>`;
+  }
+
+  /** Fires Home Assistant's toast, which its notification manager shows and announces. */
+  private _toast(toast: Toast) {
+    this.dispatchEvent(new CustomEvent("hass-notification", { detail: toast, bubbles: true, composed: true }));
+  }
+
+  private _hoverFromStrip = (event: CustomEvent<{ areaId: string | undefined }>) => this._hover(event.detail.areaId);
+
+  // Pointing at a pill outlines its room and pointing at a room outlines its pill, so the strip is the legend.
+  private _hover(areaId: string | undefined) {
+    this._hovered = areaId;
+    this._labels?.point(areaId === BUILDING ? undefined : areaId);
+    const map = this._map;
+    if (!map?.getLayer("spatial-hover")) return;
+    map.setFilter("spatial-hover", ["==", ["get", "area_id"], areaId ?? ""]);
+    map.setLayoutProperty("spatial-hover-building", "visibility", areaId === BUILDING ? "visible" : "none");
   }
 
   updated(changed: PropertyValues<this>) {
@@ -464,7 +502,13 @@ class SpatialPanel extends LitElement {
     };
     const editor = this.card
       ? undefined
-      : new RoomEditor(hass.connection, () => this.requestUpdate(), loadAreas, () => this._axisDeg);
+      : new RoomEditor(hass.connection, {
+          requestUpdate: () => this.requestUpdate(),
+          reloadRooms: loadAreas,
+          siteBearing: () => this._axisDeg,
+          selectTool: (tool) => this._selectTool(tool),
+          toast: (toast) => this._toast(toast),
+        });
     this._editor = editor;
     const site = await loadAreas();
     if (stopped()) return;
@@ -521,7 +565,7 @@ class SpatialPanel extends LitElement {
       this._previewWall(event);
       this._pointAt(event);
     });
-    map.on("mouseout", () => this._labels?.point(undefined));
+    map.on("mouseout", () => this._hover(undefined));
     if (editor) {
       this._showBearing(this._mapBearingDeg);
       map.on("rotate", () => this._showBearing(map.getBearing()));
@@ -576,6 +620,15 @@ class SpatialPanel extends LitElement {
       source: "areas",
       paint: { ...colours["areas-outline"], "line-width": 1.5 },
     });
+    if (this._editor) {
+      map.addLayer({
+        id: "spatial-hover",
+        type: "line",
+        source: "areas",
+        filter: ["==", ["get", "area_id"], this._hovered ?? ""],
+        paint: { ...colours["spatial-hover"], "line-width": 2 },
+      });
+    }
     map.addSource("outline", { type: "geojson", data: this._outline });
     map.addLayer({
       id: "spatial-outline",
@@ -583,6 +636,15 @@ class SpatialPanel extends LitElement {
       source: "outline",
       paint: { ...colours["spatial-outline"], "line-width": 2 },
     });
+    if (this._editor) {
+      map.addLayer({
+        id: "spatial-hover-building",
+        type: "line",
+        source: "outline",
+        layout: { visibility: this._hovered === BUILDING ? "visible" : "none" },
+        paint: { ...colours["spatial-hover-building"], "line-width": 2 },
+      });
+    }
     map.addSource("spatial-wall", { type: "geojson", data: EMPTY });
     map.addLayer({
       id: "spatial-wall",
@@ -630,7 +692,7 @@ class SpatialPanel extends LitElement {
   private _pointAt(event: MapMouseEvent) {
     if (!this._map?.getLayer("areas-2d")) return;
     const [room] = this._map.queryRenderedFeatures(event.point, { layers: ["areas-2d"] });
-    this._labels?.point(room?.properties?.area_id === undefined ? undefined : String(room.properties.area_id));
+    this._hover(room?.properties?.area_id === undefined ? undefined : String(room.properties.area_id));
   }
 
   // The panel lists every registered floor, so an empty one can be drawn; the card only those with rooms.
@@ -660,7 +722,6 @@ class SpatialPanel extends LitElement {
     const editor = this._editor;
     if (!editor || editor.tool === tool) return;
     if (editor.tool === "align") this._showWall();
-    this._message = "";
     editor.setTool(tool);
   }
 
@@ -701,26 +762,29 @@ class SpatialPanel extends LitElement {
     const building = this._buildingUnder(event);
     this._selectTool("adjust");
     if (!building) {
-      this._message = "No building here";
+      this._toast({ message: "No building here" });
       return;
     }
-    const previousBearing = this._bearing;
     const newBearing = wallBearingAt(building, [event.lngLat.lng, event.lngLat.lat]);
-    this._bearing = newBearing;
     // The picked wall lies low in the view with the building above it, its outside facing the viewer.
     const wallBelowCentre = (this._map?.getContainer().clientHeight ?? 0) * WALL_OFFSET_SHARE;
     this._map?.easeTo({ bearing: mapBearing(newBearing), center: event.lngLat, offset: [0, wallBelowCentre] });
-    this.hass!.connection.sendMessagePromise({ type: "spatial/site/update", bearing_deg: newBearing }).then(
-      () => {
-        this._message = "";
-      },
-      (err) => {
-        console.error(err);
-        this._message = "Could not save";
-        this._bearing = previousBearing;
-        this._map?.easeTo({ bearing: mapBearing(this._axisDeg) });
-      },
-    );
+    this._saveBearing(newBearing, this._bearing);
+  }
+
+  // A failed save turns the view back; Retry turns it to the picked wall again and saves once more.
+  private _saveBearing(newBearing: number, previousBearing: number | null) {
+    this._bearing = newBearing;
+    this.hass!.connection.sendMessagePromise({ type: "spatial/site/update", bearing_deg: newBearing }).catch((err) => {
+      console.error(err);
+      this._bearing = previousBearing;
+      this._map?.easeTo({ bearing: mapBearing(this._axisDeg) });
+      const retry = () => {
+        this._map?.easeTo({ bearing: mapBearing(newBearing) });
+        this._saveBearing(newBearing, previousBearing);
+      };
+      this._toast({ message: "Could not save", action: { text: "Retry", action: retry }, duration: -1, dismissable: true });
+    });
   }
 
   private _applyFloor() {
