@@ -117,20 +117,22 @@ class SpatialCoordinator:
     def _net_size(self, polygon: dict[str, Any]) -> float:
         """Return the net area in m² of a footprint, computed on every read.
 
-        An edge of the outer ring on the outline, by the same test as on_facade,
+        When the footprint is on the outline by the same test as on_facade, each
+        edge of its outer ring along the outline (over more than the tolerance)
         moves in by the exterior wall offset; every other edge by NET_INSET_M.
+        The test is on the whole footprint, so splitting a side into short edges
+        does not change the area.
         """
         outline = self.store.site["outline"]
         edge_insets = None
         if outline is not None:
-            offset = self._exterior_wall_offset_m()
-            outer_shared_lengths = shared_lengths_by_edge_m(
-                polygon, outline, ADJACENCY_TOLERANCE_M
-            )[0]
-            edge_insets = [
-                offset if shared >= ADJACENCY_MIN_SHARED_M else NET_INSET_M
-                for shared in outer_shared_lengths
-            ]
+            shared_by_ring = shared_lengths_by_edge_m(polygon, outline, ADJACENCY_TOLERANCE_M)
+            if sum(map(sum, shared_by_ring)) >= ADJACENCY_MIN_SHARED_M:
+                offset = self._exterior_wall_offset_m()
+                edge_insets = [
+                    offset if shared > ADJACENCY_TOLERANCE_M else NET_INSET_M
+                    for shared in shared_by_ring[0]
+                ]
         return round(net_area_m2(polygon, NET_INSET_M, edge_insets), 2)
 
     def _changed(self) -> None:

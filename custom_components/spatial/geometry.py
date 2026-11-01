@@ -349,18 +349,20 @@ def _inset_corner(
     Each normal is a unit vector to the left of its edge, and each offset line
     lies its inset along that normal. Solves normal . q = inset for both lines
     (Cramer's rule) for the offset q from the corner. A nearly straight corner
-    between different insets gives both offset points: a step.
+    between different insets gives both offset points: a step. A sharp corner,
+    whose normals point nearly opposite ways, always gets the intersection.
     """
     turn_sine = normal_in[0] * normal_out[1] - normal_in[1] * normal_out[0]
+    normals_dot = normal_in[0] * normal_out[0] + normal_in[1] * normal_out[1]
     if inset_in == inset_out:
-        scale = inset_in / (1 + normal_in[0] * normal_out[0] + normal_in[1] * normal_out[1])
+        scale = inset_in / (1 + normals_dot)
         return [
             (
                 corner[0] + (normal_in[0] + normal_out[0]) * scale,
                 corner[1] + (normal_in[1] + normal_out[1]) * scale,
             )
         ]
-    if abs(turn_sine) < STRAIGHT_TURN_SINE:
+    if normals_dot > 0 and abs(turn_sine) < STRAIGHT_TURN_SINE:
         return [
             (corner[0] + normal_in[0] * inset_in, corner[1] + normal_in[1] * inset_in),
             (corner[0] + normal_out[0] * inset_out, corner[1] + normal_out[1] * inset_out),
@@ -378,7 +380,9 @@ def _inset_ring_signed_area(ring: Ring, insets: list[float], outer: bool) -> flo
 
     The outer ring is turned counter-clockwise and a hole clockwise, so the
     polygon's interior lies left of every edge: the outer ring shrinks to a
-    positive area and a hole grows to a negative one.
+    positive area and a hole grows to a negative one. When every offset edge
+    runs against its edge, the ring has shrunk past nothing and turned inside
+    out (as a triangle does), so it counts as zero.
     """
     edges = [
         (start, end, inset)
@@ -391,12 +395,22 @@ def _inset_ring_signed_area(ring: Ring, insets: list[float], outer: bool) -> flo
     for (x1, y1), (x2, y2), _ in edges:
         length = math.hypot(x2 - x1, y2 - y1)
         normals.append(((y1 - y2) / length, (x2 - x1) / length))
-    corners: Ring = []
+    corner_points: list[Ring] = []
     for index, (_, corner, inset_in) in enumerate(edges):
         following = (index + 1) % len(edges)
-        corners += _inset_corner(
-            corner, normals[index], inset_in, normals[following], edges[following][2]
+        corner_points.append(
+            _inset_corner(corner, normals[index], inset_in, normals[following], edges[following][2])
         )
+    # Edge i runs from the last point at corner i - 1 to the first at corner i;
+    # its direction is its normal turned back a right angle.
+    if all(
+        (corner_points[index][0][0] - corner_points[index - 1][-1][0]) * normal_y
+        - (corner_points[index][0][1] - corner_points[index - 1][-1][1]) * normal_x
+        < 0
+        for index, (normal_x, normal_y) in enumerate(normals)
+    ):
+        return 0.0
+    corners = [point for points in corner_points for point in points]
     return _signed_area([*corners, corners[0]])
 
 
@@ -414,9 +428,10 @@ def net_area_m2(
 
     Known limits: two edges turning less than 10 degrees with different insets
     are joined by a step at their corner instead of meeting far away. A shape
-    thinner than twice its inset has no net area: the result is clamped to zero.
-    A part narrower than twice its inset within a larger shape is miscounted, as
-    its offset edges cross over each other.
+    that shrinks to nothing has no net area: the result is clamped to zero, and
+    a ring whose offset edges all reverse counts as zero. A part narrower than
+    twice its inset within a larger shape is miscounted, as its offset edges
+    cross over each other.
     """
     exterior, *holes = _rings_m(polygon, *_origin(polygon))
     exterior_insets = outer_edge_insets_m or [inset_m] * (len(exterior) - 1)

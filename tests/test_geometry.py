@@ -191,6 +191,26 @@ def test_net_area_of_triangle_is_exact_at_diagonal_corners() -> None:
     assert net_area_m2(polygon, inset_m) == pytest.approx(expected_m2, rel=1e-5)
 
 
+def test_net_area_of_sharp_corner_with_different_insets() -> None:
+    """Test a nearly reversing corner meets its neighbour's offset line instead of stepping.
+
+    By hand: the bottom moves to y = 0.25, the left side to x = 0.05 and the
+    hypotenuse x + 10y = 10 to x + 10y = 10 - 0.05 * sqrt(101).
+    """
+    hypotenuse_c = 10 - 0.05 * math.sqrt(101)
+    width_m = (hypotenuse_c - 10 * 0.25) - 0.05
+    height_m = (hypotenuse_c - 0.05) / 10 - 0.25
+    polygon = polygon_of((0, 0), (10, 0), (0, 1))
+    assert net_area_m2(polygon, 0.05, [0.25, 0.05, 0.05]) == pytest.approx(
+        width_m * height_m / 2, rel=1e-4
+    )
+
+
+def test_net_area_of_triangle_shrunk_past_nothing_is_zero() -> None:
+    """Test a triangle whose inradius is below the inset has no net area."""
+    assert net_area_m2(polygon_of((0, 0), (0.5, 0), (0, 0.5)), 0.25) == 0
+
+
 def test_shared_lengths_by_edge() -> None:
     """Test a corner room shares its south and west edges with the outline, nothing else."""
     lengths = shared_lengths_by_edge_m(rect(0, 0, 5, 4), rect(0, 0, 10, 10), tolerance_m=0.05)

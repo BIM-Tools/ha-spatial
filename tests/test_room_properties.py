@@ -443,3 +443,16 @@ async def test_switching_the_unit_system_recalculates_net_areas(
     assert len(events) == 1
     hall = (await _properties(client))["hall"]
     assert hall["area_m2"] == pytest.approx((5 - 0.11 - 0.05) * (4 - 0.11 - 0.05), abs=0.01)
+
+
+async def test_net_area_does_not_depend_on_short_edges_along_the_outline(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test a facade side split into edges shorter than the minimum still moves in."""
+    corners = [(2, 0), (2.25, 0), (2.5, 0), (2.75, 0), (3, 0), (3, 1), (2, 1), (2, 0)]
+    room = {"type": "Polygon", "coordinates": [[lonlat(x, y) for x, y in corners]]}
+    client = await hass_ws_client(hass)
+    await _write(client, areas={"hall": room}, site={"outline": OUTLINE})
+
+    expected_m2 = (1 - 0.05 - 0.05) * (1 - 0.25 - 0.05)
+    assert (await _properties(client))["hall"]["area_m2"] == pytest.approx(expected_m2, abs=0.01)
