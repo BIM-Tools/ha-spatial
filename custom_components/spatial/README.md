@@ -57,6 +57,7 @@
 - Deleting an area or floor in Home Assistant deletes its spatial data.
 - Floors without data stack 3 m per level.
 - Site centre: the middle of the bounding box of all footprints, computed on every read; else the building outline, else the home location. The bearing is null until the first Align.
+- Site origin: the grid origin; the 10 cm drawing grid runs along the site bearing from it. Set at Align and never moved automatically; the centre may move, the origin does not.
 
 ### Websocket API
 
@@ -69,11 +70,12 @@
 | `spatial/subscribe` | no | - | An empty event message on every change, until `unsubscribe_events` |
 | `spatial/area/update_geometries` | yes | `areas`?: `{area_id: polygon or null}` (null removes); `site`?: `{bearing_deg?, origin?, outline?}` (null removes one); `expected_rev`?: `{area_id: rev or null}` (null: expect no footprint); `expected_site_rev`?; areas and/or site | `{area_m2: {area_id: m²}, rev: {area_id: rev or null}, site_rev}` |
 | `spatial/floor/update` | yes | `floor_id`, `elevation_m`?, `height_m`? (null clears one; omitted ones are kept) | - |
-| `spatial/site/update` | yes | `bearing_deg`? (0 to under 360, or null to remove), `outline`? (Polygon, or null to remove); at least one | - |
+| `spatial/site/update` | yes | `bearing_deg`? (0 to under 360, or null to remove), `origin`? (`[lon, lat]`, or null to remove), `outline`? (Polygon, or null to remove); at least one; `expected_rev`? (the site rev) | `{site_rev}` |
 | `spatial/geocode` | yes | `query` (1 to 200 characters), `limit`? (1 to 10, default 5) | `{results: [{name, lat, lon, bbox}], attribution: "Search by OpenStreetMap"}` (`bbox` is `[west, south, east, north]` or null) |
 
 - Feature properties: `area_id`, `name`, `floor_id`, `level`, `area_m2`, `base_m`, `top_m`
   (ready for MapLibre `fill-extrusion`), `rev`.
+- `spatial/site/update` and the `site` part of `spatial/area/update_geometries` accept the same fields and check `expected_rev` the same way as `expected_site_rev`.
 - `spatial/area/update_geometries` is one change: areas and site are written together, saved once
   and announced with one event, or not at all. With expected revs it writes only if every one
   still matches, so an undo never overwrites a change made elsewhere; without them the last
