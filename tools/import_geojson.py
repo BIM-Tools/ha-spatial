@@ -82,15 +82,18 @@ async def import_file(path: str, url: str, token: str) -> None:
             name = feature["properties"]["area"]
             key = normalize_name(name)
             floor_id = floors.get(normalize_name(feature["properties"].get("floor", "")))
+            icon = (
+                {"icon": feature["properties"]["icon"]} if "icon" in feature["properties"] else {}
+            )
             if key not in areas:
                 created = await client.call(
-                    "config/area_registry/create", name=name, floor_id=floor_id
+                    "config/area_registry/create", name=name, floor_id=floor_id, **icon
                 )
                 areas[key] = created["area_id"]
             else:
                 # Existing areas (e.g. created during onboarding) move to the given floor.
                 await client.call(
-                    "config/area_registry/update", area_id=areas[key], floor_id=floor_id
+                    "config/area_registry/update", area_id=areas[key], floor_id=floor_id, **icon
                 )
             footprints[areas[key]] = feature["geometry"]
             names[areas[key]] = name
