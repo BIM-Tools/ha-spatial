@@ -12,6 +12,10 @@ from typing import Any
 
 type Point = tuple[float, float]
 type Ring = list[Point]
+type Segment = tuple[Point, Point]
+
+# Bounds the quadratic ring checks, which run on the event loop.
+MAX_CORNERS = 500
 
 # WGS84 semi-major axis and first eccentricity squared (EPSG:7030).
 WGS84_A = 6378137.0
@@ -176,7 +180,7 @@ def _corners(ring: list[list[float]]) -> Ring:
     return corners
 
 
-def _on_boundary(point: Point, edges: list[tuple[Point, Point]]) -> bool:
+def _on_boundary(point: Point, edges: list[Segment]) -> bool:
     """Return True if the point lies exactly on one of the edges."""
     return any(_direction(a, b, point) == 0 and _on_segment(a, b, point) for a, b in edges)
 
@@ -186,25 +190,77 @@ def _inside(point: Point, corners: Ring) -> bool:
     return _pnpoly([c[0] for c in corners], [c[1] for c in corners], *point)
 
 
+def _piece_midpoints(edge: tuple[Point, Point], cut_points: Ring) -> Ring:
+    """Return the midpoints of the pieces into which the cut points on the edge split it."""
+    start, end = edge
+    axis = 0 if abs(end[0] - start[0]) >= abs(end[1] - start[1]) else 1
+    cuts = sorted(
+        {0.0, 1.0}
+        | {
+            (point[axis] - start[axis]) / (end[axis] - start[axis])
+            for point in cut_points
+            if _direction(start, end, point) == 0 and _on_segment(start, end, point)
+        }
+    )
+    return [
+        (
+            start[0] + (end[0] - start[0]) * (low + high) / 2,
+            start[1] + (end[1] - start[1]) * (low + high) / 2,
+        )
+        for low, high in pairwise(cuts)
+    ]
+
+
+def _touches_split_interior(ring_corners: list[Ring], ring_edges: list[list[Segment]]) -> bool:
+    """Return True if the points where rings touch cut the polygon's interior in parts.
+
+    Custom. Rings that only touch meet in corners of one ring lying on the other.
+    In the graph linking each ring to the points it touches, the interior is
+    connected exactly when there is no cycle (the OGC simple features rule for a
+    connected interior); a cycle is found with union-find.
+    """
+    incidences: set[tuple[int, Point]] = set()
+    for (a, corners_a), (b, corners_b) in combinations(enumerate(ring_corners), 2):
+        touch_points = {p for p in corners_a if _on_boundary(p, ring_edges[b])} | {
+            p for p in corners_b if _on_boundary(p, ring_edges[a])
+        }
+        incidences |= {(ring, p) for p in touch_points for ring in (a, b)}
+
+    parent: dict[object, object] = {}
+
+    def root(node: object) -> object:
+        while parent.setdefault(node, node) != node:
+            node = parent[node]
+        return node
+
+    for ring, point in incidences:
+        ring_root, point_root = root(ring), root(point)
+        if ring_root == point_root:
+            return True
+        parent[ring_root] = point_root
+    return False
+
+
 def _validate_rings(rings: list[list[list[float]]]) -> None:
     """Raise ValueError unless the rings form a valid polygon with holes.
 
     Custom. Every ring must be simple: no two of its edges meet, except
     neighbours at their shared corner. Two rings must not cross or run along
-    each other; touching in single points is allowed. Every hole must lie
-    inside the outline and outside the other holes, probed at its corners and
-    edge midpoints, skipping those on the other ring.
+    each other, and the points where they touch must not split the interior.
+    Every hole must lie inside the outline and outside the other holes, probed
+    at its corners and at the middle of each piece of its edges between points
+    where other rings touch them (the only places an edge can pass to the other
+    side), skipping probes on the other ring.
 
-    Known limits: tests are exact in longitude and latitude, so a corner meant
-    to lie on another ring but off by rounding counts as off it; rings touching
-    in two or more points are accepted, although that splits the interior; a
-    hole edge leaving the outline only through outline corners, with its own
-    corners and midpoint inside, is not detected. Time grows with the square of
-    the number of corners, which is fine at building scale.
+    Known limit: tests are exact in longitude and latitude, so a corner meant
+    to lie on another ring but off by rounding counts as off it. Time grows with
+    the square of the number of corners, hence MAX_CORNERS.
     """
     ring_corners = [_corners(ring) for ring in rings]
     if any(len(corners) < 3 for corners in ring_corners):
         raise ValueError("A ring needs at least three corners")
+    if sum(len(corners) for corners in ring_corners) > MAX_CORNERS:
+        raise ValueError(f"A polygon may have at most {MAX_CORNERS} corners")
     ring_edges = [list(pairwise([*corners, corners[0]])) for corners in ring_corners]
 
     for edges in ring_edges:
@@ -222,8 +278,11 @@ def _validate_rings(rings: list[list[list[float]]]) -> None:
     shell_corners, *hole_corners = ring_corners
     shell_edges, *hole_edges = ring_edges
     for index, edges in enumerate(hole_edges):
-        probes = [corner for corner, _ in edges] + [
-            ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2) for a, b in edges
+        other_corners = [
+            p for ring, corners in enumerate(ring_corners) if ring != index + 1 for p in corners
+        ]
+        probes = hole_corners[index] + [
+            midpoint for edge in edges for midpoint in _piece_midpoints(edge, other_corners)
         ]
         for probe in probes:
             if not _on_boundary(probe, shell_edges) and not _inside(probe, shell_corners):
@@ -235,6 +294,9 @@ def _validate_rings(rings: list[list[list[float]]]) -> None:
                     and _inside(probe, hole_corners[other])
                 ):
                     raise ValueError("A hole must not lie inside another hole")
+
+    if _touches_split_interior(ring_corners, ring_edges):
+        raise ValueError("Holes must not split the area")
 
 
 def validate_polygon(value: Any) -> dict[str, Any]:

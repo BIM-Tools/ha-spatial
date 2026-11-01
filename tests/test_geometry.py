@@ -1,5 +1,6 @@
 """Checks the geometry against independent references, never against the same formula."""
 
+import math
 from typing import Any
 
 import pytest
@@ -151,6 +152,17 @@ def ring(*corners: tuple[float, float]) -> list[list[float]]:
     return [lonlat(x, y) for x, y in (*corners, corners[0])]
 
 
+def circle(corner_count: int) -> list[tuple[float, float]]:
+    """Return the corners of a regular polygon with a 10 m radius."""
+    return [
+        (
+            10 * math.cos(2 * math.pi * k / corner_count),
+            10 * math.sin(2 * math.pi * k / corner_count),
+        )
+        for k in range(corner_count)
+    ]
+
+
 def test_net_area_of_hole_matches_shrunk_rectangles() -> None:
     """Test against the inset drawn by hand: (10 - 0.1)² minus (4 + 0.1) x (2 + 0.1)."""
     polygon = with_holes(rect(0, 0, 10, 10), rect(3, 4, 7, 6))
@@ -176,8 +188,24 @@ def test_room_filling_a_hole_shares_its_whole_boundary() -> None:
             "coordinates": [rect(0, 0, 10, 10)["coordinates"][0], ring((0, 5), (3, 3), (3, 7))],
         },
         {"type": "Polygon", "coordinates": [ring((0, 0), (5, 0), (10, 0), (10, 10), (0, 10))]},
+        {
+            "type": "Polygon",
+            "coordinates": [
+                rect(0, 0, 10, 10)["coordinates"][0],
+                ring((0, 5), (3, 3), (5, 5), (3, 7)),
+                ring((5, 5), (7, 3), (9, 5), (7, 7)),
+            ],
+        },
+        {"type": "Polygon", "coordinates": [ring(*circle(500))]},
     ],
-    ids=["two_holes", "holes_touch_at_a_corner", "hole_touches_outline", "straight_corner"],
+    ids=[
+        "two_holes",
+        "holes_touch_at_a_corner",
+        "hole_touches_outline",
+        "straight_corner",
+        "touching_holes_leave_a_way_round",
+        "most_corners",
+    ],
 )
 def test_validate_polygon_accepts(polygon: dict) -> None:
     """Test valid polygons with holes, and rings touching in single points, are accepted."""
@@ -238,6 +266,45 @@ def test_validate_polygon_accepts(polygon: dict) -> None:
             with_holes(rect(0, 0, 10, 10), rect(2, 2, 6, 6), rect(3, 3, 4, 4)),
             "A hole must not lie inside another hole",
         ),
+        (
+            # The top edge passes through the corners of a V-shaped notch; its
+            # corners and midpoint are inside, the piece across the notch is not.
+            {
+                "type": "Polygon",
+                "coordinates": [
+                    ring(
+                        (0, 0), (10, 0), (10, 10), (6, 10), (6, 5), (5, 3), (4, 5), (4, 10), (0, 10)
+                    ),
+                    ring((1, 5), (6.5, 5), (6.5, 1), (1, 1)),
+                ],
+            },
+            "A hole must lie inside the outline",
+        ),
+        (
+            {
+                "type": "Polygon",
+                "coordinates": [
+                    rect(0, 0, 10, 10)["coordinates"][0],
+                    ring((5, 0), (7, 5), (5, 10), (3, 5)),
+                ],
+            },
+            "Holes must not split the area",
+        ),
+        (
+            {
+                "type": "Polygon",
+                "coordinates": [
+                    rect(0, 0, 10, 10)["coordinates"][0],
+                    ring((0, 5), (3, 3), (5, 5), (3, 7)),
+                    ring((5, 5), (7, 3), (10, 5), (7, 7)),
+                ],
+            },
+            "Holes must not split the area",
+        ),
+        (
+            {"type": "Polygon", "coordinates": [ring(*circle(501))]},
+            "A polygon may have at most 500 corners",
+        ),
     ],
     ids=[
         "bowtie",
@@ -251,6 +318,10 @@ def test_validate_polygon_accepts(polygon: dict) -> None:
         "hole_outside",
         "hole_between_outline_corners",
         "hole_in_hole",
+        "hole_edge_crosses_notch",
+        "hole_touches_outline_twice",
+        "touching_holes_bridge_outline",
+        "too_many_corners",
     ],
 )
 def test_validate_polygon_rejects_bad_rings(polygon: dict, message: str) -> None:
