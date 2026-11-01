@@ -12,7 +12,9 @@ import {
   handlers,
   layers,
   mapCreated,
-  messageText,
+  guideText,
+  toastMessages,
+  toasts,
   onUpdateOf,
   mountPanel,
   queryRenderedFeatures,
@@ -86,7 +88,6 @@ test("the panel has a header with back and help, the card none", async () => {
   await vi.waitFor(() => expect(panel.shadowRoot?.querySelector("spatial-panel-header")).not.toBeNull());
   await settle(panel);
   expect(panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!.querySelector("[role=heading]")?.textContent).toBe("Spaces");
-  expect(headerButton(panel, "Help")).toMatchObject({ href: "https://github.com/BIM-Tools/ha-spatial", target: "_blank" });
   const card = mountPanel(answer, {}, true).panel;
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalledTimes(2));
   expect(card.shadowRoot?.querySelector("spatial-panel-header")).toBeNull();
@@ -275,7 +276,7 @@ test("in Align a click on a building saves only the bearing of the wall nearest 
   click();
   expect(updates(connection)).toEqual([]);
   await startAligning(panel);
-  await vi.waitFor(() => expect(messageText(panel)).toContain("Click your house near the wall the rooms follow"));
+  await vi.waitFor(() => expect(guideText(panel)).toBe("Click the wall your rooms follow"));
   click();
   expect(queryRenderedFeatures).toHaveBeenLastCalledWith({ x: 1, y: 2 }, { layers: ["building-3d"] });
   const [saved] = updates(connection) as unknown as [{ bearing_deg: number }];
@@ -284,7 +285,7 @@ test("in Align a click on a building saves only the bearing of the wall nearest 
   expect(saved.bearing_deg).toBeCloseTo(0, 1);
   click();
   expect(updates(connection)).toHaveLength(1);
-  await vi.waitFor(() => expect(messageText(panel)).not.toContain("Click your house"));
+  await vi.waitFor(() => expect(guideText(panel)).not.toContain("Click the wall"));
 });
 
 test("in Align a click turns the camera so the wall lies low in the view, and the update does not turn it again", async () => {
@@ -335,7 +336,7 @@ test("in Align a click without a building saves nothing", async () => {
   const { panel, connection } = mountPanel();
   await startAligning(panel);
   click();
-  await vi.waitFor(() => expect(messageText(panel)).toContain("No building here"));
+  await vi.waitFor(() => expect(toasts).toEqual([{ message: "No building here" }]));
   const buildingQueries = () =>
     queryRenderedFeatures.mock.calls.filter((call) => JSON.stringify(call).includes("building-3d")).length;
   const queried = buildingQueries();
@@ -365,18 +366,53 @@ test.each([false, true])("the stored outline is drawn on start and after updates
   expect(sources.outline.data).toEqual(EMPTY);
 });
 
-test("in Align a failed save says so and turns the map back", async () => {
-  const { panel } = mountPanel(async (message) => {
-    if (message.type === "spatial/site/update") throw new Error("connection lost");
+test("in Align a failed save turns the map back and offers Retry, which saves the same bearing again", async () => {
+  let fail = true;
+  const { panel, connection } = mountPanel(async (message) => {
+    if (message.type === "spatial/site/update" && fail) throw new Error("connection lost");
     return answer(message);
   });
   queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
   vi.spyOn(console, "error").mockImplementationOnce(() => {});
   await startAligning(panel);
   click();
-  await vi.waitFor(() => expect(messageText(panel)).toContain("Could not save"));
+  await vi.waitFor(() => expect(toastMessages()).toEqual(["Could not save"]));
+  const [failure] = toasts;
+  expect(failure).toMatchObject({ action: { text: "Retry" }, duration: -1, dismissable: true });
   // The fixture's stored bearing gives the same map bearing as the clicked wall.
   expect(easeTo).toHaveBeenLastCalledWith({ bearing: 270 });
+  fail = false;
+  failure.action!.action();
+  await vi.waitFor(() => expect(updates(connection)).toHaveLength(2));
+  expect(updates(connection)[1]).toEqual(updates(connection)[0]);
+});
+
+test("the header's Help opens a sheet of symbols and keys that Escape closes, giving focus back to Help", async () => {
+  const { panel } = mountPanel();
+  await vi.waitFor(() => expect(panel.shadowRoot?.querySelector("spatial-panel-header")).not.toBeNull());
+  await settle(panel);
+  const header = panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!;
+  const dialog = header.querySelector("dialog")!;
+  const help = headerButton(panel, "Help");
+  const focus = vi.spyOn(help, "focus");
+  expect(dialog.open).toBe(false);
+  help.click();
+  expect(dialog.open).toBe(true);
+  expect(dialog.textContent).toContain("No shape yet");
+  expect(dialog.textContent).toContain("Remove the active shape");
+  expect(dialog.querySelector("a")).toMatchObject({ href: "https://github.com/BIM-Tools/ha-spatial", target: "_blank" });
+  const escape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true, cancelable: true });
+  const editorKeys = vi.fn();
+  window.addEventListener("keydown", editorKeys);
+  dialog.dispatchEvent(escape);
+  window.removeEventListener("keydown", editorKeys);
+  expect(dialog.open).toBe(false);
+  expect(editorKeys).not.toHaveBeenCalled();
+  expect(focus).toHaveBeenCalled();
+  help.click();
+  headerButton(panel, "Close").click();
+  expect(dialog.open).toBe(false);
+  expect(focus).toHaveBeenCalledTimes(2);
 });
 
 test("Align turns the map before the save is answered", async () => {

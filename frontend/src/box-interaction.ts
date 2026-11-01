@@ -50,6 +50,8 @@ export class BoxInteraction {
   private _grab?: Grab;
   private _spaceHeld = false;
   private _labels: Marker[] = [];
+  // The shape of a failed save, shown until it saves or the next draft replaces it.
+  private _kept?: Polygon;
 
   constructor(
     private readonly _map: MapLibreMap,
@@ -88,6 +90,17 @@ export class BoxInteraction {
     this._dragging = false;
     this._grab = undefined;
     this._preview(undefined);
+  }
+
+  keepShape(shape: Polygon) {
+    if (this._press || this._corner) return;
+    this._preview(undefined);
+    this._kept = shape;
+    this._map.getSource<GeoJSONSource>("spatial-draft")?.setData(feature(shape, { apart: false }));
+  }
+
+  dropShape(shape: Polygon) {
+    if (this._kept === shape) this._preview(undefined);
   }
 
   // Space pans and Escape cancels only in Draw on a floor; elsewhere the keys keep their usual meaning.
@@ -239,6 +252,7 @@ export class BoxInteraction {
 
   private _preview(box: Polygon | undefined, apart = false) {
     const map = this._map;
+    this._kept = undefined;
     map.getSource<GeoJSONSource>("spatial-draft")?.setData(box ? feature(box, { apart }) : EMPTY);
     if (!box) {
       for (const label of this._labels) label.remove();

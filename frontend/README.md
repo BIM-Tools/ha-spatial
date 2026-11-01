@@ -13,7 +13,8 @@ The map panel and the dashboard card. Source here, built into `custom_components
 ## How to use
 
 Open Settings > Devices & services > Spatial > Configure. The map fills the page under a header with
-Back and Help; the floors float top left, the tools top right, the map controls bottom right.
+Back and Help (a short sheet of the symbols and keys, with a link to this documentation); the floors
+float top left, the tools top right, the map controls bottom right.
 **All** stacks the floors in 3D and disables the tools; a floor button shows that floor as a plan
 with room outlines. One tool is always active, **Adjust** by default.
 **Align**, on a floor, then a click on your house near the wall the rooms follow, saves that wall's
@@ -22,21 +23,29 @@ outline but has no tools.
 The map button hides the map under the plan (remembered in this browser; Align turns it back on
 while it is active); the compass turns the house back the way Align set it, or north up before any Align.
 **Draw**, on a floor, draws the building outline and rooms. The strip at the bottom starts
-with **Building**, then lists the floor's areas, those without a footprint first; the highlighted
-one is drawn next and its shape is outlined on the map. Without an outline, Building comes first
-on every floor: draw it along the facade as the map shows it. Press and drag from one corner to
-the opposite one, or click one corner and then the other (two taps on a phone). Each box is saved
-at once; a box against the area's footprint joins it, a box apart from it is refused. Then the
-next area without a footprint is highlighted. A drag that starts inside the highlighted area's
-footprint moves it instead; a click there still sets a corner. **+ New area** creates "Room 1", "Room 2" and so
-on, on this floor. Tapping the highlighted area again renames it. Hold Space and drag to pan;
-Escape cancels a box. **All** shows the floors in 3D and does not draw.
+with **Building**, then lists the floor's areas in Home Assistant's order; a filled square means
+the space has a shape, a dashed one that it has none yet. The highlighted pill is drawn next and its
+shape is outlined on the map; pointing at a pill outlines its room and pointing at a room marks its
+pill. Choosing a pill without a shape picks Draw, and a line at the top says "Draw <area>" with how
+far the floor is. Without an outline, Building comes first on every floor: draw it along the facade
+as the map shows it. Press and drag from one corner to the opposite one, or click one corner and
+then the other (two taps on a phone). Each box is saved at once; a box against the area's footprint
+joins it, a box apart from it is refused. After an area's first shape the next area without one is
+highlighted. A drag that starts inside the highlighted area's footprint moves it instead; a click
+there still sets a corner. **New area** creates "Room 1", "Room 2" and so on in Home Assistant at
+once, on this floor, highlights it in Draw and opens its name. Clicking the highlighted pill again
+(a long press on a phone) renames the Home Assistant area: Enter or the check saves, Escape cancels.
+The arrow keys move between the pills. Hold Space and drag to pan; Escape cancels a box; Delete
+removes the highlighted shape. **All** shows the floors in 3D, does not draw, and the strip only
+shows the Building.
 **Adjust**, on a floor: a tap on a room makes its area active; the Building pill makes the
 outline active. When the room is a rectangle along the site axis, each side shows its length
 as a button; tap one, type the length in metres and press Enter to save (at least 0.20 m; the
 side's start corner stays). Dragging the active room moves it, as in Draw. **Undo** and **Redo**
 (Ctrl+Z, Ctrl+Shift+Z) undo every saved change of this session, each as one save. Undo restores
-footprints only: an area created by drawing stays in Home Assistant.
+footprints only: an area created with New area stays in Home Assistant.
+Refusals and failures use Home Assistant's toast; "Could not save" stays with **Retry**, and the
+shape that failed stays on the map until it saves or the next box replaces it.
 Each room on a floor shows its Home Assistant area icon and name, and in the panel its net m²; a
 smaller room drops the m², then the name (pointing at or tapping it shows the name), and a tiny room
 has no label. The outline shows "Building" until the floor has rooms.
@@ -61,7 +70,7 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | File | Purpose |
 | --- | --- |
 | `src/spatial-panel.ts` | The panel element: layout, the MapLibre map and its style, Align, websocket calls |
-| `src/panel-header.ts` | The panel's header in the look of Home Assistant's subpage: Back, title, Help |
+| `src/panel-header.ts` | The panel's header in the look of Home Assistant's subpage: Back, title, Help and its sheet in a native dialog |
 | `src/floor-selector.ts` | Floor buttons: a floating segmented control, or a chip row on a phone |
 | `src/editor-toolbar.ts` | Align, Draw, Adjust, Undo and Redo: floating, or a bottom bar on a phone |
 | `src/map-stack.ts` | Map toggle, zoom and compass |
@@ -70,7 +79,7 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/styles.ts` | The floating card, pill buttons and phone bar shared by the controls, from Home Assistant's theme tokens |
 | `src/room-editor.ts` | The space editor controller: the area strip, side length fields, undo and redo, saving each action, area creation and rename |
 | `src/box-interaction.ts` | Pointer and keyboard drafting input on the map, screen-rectangle projection, Space pan, draft preview |
-| `src/area-strip.ts` | The strip of pills, Building first: order, next area, new area names, rename |
+| `src/area-strip.ts` | The strip of pills, Building first: order, next area, new area names, rename field, long press, arrow keys |
 | `src/history.ts` | Session undo and redo of footprint changes |
 | `src/spatial-card.ts` | The card: wraps the panel element, without the header and tools; loads the panel bundle when created |
 | `src/map-view.ts` | Pure helpers: map bearing, style URL, map tiles token, floor order, room bounds |
@@ -89,7 +98,8 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 
 - The header, floor buttons, toolbar and map stack are own Lit elements styled with Home Assistant's theme
   variables; they use only the Home Assistant elements that are always loaded (`ha-icon-button`,
-  `ha-svg-icon`), as `hass-subpage` and its toggle groups are undefined on a deep link. Icons are
+  `ha-svg-icon`), as `hass-subpage`, its toggle groups and Home Assistant's dialog are undefined on a
+  deep link; the help sheet is a native `<dialog>`. Icons are
   `@mdi/js` named imports. Below 600 px the panel switches to the phone layout.
 - Uses only the public websocket API and Home Assistant's area and floor registry commands. Its
   geometry (the wall bearing, boxes, joining a box to a footprint) is done with turf; lengths and m²
@@ -97,9 +107,11 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 - A box is a screen rectangle, unprojected corner by corner, on the flat map turned to the site
   axis, so its sides follow the picked wall. Draw turns the map back to that axis and disables
   rotating and tilting until it ends.
-- Every box, move, resize, undo and redo is one save, one at a time: `spatial/site/update`
-  with `outline` for the building, else one `spatial/area/update_geometries` batch; boxes, moves and resizes are recorded in the session history. A rejected save reloads the rooms, says
-  "Could not save" and keeps the history position. Side lengths are MapLibre Markers holding a
+- Every box, move, resize, removal, undo and redo is one save, one at a time: `spatial/site/update`
+  with `outline` for the building, else one `spatial/area/update_geometries` batch; boxes, moves,
+  resizes and removals are recorded in the session history. A rejected save reloads the rooms,
+  fires a "Could not save" toast with Retry (`hass-notification`, `duration: -1`, closed by the next
+  save that succeeds) and keeps the history position. Side lengths are MapLibre Markers holding a
   native number field.
 - Align sends only `bearing_deg`: the direction of the OSM building's outer edge nearest the
   click, with the building on its left.
