@@ -7,8 +7,10 @@ import pytest
 from homeassistant.util.location import vincenty
 
 from custom_components.spatial.geometry import (
+    _clip_to_convex,
     _segments_intersect,
     net_area_m2,
+    overlap_area_m2,
     polygon_contains,
     shared_edge_length_m,
     validate_polygon,
@@ -355,3 +357,86 @@ def test_segments_intersect(
     Ring validation cannot reach every branch: an earlier pair of edges always meets first.
     """
     assert _segments_intersect(p1, p2, p3, p4) is meet
+
+
+def _with_hole(shell: dict[str, Any], hole: dict[str, Any]) -> dict[str, Any]:
+    """Return the shell polygon with the outer ring of hole added as an inner ring."""
+    return {"type": "Polygon", "coordinates": shell["coordinates"] + hole["coordinates"]}
+
+
+def _reversed(polygon: dict[str, Any]) -> dict[str, Any]:
+    """Return the polygon with every ring walked the other way round."""
+    return {"type": "Polygon", "coordinates": [ring[::-1] for ring in polygon["coordinates"]]}
+
+
+L_SHAPE = {
+    "type": "Polygon",
+    "coordinates": [
+        [
+            lonlat(0, 0),
+            lonlat(10, 0),
+            lonlat(10, 4),
+            lonlat(4, 4),
+            lonlat(4, 10),
+            lonlat(0, 10),
+            lonlat(0, 0),
+        ]
+    ],
+}
+COURTYARD = _with_hole(rect(0, 0, 10, 10), rect(3, 3, 6, 5))
+
+
+@pytest.mark.parametrize(
+    ("room", "outline", "expected_m2"),
+    [
+        (rect(0, 0, 4, 3), rect(2, 1, 10, 10), 2 * 2),
+        (rect(0, 0, 4, 3), rect(0, 0, 4, 3), 4 * 3),
+        (rect(0, 0, 4, 3), rect(4, 0, 8, 3), 0),
+        (rect(0, 0, 4, 3), rect(20, 20, 30, 30), 0),
+        (rect(1, 1, 3, 2), rect(0, 0, 10, 10), 2 * 1),
+        (rect(2, 2, 8, 8), L_SHAPE, 2 * 6 + 4 * 2),
+        (rect(-2, -2, 12, 12), L_SHAPE, 10 * 4 + 4 * 6),
+        (rect(0, 0, 10, 10), COURTYARD, 10 * 10 - 3 * 2),
+        (rect(4, 4, 8, 8), COURTYARD, 4 * 4 - 2 * 1),
+        (COURTYARD, rect(0, 0, 5, 10), 5 * 10 - 2 * 2),
+        (_reversed(rect(0, 0, 4, 3)), _reversed(rect(2, 1, 10, 10)), 2 * 2),
+    ],
+    ids=[
+        "corner_overlap",
+        "identical",
+        "shared_edge_only",
+        "apart",
+        "inside",
+        "rect_in_l_shape",
+        "l_shape_in_rect",
+        "outline_with_courtyard",
+        "room_over_courtyard",
+        "room_with_hole",
+        "clockwise_rings",
+    ],
+)
+def test_overlap_area_of_hand_computed_rectangles(
+    room: dict[str, Any], outline: dict[str, Any], expected_m2: float
+) -> None:
+    """Test the common area of two polygons against rectangles summed by hand."""
+    assert overlap_area_m2(room, outline) == pytest.approx(expected_m2, rel=1e-4, abs=1e-6)
+    assert overlap_area_m2(outline, room) == pytest.approx(expected_m2, rel=1e-4, abs=1e-6)
+
+
+@pytest.mark.parametrize(
+    ("subject", "expected"),
+    [
+        ([(5.0, 5.0), (6.0, 5.0), (5.0, 6.0)], []),
+        (
+            [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)],
+            [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
+        ),
+    ],
+    ids=["apart", "square_over_corner"],
+)
+def test_clip_to_convex(
+    subject: list[tuple[float, float]], expected: list[tuple[float, float]]
+) -> None:
+    """Test Sutherland-Hodgman on shapes drawn by hand, against the triangle (0,0) (2,0) (0,2)."""
+    clipped = _clip_to_convex(subject, [(0.0, 0.0), (2.0, 0.0), (0.0, 2.0)])
+    assert sorted(set(clipped)) == sorted(expected)

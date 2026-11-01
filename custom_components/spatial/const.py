@@ -28,6 +28,9 @@ REV_LENGTH: Final = 12
 # The site fields a write command may set; the centre is derived, never written.
 SITE_FIELD_NAMES: Final = ("bearing_deg", "origin", "outline")
 
+# The stored room properties a write command may set; the others are derived.
+ROOM_PROPERTY_NAMES: Final = ("floors_up", "on_facade_override")
+
 # Floors without spatial data stack this many metres per level.
 DEFAULT_FLOOR_HEIGHT_M: Final = 3.0
 

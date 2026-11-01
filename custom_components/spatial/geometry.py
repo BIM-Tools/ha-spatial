@@ -395,3 +395,85 @@ def shared_edge_length_m(
             if max(across) <= tolerance_m:
                 total += max(0.0, min(length, max(along)) - max(0.0, min(along)))
     return total
+
+
+def _crossing(start: Point, end: Point, start_side: float, end_side: float) -> Point:
+    """Return where the segment start-end meets a line, given each end's _direction to it."""
+    t = start_side / (start_side - end_side)
+    return start[0] + (end[0] - start[0]) * t, start[1] + (end[1] - start[1]) * t
+
+
+def _clip_to_convex(subject: Ring, clip: Ring) -> Ring:
+    """Return the part of subject inside clip; open rings, clip convex and counter-clockwise.
+
+    Sutherland-Hodgman reentrant clipping (I. E. Sutherland and G. W. Hodgman,
+    "Reentrant polygon clipping", Communications of the ACM 17(1), 1974), written
+    from the paper's description: subject is clipped by the line of each edge of
+    clip in turn. Points on a line count as inside, so shared edges are kept.
+    """
+    output = subject
+    for edge_start, edge_end in pairwise([*clip, clip[0]]):
+        candidates, output = output, []
+        if not candidates:
+            break
+        previous = candidates[-1]
+        previous_side = _direction(edge_start, edge_end, previous)
+        for current in candidates:
+            current_side = _direction(edge_start, edge_end, current)
+            if current_side <= 0:
+                if previous_side > 0:
+                    output.append(_crossing(previous, current, previous_side, current_side))
+                output.append(current)
+            elif previous_side <= 0:
+                output.append(_crossing(previous, current, previous_side, current_side))
+            previous, previous_side = current, current_side
+    return output
+
+
+def _signed_area(ring: Ring) -> float:
+    """Return the area of a closed ring, positive when it runs counter-clockwise."""
+    return sum(x1 * y2 - x2 * y1 for (x1, y1), (x2, y2) in pairwise(ring)) / 2
+
+
+def _edge_triangles(polygon: dict[str, Any], lon0: float, lat0: float) -> list[tuple[Ring, float]]:
+    """Return a counter-clockwise triangle from (lon0, lat0) to every edge, with its weight.
+
+    Custom. Summed with their weights (+1 or -1), the triangles cover each point of
+    the polygon once and every other point not at all, whatever way the rings run:
+    the outer ring counts counter-clockwise, holes clockwise.
+    """
+    triangles: list[tuple[Ring, float]] = []
+    for index, ring in enumerate(_rings_m(polygon, lon0, lat0)):
+        ring_weight = 1.0 if (_signed_area(ring) > 0) == (index == 0) else -1.0
+        for start, end in pairwise(ring):
+            cross = start[0] * end[1] - end[0] * start[1]
+            if cross > 0:
+                triangles.append(([(0.0, 0.0), start, end], ring_weight))
+            elif cross < 0:
+                triangles.append(([(0.0, 0.0), end, start], -ring_weight))
+    return triangles
+
+
+def overlap_area_m2(polygon_a: dict[str, Any], polygon_b: dict[str, Any]) -> float:
+    """Return the area in square metres that two polygons, holes included, have in common.
+
+    Custom. Each polygon is split into weighted triangles from one common point to
+    its edges (_edge_triangles, the decomposition behind the shoelace formula); the
+    common area is the weighted sum of the common areas of every pair of triangles,
+    each found with Sutherland-Hodgman, which is exact for convex shapes. Works for
+    any valid polygons, also non-convex ones and ones that share edges, which polygon
+    clippers such as Greiner-Hormann treat as special cases. Measured in the local
+    tangent plane at the first vertex of polygon_a.
+
+    Known limit: time grows with the product of the numbers of edges; fine for rooms
+    and a building outline, slow (seconds) for two polygons of hundreds of corners.
+    """
+    origin = _origin(polygon_a)
+    triangles_a = _edge_triangles(polygon_a, *origin)
+    total = 0.0
+    for triangle_b, weight_b in _edge_triangles(polygon_b, *origin):
+        for triangle_a, weight_a in triangles_a:
+            common = _clip_to_convex(triangle_a, triangle_b)
+            if len(common) >= 3:
+                total += weight_a * weight_b * _shoelace_area([*common, common[0]])
+    return max(total, 0.0)
