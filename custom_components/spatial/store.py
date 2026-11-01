@@ -28,7 +28,7 @@ class Site(TypedDict):
 
     lon: float
     lat: float
-    bearing_deg: float
+    bearing_deg: float | None
     outline: dict[str, Any] | None
 
 
@@ -40,7 +40,7 @@ class SpatialStore:
         self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, STORAGE_KEY)
         self.areas: dict[str, AreaSpatial] = {}
         self.floors: dict[str, FloorSpatial] = {}
-        self.bearing_deg = 0.0
+        self.bearing_deg: float | None = None
         self.outline: dict[str, Any] | None = None
         self._dirty = False
 
@@ -50,8 +50,9 @@ class SpatialStore:
         self.areas = data.get("areas", {})
         self.floors = data.get("floors", {})
         # Earlier versions stored null, or an origin besides the bearing, and no outline.
+        # A missing bearing means the site was never aligned.
         site = data.get("site") or {}
-        self.bearing_deg = site.get("bearing_deg", 0.0)
+        self.bearing_deg = site.get("bearing_deg")
         self.outline = site.get("outline")
 
     def _data(self) -> dict[str, Any]:

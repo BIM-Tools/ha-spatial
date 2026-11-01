@@ -20,7 +20,7 @@ with room outlines. One tool is always active, **Adjust** by default.
 bearing, turns the map so that wall is horizontal and goes back to Adjust. The card shows the
 outline but has no tools.
 The map button hides the map under the plan (remembered in this browser; Align turns it back on
-while it is active); the compass turns the house back the way Align set it.
+while it is active); the compass turns the house back the way Align set it, or north up before any Align.
 **Draw**, on a floor, draws the building outline and rooms. The strip at the bottom starts
 with **Building**, then lists the floor's areas, those without a footprint first; the highlighted
 one is drawn next and its shape is outlined on the map. Without an outline, Building comes first

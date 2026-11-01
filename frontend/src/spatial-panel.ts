@@ -36,11 +36,13 @@ interface Hass {
 interface Site {
   lon: number;
   lat: number;
-  bearing_deg: number;
+  // Null until the first Align.
+  bearing_deg: number | null;
   outline: Polygon | null;
 }
 
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
+const EAST_DEG = 90;
 // Share of the map height the aligned wall sits below the centre.
 const WALL_OFFSET_SHARE = 0.3;
 const REGISTRY_EVENTS = ["area_registry_updated", "floor_registry_updated"];
@@ -101,6 +103,8 @@ class SpatialPanel extends LitElement {
     _message: { state: true },
     _mapShown: { state: true },
     _phone: { state: true },
+    // The stored site direction, which names the compass.
+    _bearing: { state: true },
   };
 
   static styles = css`
@@ -216,6 +220,7 @@ class SpatialPanel extends LitElement {
   declare _message: string;
   declare _mapShown: boolean;
   declare _phone: boolean;
+  declare _bearing: number | null;
 
   private _map?: MapLibreMap;
   private _started = false;
@@ -227,7 +232,6 @@ class SpatialPanel extends LitElement {
   // Not reactive: the compass follows every rotate frame without rendering the panel.
   private _mapBearingDeg = 0;
   private _token = "";
-  private _bearing = 0;
   private _tokenTimer?: ReturnType<typeof setInterval>;
   private _unsubscribe?: () => void;
   private _areas: FeatureCollection = EMPTY;
@@ -243,6 +247,7 @@ class SpatialPanel extends LitElement {
     this._message = "";
     this._mapShown = readMapShown();
     this._phone = false;
+    this._bearing = null;
   }
 
   connectedCallback() {
@@ -254,6 +259,11 @@ class SpatialPanel extends LitElement {
   private _phoneChanged = () => {
     this._phone = this._phoneQuery.matches;
   };
+
+  // The site's x-axis, clockwise from north. Before any Align it points east, so the view is north up.
+  private get _axisDeg(): number {
+    return this._bearing ?? EAST_DEG;
+  }
 
   private get _aligning() {
     return this._editor?.tool === "align";
@@ -285,6 +295,7 @@ class SpatialPanel extends LitElement {
               .mapShown=${this._mapShown}
               .mapForced=${this._aligning}
               .bearing=${this._mapBearingDeg}
+              .aligned=${this._bearing !== null}
               @map-toggle=${this._toggleMap}
               @zoom-in=${() => this._map?.zoomIn()}
               @zoom-out=${() => this._map?.zoomOut()}
@@ -440,7 +451,7 @@ class SpatialPanel extends LitElement {
     };
     const editor = this.card
       ? undefined
-      : new RoomEditor(hass.connection, () => this.requestUpdate(), loadAreas, () => this._bearing);
+      : new RoomEditor(hass.connection, () => this.requestUpdate(), loadAreas, () => this._axisDeg);
     this._editor = editor;
     const site = await loadAreas();
     if (stopped()) return;
@@ -455,7 +466,7 @@ class SpatialPanel extends LitElement {
       }
       if (bearing_deg === this._bearing) return;
       this._bearing = bearing_deg;
-      this._map?.setBearing(mapBearing(bearing_deg));
+      this._map?.setBearing(mapBearing(this._axisDeg));
     };
     // The editor's strip and floor buttons name areas and floors, which change outside this panel.
     const rereadRegistries = () => {
@@ -478,7 +489,7 @@ class SpatialPanel extends LitElement {
     const style = await this._loadStyle();
     if (stopped() || !style) return;
     setWorkerUrl("/spatial_static/maplibre-gl-worker.mjs");
-    this._mapBearingDeg = mapBearing(site.bearing_deg);
+    this._mapBearingDeg = mapBearing(this._axisDeg);
     const map = new MapLibreMap({
       container: this.renderRoot.querySelector<HTMLElement>("#map")!,
       style,
@@ -516,7 +527,7 @@ class SpatialPanel extends LitElement {
       ),
     );
     if (box) {
-      this._map?.fitBounds(box, { bearing: mapBearing(this._bearing), padding: 16, animate: false });
+      this._map?.fitBounds(box, { bearing: mapBearing(this._axisDeg), padding: 16, animate: false });
     }
   }
 
@@ -585,9 +596,10 @@ class SpatialPanel extends LitElement {
     );
   }
 
-  // The compass turns the house back the way Align set it. Draw keeps this view, so it is safe there too.
+  // The compass turns the house back the way Align set it, or north up before any Align.
+  // Draw keeps this view, so it is safe there too.
   private _faceSite() {
-    this._map?.easeTo({ bearing: mapBearing(this._bearing) });
+    this._map?.easeTo({ bearing: mapBearing(this._axisDeg) });
   }
 
   private _selectTool(tool: Tool) {
@@ -652,7 +664,7 @@ class SpatialPanel extends LitElement {
         console.error(err);
         this._message = "Could not save";
         this._bearing = previousBearing;
-        this._map?.easeTo({ bearing: mapBearing(previousBearing) });
+        this._map?.easeTo({ bearing: mapBearing(this._axisDeg) });
       },
     );
   }
