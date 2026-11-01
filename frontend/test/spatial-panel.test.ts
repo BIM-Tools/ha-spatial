@@ -3,6 +3,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import {
   EMPTY,
+  type Reply,
   answer,
   buttonNamed,
   buttonsIn,
@@ -517,8 +518,37 @@ test("the compass turns with the map", async () => {
   expect(needle()).toContain("rotate(0deg)");
 });
 
+const UNALIGNED_SITE: Reply = async (message) =>
+  message.type === "spatial/site" ? { lon: 5, lat: 52, bearing_deg: null, outline: null } : answer(message);
+
+test("before any Align the map opens north up and the compass faces north, also in Draw", async () => {
+  const { panel } = mountPanel(UNALIGNED_SITE);
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
+  expect(mapCreated.mock.calls[0][0]).toMatchObject({ bearing: 0 });
+  await showNoFloor(panel);
+  buttonNamed(panel, "Draw")!.click();
+  await settle(panel);
+  expect(buttonNamed(panel, "Face the house")).toBeUndefined();
+  expect(buttonNamed(panel, "Face north")!.disabled).toBe(false);
+  buttonNamed(panel, "Face north")!.click();
+  expect(easeTo).toHaveBeenLastCalledWith({ bearing: 0 });
+});
+
+test("before any Align a static card frames its rooms north up", async () => {
+  mountPanel(
+    async (message) => (message.type === "spatial/geojson" ? TWO_FLOORS : UNALIGNED_SITE(message)),
+    {},
+    true,
+    "all",
+  );
+  await vi.waitFor(() => expect(fitBounds).toHaveBeenCalled());
+  expect(fitBounds.mock.calls[0][1]).toMatchObject({ bearing: 0 });
+});
+
 test("a stored bearing of 0 is a wall direction too: the compass returns the view to 270, also in Draw", async () => {
   const { panel } = mountPanel();
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
+  expect(mapCreated.mock.calls[0][0]).toMatchObject({ bearing: 270 });
   await showNoFloor(panel);
   buttonNamed(panel, "Draw")!.click();
   await settle(panel);

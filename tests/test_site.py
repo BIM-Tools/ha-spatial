@@ -35,13 +35,13 @@ async def _call(client: Any, **command: Any) -> dict[str, Any]:
 async def test_site_defaults_to_home_location(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator
 ) -> None:
-    """Test without footprints the site is the home location, facing north."""
+    """Test without footprints the site is the home location, with no direction until Align."""
     client = await hass_ws_client(hass)
     msg = await _call(client, type="spatial/site")
     assert msg["result"] == {
         "lon": hass.config.longitude,
         "lat": hass.config.latitude,
-        "bearing_deg": 0.0,
+        "bearing_deg": None,
         "outline": None,
     }
 
@@ -59,7 +59,7 @@ async def test_site_centre_is_the_middle_of_all_footprints(
     lon, lat = lonlat(10, -1.5)  # x from 0 to 20, y from -6 to 3
     assert msg["result"]["lon"] == pytest.approx(lon, abs=1e-9)
     assert msg["result"]["lat"] == pytest.approx(lat, abs=1e-9)
-    assert msg["result"]["bearing_deg"] == 0.0
+    assert msg["result"]["bearing_deg"] is None
 
 
 async def test_site_centre_follows_footprint_edits(
@@ -135,18 +135,24 @@ async def test_update_site_requires_admin(
 
 
 @pytest.mark.parametrize(
-    "legacy_site",
-    [None, {"lon": 4.9, "lat": 52.0, "bearing_deg": 20.0}],
-    ids=["null", "with_origin"],
+    ("legacy_site", "bearing_deg"),
+    [
+        (None, None),
+        ({"outline": None}, None),
+        ({"lon": 4.9, "lat": 52.0, "bearing_deg": 20.0}, 20.0),
+        ({"bearing_deg": 0.0, "outline": None}, 0.0),
+    ],
+    ids=["null", "without_bearing", "with_origin", "north_running_wall"],
 )
 async def test_legacy_stored_site_loads(
     hass: HomeAssistant,
     hass_ws_client: WebSocketGenerator,
     hass_storage: dict[str, Any],
     setup_integration: MockConfigEntry,
-    legacy_site: dict[str, float] | None,
+    legacy_site: dict[str, float | None] | None,
+    bearing_deg: float | None,
 ) -> None:
-    """Test data stored by earlier versions loads and its origin is ignored."""
+    """Test stored data loads: no bearing means not aligned, a stored 0 stays a direction."""
     hass_storage[DOMAIN] = {
         "version": 1,
         "key": DOMAIN,
@@ -160,7 +166,7 @@ async def test_legacy_stored_site_loads(
     assert msg["result"] == {
         "lon": hass.config.longitude,
         "lat": hass.config.latitude,
-        "bearing_deg": legacy_site["bearing_deg"] if legacy_site else 0.0,
+        "bearing_deg": bearing_deg,
         "outline": None,
     }
 
@@ -256,6 +262,20 @@ async def test_site_update_needs_a_field(
     client = await hass_ws_client(hass)
     msg = await _call(client, type="spatial/site/update")
     assert msg["error"]["code"] == "invalid_format"
+
+
+async def test_site_bearing_cleared_with_null(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test null removes the bearing and leaves the outline alone."""
+    client = await hass_ws_client(hass)
+    outline = rect(0, 0, 10, 8)
+    await _call(client, type="spatial/site/update", bearing_deg=30.0, outline=outline)
+    msg = await _call(client, type="spatial/site/update", bearing_deg=None)
+    assert msg["success"], msg
+    msg = await _call(client, type="spatial/site")
+    assert msg["result"]["bearing_deg"] is None
+    assert msg["result"]["outline"] == outline
 
 
 async def test_site_outline_cleared_with_null(

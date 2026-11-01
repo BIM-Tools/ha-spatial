@@ -10,6 +10,8 @@ class SpatialMapStack extends LitElement {
     // Align needs the map's buildings, so the map stays on.
     mapForced: { attribute: false },
     bearing: { attribute: false },
+    // Whether Align has set a site direction; without one the compass faces north.
+    aligned: { attribute: false },
     // A phone pinches to zoom and turn, so it gets only a round map toggle.
     round: { type: Boolean, reflect: true },
   };
@@ -77,6 +79,7 @@ class SpatialMapStack extends LitElement {
   declare mapShown: boolean;
   declare mapForced: boolean;
   declare bearing: number;
+  declare aligned: boolean;
   declare round: boolean;
 
   constructor() {
@@ -84,6 +87,7 @@ class SpatialMapStack extends LitElement {
     this.mapShown = true;
     this.mapForced = false;
     this.bearing = 0;
+    this.aligned = false;
     this.round = false;
   }
 
@@ -107,7 +111,7 @@ class SpatialMapStack extends LitElement {
       <button aria-label="Zoom out" @click=${() => this._fire("zoom-out")}>
         <ha-svg-icon .path=${mdiMinus}></ha-svg-icon>
       </button>
-      <button aria-label="Face the house" @click=${() => this._fire("compass")}>
+      <button aria-label=${this.aligned ? "Face the house" : "Face north"} @click=${() => this._fire("compass")}>
         <ha-svg-icon .path=${mdiNavigation} style="transform: rotate(${-this.bearing}deg)"></ha-svg-icon>
       </button>
     `;

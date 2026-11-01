@@ -31,7 +31,7 @@ Development tools. Not part of the integration.
 | --- | --- |
 | `features[]` | `Polygon` with properties `area` (name) and `floor` (name) |
 | `floors[]` (optional) | `name`, `level`, `elevation_m`, `height_m` |
-| `site` (optional) | `bearing_deg` (`lon` and `lat` in older files are ignored) |
+| `site` (optional) | `bearing_deg`, sent only when present (`lon` and `lat` in older files are ignored) |
 
 - Names match the way Home Assistant matches them (case and spaces ignored).
 - Missing floors and areas are created with Home Assistant's own registry commands.

@@ -12,6 +12,7 @@ import {
   dragPan,
   dragRotate,
   handlers,
+  jumpTo,
   floorButtonNames,
   liveMarkers,
   layers,
@@ -225,6 +226,19 @@ test("in Draw the map pans only while Space is held, and leaving Draw restores p
   expect(dragPan.isEnabled()).toBe(false);
   buttonNamed(panel, "Adjust")!.click();
   expect(dragPan.isEnabled()).toBe(true);
+});
+
+test("before any Align the map turns north up for Draw and boxes run north to south", async () => {
+  const { panel, connection } = mountEditor(async (message) =>
+    message.type === "spatial/site" ? { lon: 5, lat: 52, bearing_deg: null, outline: OUTLINE } : undefined,
+  );
+  await startDrawing(panel);
+  expect(jumpTo).toHaveBeenLastCalledWith({ bearing: 0, pitch: 0 });
+  tap(100, 0);
+  tap(140, 30);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  const [{ areas }] = saves(connection);
+  expect(isAxisRectangle(areas.bath, 0)).toBe(true);
 });
 
 test("two taps save a box along the site axis and move on to the next area", async () => {
