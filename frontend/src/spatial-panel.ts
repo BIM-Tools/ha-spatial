@@ -15,7 +15,7 @@ import type { Floor, FloorChoice } from "./floor-selector";
 import "./floor-selector";
 import "./map-stack";
 import { type MapPaint, layerColours, readMapPaint, repaint } from "./map-paint";
-import { bounds, floorsByLevel, mapBearing, styleUrl, withMapTilesToken } from "./map-view";
+import { type ThemeState, bounds, darkModeOf, floorsByLevel, mapBearing, styleUrl, withMapTilesToken } from "./map-view";
 import { buildingAt, wallAt, wallBearingAt } from "./outline";
 import "./panel-header";
 import { BUILDING } from "./area-strip";
@@ -34,7 +34,8 @@ interface Hass {
   };
   areas?: Record<string, AreaInfo>;
   floors?: Record<string, { name: string }>;
-  themes: { darkMode: boolean };
+  themes: ThemeState["themes"];
+  selectedTheme?: ThemeState["selectedTheme"];
 }
 
 interface Site {
@@ -51,6 +52,7 @@ const EAST_DEG = 90;
 const WALL_OFFSET_SHARE = 0.3;
 const REGISTRY_EVENTS = ["area_registry_updated", "floor_registry_updated"];
 const PHONE_QUERY = "(max-width: 600px)";
+const DARK_QUERY = "(prefers-color-scheme: dark)";
 const MAP_SHOWN_KEY = "spatial-show-map";
 
 // Core rotates the map tiles token every 30 minutes and keeps two live; this
@@ -299,6 +301,11 @@ class SpatialPanel extends LitElement {
     return this._editor?.tool === "align";
   }
 
+  // Read on every use: when Home Assistant resolves darkMode later, it hands over new themes, which updates the panel.
+  private get _darkMode() {
+    return darkModeOf(this.hass!, window.matchMedia(DARK_QUERY).matches);
+  }
+
   // The card keeps the map until it has its own option.
   private get _mapVisible() {
     return this.card || this._mapShown || this._aligning;
@@ -429,7 +436,7 @@ class SpatialPanel extends LitElement {
   }
 
   private _wantedStyleKey() {
-    return `${this.hass!.themes.darkMode} ${this._mapVisible}`;
+    return `${this._darkMode} ${this._mapVisible}`;
   }
 
   // Resolves to undefined when a newer style was asked for in the meantime. A failed fetch
@@ -437,7 +444,7 @@ class SpatialPanel extends LitElement {
   private async _loadStyle(): Promise<StyleSpecification | undefined> {
     const key = this._wantedStyleKey();
     this._pendingStyleKey = key;
-    const darkMode = this.hass!.themes.darkMode;
+    const darkMode = this._darkMode;
     try {
       const style = this._mapVisible
         ? await loadStyle(darkMode)
@@ -659,12 +666,12 @@ class SpatialPanel extends LitElement {
   private _groundColour(): string {
     return (
       getComputedStyle(this).getPropertyValue("--primary-background-color").trim() ||
-      (this.hass!.themes.darkMode ? "#111111" : "#fafafa")
+      (this._darkMode ? "#111111" : "#fafafa")
     );
   }
 
   private _readPaint(): MapPaint {
-    return readMapPaint(this, this.hass!.themes.darkMode);
+    return readMapPaint(this, this._darkMode);
   }
 
   // A new primary colour repaints the rooms; dark mode also reloads the style, which adds them again.

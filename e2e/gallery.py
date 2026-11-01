@@ -3,6 +3,13 @@
 Run with `docker compose run --rm gallery; docker compose rm -sf homeassistant-e2e`; the
 PNGs, contact sheets and index.md land in ./gallery-out. Add a state by appending a
 `State` to STATES with a setup function built from the helpers on `Shot`.
+
+Coupling to watch: the panel offers no public way to reach its map or to tell whether a style
+reload is pending, so these private fields of `spatial-panel` are read and break on a rename:
+- `_map`, the MapLibre map: camera framing, screen positions and rendered features.
+- `_styleKey`, `_pendingStyleKey` and `_wantedStyleKey()`: whether the style the panel asks for
+  is on the map.
+Everything else goes through the page: element names, roles, labels and visible text.
 """
 
 from __future__ import annotations
@@ -65,7 +72,8 @@ class State:
 class House:
     """The example house as loaded: floor and area ids by name, room rings by floor."""
 
-    def __init__(self, websocket: Websocket) -> None:
+    def __init__(self, websocket: Websocket, token: str) -> None:
+        self.token = token
         with EXAMPLE_HOUSE.open(encoding="utf-8") as file:
             collection = json.load(file)
         self.floor_ids = {
@@ -78,6 +86,8 @@ class House:
         }
         self.rings: dict[str, dict[str, list[list[float]]]] = {}
         for feature in collection["features"]:
+            if feature["geometry"] is None:
+                continue
             floor = normalize_name(feature["properties"]["floor"])
             area = normalize_name(feature["properties"]["area"])
             self.rings.setdefault(floor, {})[area] = feature["geometry"]["coordinates"][0]
@@ -109,6 +119,8 @@ class Shot:
         self.panel = page.locator("spatial-panel")
         # Things the screenshot shows that the gallery did not ask for; listed in the index.
         self.warnings: set[str] = set()
+        # Undoes what a state changed in Home Assistant, so later states see the same house.
+        self.cleanups: list[Callable[[], None]] = []
 
     @property
     def phone(self) -> bool:
@@ -147,10 +159,38 @@ class Shot:
         self.require(toolbar.get_by_role("button", name=tool, exact=True), f"tool {tool}").click()
         self.settle()
 
-    def activate_pill(self, area: str) -> None:
+    def pill(self, area: str) -> Locator:
         strip = self.panel.locator("spatial-area-strip")
-        name = area if area == "Building" else self.house.area_name(area)
-        self.require(strip.get_by_role("button", name=name, exact=True), f"pill {name}").click()
+        name = area if area in ("Building", "New area") else self.house.area_name(area)
+        return self.require(strip.get_by_role("button", name=name, exact=True), f"pill {name}")
+
+    def activate_pill(self, area: str) -> None:
+        self.pill(area).click()
+        self.settle()
+
+    def hover_pill(self, area: str) -> None:
+        self.pill(area).hover()
+        self.settle()
+
+    def start_rename(self, area: str) -> None:
+        """Clicking the active pill again turns it into a name field; `release` cancels it."""
+        self.activate_pill(area)
+        self.activate_pill(area)
+        self.panel.get_by_role("textbox", name="Area name").wait_for()
+
+    def new_area(self) -> None:
+        """Creates an area with New area, which opens its name field; `release` deletes it again."""
+        websocket = Websocket(self.house.token)
+        before = {area["area_id"] for area in websocket.call("config/area_registry/list")}
+
+        def delete_new_areas() -> None:
+            for area in websocket.call("config/area_registry/list"):
+                if area["area_id"] not in before:
+                    websocket.call("config/area_registry/delete", area_id=area["area_id"])
+
+        self.cleanups.append(delete_new_areas)
+        self.pill("New area").click()
+        self.panel.get_by_role("textbox", name="Area name").wait_for()
         self.settle()
 
     def toggle_map(self) -> None:
@@ -159,8 +199,19 @@ class Shot:
         self.settle()
 
     def open_help(self) -> None:
-        """Help is a link to the documentation today; a later in-panel help can hook in here."""
-        raise Skip("help opens the documentation in a new tab")
+        header = self.panel.locator("spatial-panel-header")
+        help_button = self.require(header.get_by_role("button", name="Help", exact=True), "Help")
+        # Its own icon takes the pointer, which Playwright's hit test counts as covering it.
+        help_button.click(force=True)
+        header.get_by_role("dialog").wait_for()
+        self.settle()
+
+    def wait_for_toast(self, message: str) -> None:
+        """Home Assistant's toast, shown outside the panel; it fades after a few seconds."""
+        # The toast also repeats its message in a live region for screen readers.
+        self.page.get_by_text(message, exact=True).first.wait_for()
+        # Lets the toast finish sliding in.
+        self.page.wait_for_timeout(400)
 
     # Camera
 
@@ -278,29 +329,34 @@ class Shot:
         # Escape cancels the box first: releasing saves nothing, so later states see the same house.
         self.page.keyboard.press("Escape")
         self.page.mouse.up()
+        for cleanup in self.cleanups:
+            cleanup()
 
     # Waiting
 
     def settle(self) -> None:
         """Waits until the map stops moving and has rendered, and fonts and Lit updates are done."""
         # The theme can reach the panel after the map started, which then swaps its style. So wait
-        # a while for Home Assistant to follow the browser's colour scheme (its default theme
-        # does), then until the style on the map is the one the panel asks for, with the rooms.
+        # until the style on the map is the one the panel asks for, with the rooms, and give the
+        # panel a while to follow the browser's colour scheme, as Home Assistant's default theme
+        # does. Home Assistant names its dark map style with a "-dark" suffix; the plain style
+        # without the map has no name.
         theme_followed, idle = self.panel.evaluate(
             """async (panel, timeout) => {
                 await document.fonts.ready;
                 const pause = () => new Promise((resolve) => setTimeout(resolve, 100));
                 const dark = matchMedia("(prefers-color-scheme: dark)").matches;
-                const themeDeadline = Date.now() + timeout / 3;
-                while (panel.hass?.themes.darkMode !== dark && Date.now() < themeDeadline) {
-                    await pause();
-                }
-                const deadline = Date.now() + timeout;
+                const themeFollowed = () => {
+                    const name = panel._map.getStyle()?.name;
+                    return name === undefined || name.endsWith("-dark") === dark;
+                };
                 const styleReady = () =>
                     panel._map?.getLayer("areas-2d") &&
                     !panel._pendingStyleKey &&
                     panel._styleKey === panel._wantedStyleKey();
-                while (!styleReady()) {
+                const themeDeadline = Date.now() + timeout / 3;
+                const deadline = Date.now() + timeout;
+                while (!styleReady() || (!themeFollowed() && Date.now() < themeDeadline)) {
                     if (Date.now() > deadline) throw new Error("the map style never settled");
                     await pause();
                 }
@@ -315,13 +371,13 @@ class Shot:
                 const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
                 await frame();
                 await frame();
-                return [panel.hass?.themes.darkMode === dark, idle];
+                return [themeFollowed(), idle];
             }""",
             SETTLE_TIMEOUT_MS,
         )
         # Shown as it is, since that is what a user would see, but flagged in the index.
         if not theme_followed:
-            self.warnings.add(f"the panel's hass.themes.darkMode is not {self.theme == 'dark'}")
+            self.warnings.add(f"the map style is not the {self.theme} one")
         if not idle:
             self.warnings.add(f"the map was still loading after {SETTLE_TIMEOUT_MS // 1000} s")
         # Markers and the toolbar re-render on the frame after the map's idle event.
@@ -436,6 +492,42 @@ def labels_pointed(shot: Shot) -> None:
     shot.hover(*shot.room_centre("Toilet"))
 
 
+def strip_pills(shot: Shot) -> None:
+    draw_active(shot)
+    shot.activate_pill("Kitchen")
+
+
+def strip_active_unshaped(shot: Shot) -> None:
+    floor_plan(shot)
+    shot.activate_pill("Utility")
+
+
+def strip_rename(shot: Shot) -> None:
+    floor_plan(shot)
+    shot.start_rename("Kitchen")
+
+
+def strip_new_area(shot: Shot) -> None:
+    floor_plan(shot)
+    shot.new_area()
+
+
+def hover_pill(shot: Shot) -> None:
+    floor_plan(shot)
+    shot.hover_pill("Kitchen")
+
+
+def hover_room(shot: Shot) -> None:
+    floor_plan(shot)
+    shot.hover(*shot.room_centre("Kitchen"))
+
+
+def toast_apart_box(shot: Shot) -> None:
+    draw_box_apart(shot)
+    shot.page.mouse.up()
+    shot.wait_for_toast("A room is one shape: draw against it")
+
+
 def card(view: str) -> Callable[[Shot], None]:
     def setup(shot: Shot) -> None:
         shot.open_card(view)
@@ -450,13 +542,18 @@ STATES = [
         "Header, floor selector and tools on the ground floor, Adjust active",
         floor_plan,
     ),
-    State("all-floors", "chrome", "All floors stacked in 3D, tools disabled", all_floors),
+    State(
+        "all-floors",
+        "chrome",
+        "All floors stacked in 3D, tools disabled, the strip's hint to choose a floor",
+        all_floors,
+    ),
     State("map-off", "chrome", "Ground floor with the map hidden", map_off),
-    State("help-open", "chrome", "Help open", help_open),
+    State("help-open", "chrome", "The help sheet open: symbols and keys", help_open),
     State(
         "align-active",
         "tools",
-        "Align active: the instruction shows and the map is forced on",
+        "Align active: the guide line says what to click and the map is forced on",
         align_active,
     ),
     State(
@@ -474,6 +571,44 @@ STATES = [
         adjust_room_active,
     ),
     State(
+        "strip-pills",
+        "strip",
+        "Every pill state: Kitchen active with a shape, Building and Utility dashed without one",
+        strip_pills,
+    ),
+    State(
+        "strip-active-unshaped",
+        "strip",
+        "Utility active without a shape: Draw selected, the guide line says Draw Utility 5 of 5",
+        strip_active_unshaped,
+    ),
+    State(
+        "strip-rename",
+        "strip",
+        "Renaming Kitchen: the pill is a name field with a check button",
+        strip_rename,
+    ),
+    State(
+        "strip-new-area",
+        "strip",
+        "New area just created: Room 1 active, its name field open",
+        strip_new_area,
+    ),
+    State(
+        "hover-pill",
+        "strip",
+        "Pointing at the Kitchen pill outlines the kitchen",
+        hover_pill,
+        phone=False,
+    ),
+    State(
+        "hover-room",
+        "strip",
+        "Pointing at the kitchen outlines its pill",
+        hover_room,
+        phone=False,
+    ),
+    State(
         "draw-box-mid-drag", "drawing", "Drawing the building outline, mid-drag", draw_box_mid_drag
     ),
     State(
@@ -481,6 +616,12 @@ STATES = [
         "drawing",
         "A box apart from the active kitchen, in the warning look",
         draw_box_apart,
+    ),
+    State(
+        "toast-apart-box",
+        "drawing",
+        "Releasing the box apart: Home Assistant's toast says a room is one shape",
+        toast_apart_box,
     ),
     State(
         "labels-fit",
@@ -504,9 +645,24 @@ STATES = [
         labels_pointed,
         phone=False,
     ),
-    State("floor-first", "floors", "First floor", floor_view("First floor")),
-    State("floor-attic", "floors", "Attic, one room under the roof", floor_view("Attic")),
-    State("floor-none", "floors", "No floor: areas without a floor", floor_view("No floor")),
+    State(
+        "floor-first",
+        "floors",
+        "First floor, with Study dashed in the strip",
+        floor_view("First floor"),
+    ),
+    State(
+        "floor-attic",
+        "floors",
+        "Attic, one room under the roof and Storage dashed in the strip",
+        floor_view("Attic"),
+    ),
+    State(
+        "floor-none",
+        "floors",
+        "No floor: Garden and Driveway in the strip, nothing drawn",
+        floor_view("No floor"),
+    ),
     State("card-floor", "card", "Dashboard card fixed to the ground floor", card("floor")),
     State("card-all", "card", "Dashboard card with all floors", card("all")),
 ]
@@ -516,7 +672,7 @@ def load_house(token: str) -> House:
     add_spatial(token)
     asyncio.run(import_file(str(EXAMPLE_HOUSE), BASE_URL, token))
     websocket = Websocket(token)
-    house = House(websocket)
+    house = House(websocket, token)
     websocket.call(
         "lovelace/dashboards/create",
         url_path=DASHBOARD,

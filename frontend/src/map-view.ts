@@ -9,6 +9,43 @@ export const mapBearing = (bearingDeg: number): number => (((bearingDeg - 90) % 
 export const styleUrl = (darkMode: boolean): string =>
   `/static/map/${darkMode ? "dark" : "light"}.json`;
 
+// The parts of Home Assistant's `hass` object that decide between light and dark.
+export interface ThemeState {
+  themes: {
+    darkMode?: boolean;
+    default_theme?: string;
+    default_dark_theme?: string | null;
+    themes?: Record<string, { modes?: Record<string, unknown> }>;
+  };
+  selectedTheme?: { theme?: string; dark?: boolean } | null;
+}
+
+/**
+ * Whether Home Assistant shows its dark mode. Home Assistant can hand over its themes before it
+ * has resolved `darkMode` (it skips that while its configuration has not arrived), so an unset
+ * `darkMode` is resolved here as _applyTheme in home-assistant/frontend
+ * src/state/themes-mixin.ts, release 20260930.3, does:
+ * https://github.com/home-assistant/frontend/blob/20260930.3/src/state/themes-mixin.ts
+ * Copyright Home Assistant contributors, Apache License 2.0.
+ *
+ * Limit: recovery and safe mode, which force the default theme, are not followed.
+ */
+export const darkModeOf = ({ themes, selectedTheme }: ThemeState, darkPreferred: boolean): boolean => {
+  if (themes.darkMode !== undefined) return themes.darkMode;
+  let darkMode = selectedTheme?.dark === undefined ? darkPreferred : selectedTheme.dark;
+  const themeName =
+    selectedTheme?.theme || (darkMode && themes.default_dark_theme ? themes.default_dark_theme : themes.default_theme);
+  const theme = themeName ? themes.themes?.[themeName] : undefined;
+  if (theme) {
+    if (!theme.modes || !("dark" in theme.modes)) {
+      darkMode = false;
+    } else if (!("light" in theme.modes)) {
+      darkMode = true;
+    }
+  }
+  return darkMode;
+};
+
 const MAP_TILES_PATH = "/api/map_tiles";
 const TOKEN_HEADER = "X-Map-Tiles-Token";
 
