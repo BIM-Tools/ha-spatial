@@ -626,32 +626,18 @@ const headerButton = (panel: HTMLElement, label: string) =>
     (button) => button.label === label,
   )!;
 
-test("Back from an entry Home Assistant did not push goes to the integration page, keeping its root mark", async () => {
-  history.replaceState({ root: true }, "", "/spatial");
-  const back = vi.spyOn(history, "back").mockImplementation(() => {});
+test("Back opens Spatial's integration page in Home Assistant, and is a link for a new tab", async () => {
+  history.replaceState(null, "", "/spatial");
   const changed = vi.fn();
   window.addEventListener("location-changed", changed);
   const { panel } = mountPanel();
   await settle(panel);
-  headerButton(panel, "Back").click();
-  expect(back).not.toHaveBeenCalled();
+  const back = headerButton(panel, "Back to Spatial");
+  expect(back.href).toBe("/config/integrations/integration/spatial");
+  back.click();
   expect(location.pathname).toBe("/config/integrations/integration/spatial");
-  expect(history.state).toEqual({ root: true });
   expect(changed).toHaveBeenCalledTimes(1);
   window.removeEventListener("location-changed", changed);
-  back.mockRestore();
-});
-
-test("Back goes back when Home Assistant's router brought the user here", async () => {
-  history.replaceState({ from: "/config/integrations" }, "", "/spatial");
-  const back = vi.spyOn(history, "back").mockImplementation(() => {});
-  const { panel } = mountPanel();
-  await settle(panel);
-  expect(headerButton(panel, "Back").href).toBe("/config/integrations/integration/spatial");
-  headerButton(panel, "Back").click();
-  expect(back).toHaveBeenCalledTimes(1);
-  expect(location.pathname).toBe("/spatial");
-  back.mockRestore();
 });
 
 test("on a phone the floors are chips under the header, the tools a bottom bar, and the map toggle round", async () => {
