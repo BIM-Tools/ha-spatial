@@ -50,7 +50,7 @@ class SpatialEditorToolbar extends LitElement {
       .divider {
         width: 1px;
         height: 24px;
-        margin: 0 4px;
+        margin: 0 var(--ha-space-1);
         background: var(--divider-color);
       }
       :host([bar]) {
@@ -60,15 +60,15 @@ class SpatialEditorToolbar extends LitElement {
         gap: 0;
         height: calc(72px + var(--safe-area-inset-bottom, 0px));
         box-sizing: border-box;
-        padding: 8px 4px calc(10px + var(--safe-area-inset-bottom, 0px));
+        padding: var(--ha-space-2) var(--ha-space-1) calc(10px + var(--safe-area-inset-bottom, 0px));
         border-top: 1px solid var(--divider-color);
       }
       :host([bar]) button {
         flex-direction: column;
-        gap: 4px;
+        gap: var(--ha-space-1);
         height: auto;
         padding: 0;
-        font-size: 12px;
+        font-size: var(--ha-font-size-s);
         background: none;
       }
       :host([bar]) .pill {
@@ -77,7 +77,7 @@ class SpatialEditorToolbar extends LitElement {
         justify-content: center;
         width: 56px;
         height: 32px;
-        border-radius: 16px;
+        border-radius: var(--ha-border-radius-xl);
       }
       :host([bar]) button[aria-pressed="true"] .pill {
         background: ${selectedFill};

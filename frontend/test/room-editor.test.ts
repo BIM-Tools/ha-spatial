@@ -2,7 +2,7 @@
 // Checks drawing, adjusting and undoing rooms in the panel against a fake MapLibre and a scripted Home Assistant connection.
 import area from "@turf/area";
 import distance from "@turf/distance";
-import type { Polygon } from "geojson";
+import type { Feature, Polygon } from "geojson";
 import { afterEach, expect, test, vi } from "vitest";
 import {
   EMPTY,
@@ -103,6 +103,10 @@ const strip = (panel: HTMLElement) =>
     | null;
 
 const chips = (panel: HTMLElement) => [...(strip(panel)?.shadowRoot?.querySelectorAll("button") ?? [])];
+
+// The markers the editor adds while drawing or adjusting, without the room labels.
+const editorMarkers = () =>
+  liveMarkers().filter((marker) => !marker.element.matches(".room-label, .building-label"));
 
 const activeFilter = () => layers.find((layer) => layer.id === "spatial-active")?.filter;
 
@@ -211,7 +215,7 @@ test("a mouse drag draws a box with live side labels and saves it in one batch",
   const [{ areas }] = saves(connection);
   expect(Object.keys(areas)).toEqual(["bath"]);
   expect(area(areas.bath)).toBeCloseTo(12, 1);
-  expect(liveMarkers()).toEqual([]);
+  expect(editorMarkers()).toEqual([]);
 });
 
 test("in Draw the map pans only while Space is held, and leaving Draw restores panning", async () => {
@@ -279,6 +283,19 @@ test("a box apart from the area's footprint saves nothing and says why", async (
   expect(buttonNamed(panel, "Undo")!.disabled).toBe(true);
 });
 
+test("a box being drawn is marked apart while it cannot join the active footprint", async () => {
+  const { panel } = mountEditor();
+  await startDrawing(panel);
+  chip(panel, "Kitchen").click();
+  await settle(panel);
+  const draftApart = () => (sources["spatial-draft"].data as Feature).properties?.apart;
+  handlers.mousedown(mouse(200, 200));
+  handlers.mousemove(mouse(240, 240));
+  expect(draftApart()).toBe(true);
+  handlers.mousemove(mouse(45, 45));
+  expect(draftApart()).toBe(false);
+});
+
 test("two taps 0.1 m apart save nothing", async () => {
   const { panel, connection } = mountEditor();
   await startDrawing(panel);
@@ -304,7 +321,7 @@ test("in Draw a drag inside the active room moves it in one batch, and undo puts
   await activateKitchen(panel);
   handlers.mousedown(mouse(25, 25));
   handlers.mousemove(mouse(45, 25));
-  expectCornersNear(sources["spatial-draft"].data as Polygon, pixelBox(20, 0, 70, 50));
+  expectCornersNear((sources["spatial-draft"].data as Feature<Polygon>).geometry, pixelBox(20, 0, 70, 50));
   handlers.mouseup(mouse(45, 25));
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
   const [{ areas }] = saves(connection);
@@ -674,13 +691,39 @@ test("a refusal message is gone once the tool changes", async () => {
   expect(messageText(panel)).not.toContain("A side is at least");
 });
 
-test("Adjust shows the active room's area from the feed in its centre", async () => {
+test("on a floor each room is labelled with its area's icon, name and net m² from the feed", async () => {
   const { panel, connection, setFeed } = mountEditor();
+  const living = pixelShape([0, 0], [200, 0], [200, 120], [0, 120]);
   await startAdjusting(panel);
-  setFeed([feature("kitchen", KITCHEN, 21.46)]);
+  (panel as HTMLElement & { hass: object }).hass = {
+    ...(panel as HTMLElement & { hass: object }).hass,
+    areas: { kitchen: { name: "Kitchen", icon: "mdi:stove" } },
+  };
+  setFeed([feature("kitchen", living, 21.46)]);
   await onUpdateOf(connection)();
+  const label = liveMarkers().find((marker) => marker.element.dataset.area === "kitchen")!.element;
+  expect(label.querySelector("ha-icon")?.getAttribute("icon")).toBe("mdi:stove");
+  expect(label.querySelector(".name")?.textContent).toBe("Kitchen");
+  expect(label.querySelector(".size")?.textContent).toBe("21.5 m²");
+});
+
+const handleCorners = () =>
+  (sources["spatial-handles"].data as { features: { geometry: { coordinates: number[] } }[] }).features.map(
+    (handle) => handle.geometry.coordinates,
+  );
+
+test("corner handles sit on the active room's corners only, and not on All", async () => {
+  const { panel } = mountEditor();
+  await startAdjusting(panel);
+  expect(handleCorners()).toEqual([]);
   await tapRoom(panel, "kitchen");
-  expect(liveMarkers().map((marker) => marker.element.textContent)).toContain("21.5 m²");
+  expect(handleCorners()).toEqual(KITCHEN.coordinates[0].slice(0, -1));
+  chip(panel, "Building").click();
+  await settle(panel);
+  expect(handleCorners()).toEqual(OUTLINE.coordinates[0].slice(0, -1));
+  buttonNamed(panel, "All")!.click();
+  await settle(panel);
+  expect(handleCorners()).toEqual([]);
 });
 
 test("in Adjust taps and drags save nothing, and leaving leaves no side markers", async () => {
@@ -696,7 +739,7 @@ test("in Adjust taps and drags save nothing, and leaving leaves no side markers"
     expect(sideButtons()).toHaveLength(4);
     buttonNamed(panel, name)!.click();
     await settle(panel);
-    expect(liveMarkers()).toEqual([]);
+    expect(editorMarkers()).toEqual([]);
     if (buttonNamed(panel, "Adjust")!.getAttribute("aria-pressed") !== "true") await startAdjusting(panel);
   }
   expect(saves(connection)).toEqual([]);

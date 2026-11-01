@@ -41,16 +41,16 @@ class SpatialFloorSelector extends LitElement {
         flex-wrap: nowrap;
         overflow-x: auto;
         align-items: center;
-        gap: 8px;
+        gap: var(--ha-space-2);
         height: 52px;
-        padding: 0 16px;
+        padding: 0 var(--ha-space-4);
         border-bottom: 1px solid var(--divider-color);
       }
       :host([chips]) button {
         height: 32px;
-        padding: 0 12px;
+        padding: 0 var(--ha-space-3);
         border: 1px solid var(--divider-color);
-        border-radius: 16px;
+        border-radius: var(--ha-border-radius-xl);
       }
       :host([chips]) button[aria-pressed="true"] {
         border-color: var(--primary-color);

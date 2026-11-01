@@ -1,16 +1,17 @@
 // Keeps the panel's room edits in step with Home Assistant: the area strip, side lengths, and each edit saved at once with undo and redo.
 
+import { point } from "@turf/helpers";
 import type { FeatureCollection, Polygon } from "geojson";
 import { html, nothing } from "lit";
-import { Marker, type Map as MapLibreMap } from "maplibre-gl";
+import { type GeoJSONSource, Marker, type Map as MapLibreMap } from "maplibre-gl";
 import { type AreaEntry, BUILDING, NEW_AREA, newAreaName, nextActive, stripOrder } from "./area-strip";
-import { type ActiveRoom, BoxInteraction, LABEL_STYLE } from "./box-interaction";
+import { type ActiveRoom, BoxInteraction } from "./box-interaction";
 import { type Change, type FootprintBatch, History } from "./history";
+import type { LayerColours } from "./map-paint";
 import { byLevel } from "./map-view";
 import {
   MIN_SIDE_M,
   addToFootprint,
-  centreOf,
   edgeLengths,
   isAxisRectangle,
   resizeSide,
@@ -30,7 +31,8 @@ export interface FloorEntry {
 // Exactly one is active; Adjust is the default.
 export type Tool = "align" | "draw" | "adjust";
 
-const SIDE_STYLE = "font: 12px sans-serif; background: #fff; color: #212121; border: 1px solid #ff5722; border-radius: 3px";
+const SIDE_STYLE =
+  "font: 12px sans-serif; background: var(--card-background-color); color: var(--primary-text-color); border: 1px solid var(--primary-color); border-radius: 3px";
 // A side button or field sits on the map, inside a Marker that would block focus; its presses and keys stay its own.
 const MAP_EVENTS = ["mousedown", "touchstart", "click", "dblclick", "keydown"];
 
@@ -42,7 +44,6 @@ export class RoomEditor {
   message = "";
   private _areas: AreaEntry[] = [];
   private _footprints = new Map<string, Polygon>();
-  private _sizesM2 = new Map<string, number>();
   private _floor: string | null | "all" = "all";
   private _active = NEW_AREA;
   private _map?: MapLibreMap;
@@ -87,20 +88,45 @@ export class RoomEditor {
     this._showSides();
   }
 
-  addLayers(map: MapLibreMap) {
-    const paint = {
-      "line-color": getComputedStyle(map.getContainer()).getPropertyValue("--primary-color").trim() || "#03a9f4",
-      "line-width": 4,
-    };
-    map.addLayer({ id: "spatial-active", type: "line", source: "areas", filter: this._activeFilter(), paint });
+  /** The active room or Building, strongly filled and edged, with round handles on its corners. */
+  addLayers(map: MapLibreMap, colours: LayerColours) {
+    const filter = this._activeFilter();
+    const building = { visibility: this._buildingVisibility() };
+    // Under the rooms, so they stay readable on an active Building.
+    map.addLayer(
+      {
+        id: "spatial-active-building-fill",
+        type: "fill",
+        source: "outline",
+        layout: building,
+        paint: colours["spatial-active-building-fill"],
+      },
+      "areas-2d",
+    );
+    map.addLayer({ id: "spatial-active-fill", type: "fill", source: "areas", filter, paint: colours["spatial-active-fill"] });
+    map.addLayer({
+      id: "spatial-active",
+      type: "line",
+      source: "areas",
+      filter,
+      paint: { ...colours["spatial-active"], "line-width": 2 },
+    });
     map.addLayer({
       id: "spatial-active-building",
       type: "line",
       source: "outline",
-      layout: { visibility: this._buildingVisibility() },
-      paint,
+      layout: building,
+      paint: { ...colours["spatial-active-building"], "line-width": 2.5 },
     });
-    this._interaction?.addLayers();
+    map.addSource("spatial-handles", { type: "geojson", data: this._handles() });
+    map.addLayer({
+      id: "spatial-handles",
+      type: "circle",
+      source: "spatial-handles",
+      // 12 px across: a 4 px radius inside a 2 px ring.
+      paint: { ...colours["spatial-handles"], "circle-radius": 4, "circle-stroke-width": 2 },
+    });
+    this._interaction?.addLayers(colours);
   }
 
   detach() {
@@ -132,7 +158,7 @@ export class RoomEditor {
     }
     this._footprints = new Map(feed.features.map((feature) => [String(feature.id), feature.geometry as Polygon]));
     if (outline) this._footprints.set(BUILDING, outline);
-    this._sizesM2 = new Map(feed.features.map((feature) => [String(feature.id), feature.properties?.area_m2]));
+    this._showHandles();
     const order = this._order();
     if (![NEW_AREA, BUILDING, ...order.map((area) => area.area_id)].includes(this._active)) {
       this._setActive(order[0]?.area_id ?? NEW_AREA);
@@ -202,15 +228,29 @@ export class RoomEditor {
     return ["==", ["get", "area_id"], this._active];
   }
 
-  private _buildingVisibility() {
+  private _buildingVisibility(): "visible" | "none" {
     return this._active === BUILDING ? "visible" : "none";
   }
 
   private _setActive(areaId: string) {
     this._active = areaId;
+    this._showHandles();
     if (!this._map?.getLayer("spatial-active")) return;
-    this._map.setFilter("spatial-active", this._activeFilter());
-    this._map.setLayoutProperty("spatial-active-building", "visibility", this._buildingVisibility());
+    for (const layerId of ["spatial-active", "spatial-active-fill"]) this._map.setFilter(layerId, this._activeFilter());
+    for (const layerId of ["spatial-active-building", "spatial-active-building-fill"]) {
+      this._map.setLayoutProperty(layerId, "visibility", this._buildingVisibility());
+    }
+  }
+
+  // The corners of the active footprint's outer ring, on a floor only.
+  private _handles(): FeatureCollection {
+    const footprint = this._floor === "all" ? undefined : this._footprints.get(this._active);
+    const corners = footprint?.coordinates[0].slice(0, -1) ?? [];
+    return { type: "FeatureCollection", features: corners.map((corner) => point(corner)) };
+  }
+
+  private _showHandles() {
+    this._map?.getSource<GeoJSONSource>("spatial-handles")?.setData(this._handles());
   }
 
   // The outline comes first, as it frames the rooms.
@@ -243,12 +283,6 @@ export class RoomEditor {
     const areaId = this._active;
     const footprint = this._footprints.get(areaId);
     if (!map || this.tool !== "adjust" || this._floor === "all" || !footprint) return;
-    const sizeM2 = this._sizesM2.get(areaId);
-    if (sizeM2 !== undefined) {
-      const element = Object.assign(document.createElement("span"), { textContent: `${sizeM2.toFixed(1)} m²` });
-      element.style.cssText = LABEL_STYLE;
-      this._sides.push(new Marker({ element }).setLngLat(centreOf(footprint) as [number, number]).addTo(map));
-    }
     if (!isAxisRectangle(footprint, this._siteBearing())) return;
     const lengths = edgeLengths(footprint);
     let field: HTMLInputElement | undefined;
@@ -358,6 +392,7 @@ export class RoomEditor {
       if (footprint) this._footprints.set(areaId, footprint);
       else this._footprints.delete(areaId);
     }
+    this._showHandles();
   }
 
   private async _createArea(floor: string | null | "all"): Promise<string> {
