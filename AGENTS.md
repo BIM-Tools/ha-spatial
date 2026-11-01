@@ -85,6 +85,22 @@ way".
   Home Assistant's `components/frontend/manifest.json` names the frontend release, and that release
   tag's `package.json` names the versions. Never use the frontend's `dev` branch.
 
+## UI design
+
+The panel and the card should look as if they were always part of Home Assistant.
+
+- Home Assistant's theme variables, components and Material Design Icons (`@mdi/js` at Home
+  Assistant's version) only; no own colours, fonts or brand. Check the light and dark theme.
+- In the panel, use only the components Home Assistant always loads (`ha-icon-button`,
+  `ha-svg-icon`, `ha-button`, `ha-tooltip`, `ha-icon`); others are lazy and undefined on a deep
+  link. The card may use `ha-card` and gets its editor from `getConfigForm`.
+- Every action saves at once and can be undone: no save button, no dialogs in the main flow,
+  no settings page. Messages use Home Assistant's toast (`hass-notification`); saving is silent.
+- One instruction on screen at a time. A feature that needs explaining is cut or made visible.
+- The plan is the content; controls float on it.
+- Touch targets at least 44 px, text contrast 4.5:1, real buttons with `aria-pressed` or
+  `aria-label`; colour is never the only signal.
+
 ## Home Assistant conventions
 
 - `entry.runtime_data`, `single_config_entry`, websocket commands registered once in
