@@ -1,8 +1,9 @@
 """State gallery: every panel and card state in both themes and sizes, to review the UI by eye.
 
 Run with `docker compose run --rm gallery; docker compose rm -sf homeassistant-e2e`; the
-PNGs, contact sheets and index.md land in ./gallery-out. Add a state by appending a
-`State` to STATES with a setup function built from the helpers on `Shot`.
+PNGs, contact sheets and index.md land in ./gallery-out, and the DOCS_IMAGES shots in
+./docs/images. Add a state by appending a `State` to STATES with a setup function built from
+the helpers on `Shot`.
 """
 
 from __future__ import annotations
@@ -44,6 +45,16 @@ DASHBOARD = "spatial-gallery"
 ROWS_PER_SHEET = 6
 SHEET_ROW_HEIGHT = 540
 SETTLE_TIMEOUT_MS = 15000
+# The shots the documentation shows, all light: copied to docs/images/<name>.png when mounted.
+DOCS_IMAGES_DIR = Path(os.environ.get("DOCS_IMAGES", "/docs-images"))
+DOCS_IMAGES = {
+    "hero": "adjust-room-active-light-1440.png",
+    "align": "align-wall-hover-light-1440.png",
+    "draw": "draw-active-light-1440.png",
+    "all": "all-floors-light-1440.png",
+    "phone": "adjust-room-active-light-390.png",
+    "card": "card-floor-light-1440.png",
+}
 # Per state id, theme and width: the file name, or why there is none.
 Results = dict[tuple[str, str, str], str]
 Warnings = dict[tuple[str, str, str], list[str]]
@@ -712,6 +723,10 @@ def main() -> None:
         sheets = render_sheets(browser, results, warnings)
         browser.close()
     write_index(results, warnings, sheets)
+    if DOCS_IMAGES_DIR.is_dir():
+        for name, shot in DOCS_IMAGES.items():
+            shutil.copyfile(OUTPUT_DIR / shot, DOCS_IMAGES_DIR / f"{name}.png")
+        print(f"Copied {len(DOCS_IMAGES)} documentation images to {DOCS_IMAGES_DIR}")
     shots = sum(result.endswith(".png") for result in results.values())
     skipped = sorted(
         {state for (state, _, _), result in results.items() if result.startswith("Skipped")}

@@ -9,34 +9,10 @@
 ## How to use
 
 1. Install and add **Spatial** as in the root [README](../../README.md#install) (one instance).
-2. Draw footprints in the panel (Spatial > Configure, or Open Spaces after adding it; see Panel below), or import them
-   with `tools/import_geojson.py`.
-3. Show the rooms on a dashboard: add a card with `type: custom:spatial-map-card`, best in a
-   view of type Panel so the map fills it. Everyone who can see the dashboard sees the map.
-   The card has one option, in YAML:
-
-   | `floor` | Shows |
-   | --- | --- |
-   | not set | Floor buttons; pan, zoom and rotate |
-   | `all` | All floors in 3D, fixed |
-   | a `floor_id` | That floor as a plan, fixed |
-
-   A fixed view has no buttons, frames its rooms and follows changes. A dashboard view with
-   all three:
-
-   ```yaml
-   title: Floors
-   type: sections
-   sections:
-     - type: grid
-       cards:
-         - type: custom:spatial-map-card
-           floor: all
-         - type: custom:spatial-map-card
-           floor: ground_floor
-         - type: custom:spatial-map-card
-           floor: first_floor
-   ```
+2. Draw footprints in the panel and show them on a dashboard: see the
+   [user guide](../../docs/user-guide.md). Or import them with
+   [`tools/import_geojson.py`](../../tools/README.md).
+3. Read and write the data from elsewhere through the websocket API below.
 
 ## Architecture
 
@@ -101,23 +77,15 @@
   expected rev no longer matches; the message lists the area ids and `site`), `unauthorized`.
 - Event `spatial_updated` fires after every change, including every floor registry change (it can change the floors a room occupies); non-admin users follow it through `spatial/subscribe`.
 
-### Panel
+### Panel and card
 
-The admin-only Spatial panel at `/spatial` has no sidebar entry and Spatial has no options. Admins open it with **Open Spaces** on the success step after adding Spatial, or later with Settings > Devices & services > Spatial > **Configure**; a link in the card's full-screen view follows later.
-
-- A Home Assistant subpage header, "Spaces", with Back (always to the integration page) and a Help link to the documentation; the map fills the rest and the controls float on it.
-- Home Assistant's own map: its shipped light or dark style, following the theme, with tiles from the `map_tiles` proxy.
-- Centred on the site, rotated so the site direction (the picked wall) is horizontal; north up before any Align.
-- "All" stacks the floors in 3D; a button per floor (named as in Home Assistant, ordered by level) shows that floor as a flat plan with room outlines; "No floor" shows areas without one.
-- Updates through `spatial/subscribe`; shows "No rooms yet" without footprints.
-- Floor buttons list every floor of the floor registry, plus "No floor"; the card lists only floors with rooms.
-- Exactly one tool is active: Align, Draw or Adjust, Adjust by default. On "All" every tool, Undo and Redo are disabled. On a phone (600 px wide or less) the floors are a chip row under the header and the tools a bar at the bottom.
-- The map stack: the map toggle (on by default, remembered per browser, forced on during Align; off shows the plan on the page colour without vector tiles), zoom in, zoom out and a compass that turns with the map; a click returns to the site direction ("Face the house"), or to north before any Align ("Face north"); also in Draw, which keeps that view.
-- **Draw**, on a floor: a strip lists a Building pill, then the floor's areas from the area registry, those without a footprint first. Building is highlighted first on every floor while there is no outline; its boxes are saved with `spatial/site/update` `outline`, its undo of the first box with `outline: null`. Pressing and dragging, or two clicks or taps, draws a box along the site direction (north up before any Align); it is saved at once to the highlighted area with one `spatial/area/update_geometries`, joined to its footprint when they touch ("A room is one shape: draw against it" when they do not); a drag that starts inside the highlighted space moves it. The next area without a footprint is highlighted next. "+ New area" creates "Room 1" (the first free number) on the floor with `config/area_registry/create`; tapping the highlighted area renames it with `config/area_registry/update`. Space plus drag pans, Escape cancels a box; "All" does not draw.
-- **Adjust**, on a floor: a tap on a room makes its area active; when it is a rectangle along the site direction, a tap on a side length opens a number field, and Enter saves the side at that length (at least 0.20 m) with one `spatial/area/update_geometries`, or `spatial/site/update` for the outline. **Undo** and **Redo** (Ctrl+Z, Ctrl+Shift+Z) send the previous or next footprints of the session as one batch; undo never deletes an area from the registry.
-- **Align**, on a floor: one click on an OSM building from the map tiles, near a wall, saves that wall's bearing with one `spatial/site/update` `bearing_deg`, then Adjust is active again; without a building it says "No building here". The outline is drawn on the map in the panel and the card.
-- The card `custom:spatial-map-card` shows the same view on a dashboard, for every user, without the header, the toolbar, the map stack and the strip; it fills a panel view and is 400 px high elsewhere. Its `floor` option fixes the view: MapLibre's `interactive: false`, framed with `fitBounds` on every update.
-- Source in `frontend/` at the repository root; it builds the bundles and MapLibre's worker into `frontend/` here. They are not in git; the release zip contains them.
+The admin-only panel at `/spatial` has no sidebar entry and Spatial has no options: **Open
+Spaces** on the success step after adding Spatial, or Settings > Devices & services > Spatial >
+**Configure**, opens it, and its Back always leads to the integration page. The
+card `custom:spatial-map-card` puts the same map on dashboards. Their use is in the
+[user guide](../../docs/user-guide.md), their source and the commands each action sends in the
+[frontend README](../../frontend/README.md). The bundles are built into `frontend/` here; they
+are not in git, the release zip contains them.
 
 ### Rules
 
