@@ -13,6 +13,23 @@ Room footprints for Home Assistant areas, on the same map as your zones.
 
 Early version. The API and storage format can still change. The editor draws the building outline and the rooms as boxes along one wall.
 
+## Install
+
+HACS installs `spatial.zip` from a published GitHub release. The panel and card are built
+into that zip and are not in git, so copying the source folder gives no editor.
+
+1. In HACS, open the three-dot menu > Custom repositories and add
+   `https://github.com/BIM-Tools/ha-spatial` with type Integration.
+2. Download Spatial (Home Assistant 2026.10.0 or newer). The first releases are
+   pre-releases: pick one under "Need a different version?". To be offered later
+   pre-releases as updates, enable and turn on the repository's pre-release switch entity
+   (HACS creates it disabled).
+3. Restart Home Assistant, then Settings > Devices & services > Add integration > Spatial.
+
+Without HACS: download `spatial.zip` from the
+[releases page](https://github.com/BIM-Tools/ha-spatial/releases), unzip it into
+`config/custom_components/spatial/`, then continue with step 3.
+
 ## Parts
 
 | Path | What | Details |
