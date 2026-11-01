@@ -84,10 +84,8 @@ test("the panel has a header with back and help, the card none", async () => {
   const { panel } = mountPanel();
   await vi.waitFor(() => expect(panel.shadowRoot?.querySelector("spatial-panel-header")).not.toBeNull());
   await settle(panel);
-  const header = panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!;
-  expect(header.textContent).toContain("Spaces");
-  expect(header.querySelector("a")?.getAttribute("href")).toBe("https://github.com/BIM-Tools/ha-spatial");
-  expect(header.querySelector("a")?.getAttribute("target")).toBe("_blank");
+  expect(panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!.textContent).toContain("Spaces");
+  expect(headerButton(panel, "Help")).toMatchObject({ href: "https://github.com/BIM-Tools/ha-spatial", target: "_blank" });
   const card = mountPanel(answer, {}, true).panel;
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalledTimes(2));
   expect(card.shadowRoot?.querySelector("spatial-panel-header")).toBeNull();
@@ -543,35 +541,37 @@ test("a style that fails to load is asked for again on the next update", async (
   errors.mockRestore();
 });
 
-const backButton = (panel: HTMLElement) =>
-  panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!.querySelector("ha-icon-button")! as HTMLElement;
+type HeaderButton = HTMLElement & { href?: string; target?: string; label?: string };
+const headerButton = (panel: HTMLElement, label: string) =>
+  [...panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!.querySelectorAll<HeaderButton>("ha-icon-button")].find(
+    (button) => button.label === label,
+  )!;
 
-test("Back from a deep link goes to the integration page, not out of Home Assistant", async () => {
-  history.replaceState(null, "", "/spatial");
+test("Back from an entry Home Assistant did not push goes to the integration page, keeping its root mark", async () => {
+  history.replaceState({ root: true }, "", "/spatial");
   const back = vi.spyOn(history, "back").mockImplementation(() => {});
   const changed = vi.fn();
   window.addEventListener("location-changed", changed);
   const { panel } = mountPanel();
   await settle(panel);
-  backButton(panel).click();
+  headerButton(panel, "Back").click();
   expect(back).not.toHaveBeenCalled();
   expect(location.pathname).toBe("/config/integrations/integration/spatial");
+  expect(history.state).toEqual({ root: true });
   expect(changed).toHaveBeenCalledTimes(1);
   window.removeEventListener("location-changed", changed);
   back.mockRestore();
 });
 
-test("Back goes back when Home Assistant was loaded on another of its pages", async () => {
-  history.replaceState(null, "", "/spatial");
+test("Back goes back when Home Assistant's router brought the user here", async () => {
+  history.replaceState({ from: "/config/integrations" }, "", "/spatial");
   const back = vi.spyOn(history, "back").mockImplementation(() => {});
-  const entries = vi
-    .spyOn(performance, "getEntriesByType")
-    .mockReturnValue([{ name: `${location.origin}/config/integrations` } as PerformanceEntry]);
   const { panel } = mountPanel();
   await settle(panel);
-  backButton(panel).click();
+  expect(headerButton(panel, "Back").href).toBe("/config/integrations/integration/spatial");
+  headerButton(panel, "Back").click();
   expect(back).toHaveBeenCalledTimes(1);
-  entries.mockRestore();
+  expect(location.pathname).toBe("/spatial");
   back.mockRestore();
 });
 
@@ -589,4 +589,33 @@ test("on a phone the floors are chips under the header, the tools a bottom bar, 
   expect(buttonNamed(panel, "Zoom in")).toBeUndefined();
   expect(buttonNamed(panel, "Undo")?.textContent?.trim()).toBe("Undo");
   query.mockRestore();
+});
+
+const mountAligned = () =>
+  mountPanel(async (message) =>
+    message.type === "spatial/site" ? { lon: 5, lat: 52, bearing_deg: 30, outline: null } : answer(message),
+  );
+
+test("once aligned, the compass turns the house back into view instead of facing north", async () => {
+  const { panel } = mountAligned();
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
+  await settle(panel);
+  expect(buttonNamed(panel, "Face north")).toBeUndefined();
+  buttonNamed(panel, "Face the house")!.click();
+  expect(easeTo).toHaveBeenLastCalledWith({ bearing: 300 });
+  expect(resetNorth).not.toHaveBeenCalled();
+});
+
+test("in Draw the compass faces the house, but cannot face north before any Align", async () => {
+  const aligned = mountAligned().panel;
+  await showNoFloor(aligned);
+  buttonNamed(aligned, "Draw")!.click();
+  await settle(aligned);
+  expect(buttonNamed(aligned, "Face the house")!.disabled).toBe(false);
+  aligned.remove();
+  const { panel } = mountPanel();
+  await showNoFloor(panel);
+  buttonNamed(panel, "Draw")!.click();
+  await settle(panel);
+  expect(buttonNamed(panel, "Face north")!.disabled).toBe(true);
 });

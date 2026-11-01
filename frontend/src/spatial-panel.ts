@@ -18,6 +18,7 @@ import { bounds, floorsByLevel, mapBearing, styleUrl, withMapTilesToken } from "
 import { buildingAt, wallAt, wallBearingAt } from "./outline";
 import "./panel-header";
 import { RoomEditor, type Tool } from "./room-editor";
+import { floatingSurface, phoneBar } from "./styles";
 
 // The parts of Home Assistant's `hass` object this panel uses.
 interface Hass {
@@ -100,6 +101,8 @@ class SpatialPanel extends LitElement {
     _message: { state: true },
     _mapShown: { state: true },
     _phone: { state: true },
+    // The stored site direction; the compass label depends on it.
+    _bearing: { state: true },
   };
 
   static styles = css`
@@ -110,14 +113,6 @@ class SpatialPanel extends LitElement {
       height: 100dvh;
       background: var(--primary-background-color);
       color: var(--primary-text-color);
-      --spatial-float-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 4px 12px rgba(0, 0, 0, 0.06);
-      --spatial-float-border: 1px solid rgba(0, 0, 0, 0.04);
-      --spatial-selected-tint: rgba(var(--rgb-primary-color, 3, 169, 244), 0.12);
-    }
-    :host([dark]) {
-      --spatial-float-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
-      --spatial-float-border: 1px solid var(--divider-color);
-      --spatial-selected-tint: rgba(var(--rgb-primary-color, 3, 169, 244), 0.16);
     }
     :host([card]) {
       height: 100%;
@@ -184,28 +179,26 @@ class SpatialPanel extends LitElement {
       min-height: 40px;
       box-sizing: border-box;
       padding: 0 16px;
-      background: var(--card-background-color);
-      border: var(--spatial-float-border);
+      ${floatingSurface}
       border-radius: 20px;
-      box-shadow: var(--spatial-float-shadow);
       font-size: 14px;
     }
+    /* Centred by its margins, so it can grow to the full stage width before it scrolls. */
     .strip {
+      ${floatingSurface}
       position: absolute;
+      right: 16px;
       bottom: 16px;
-      left: 50%;
-      transform: translateX(-50%);
+      left: 16px;
       display: flex;
-      max-width: min(1352px, calc(100% - 32px));
-      background: var(--card-background-color);
-      border: var(--spatial-float-border);
+      width: fit-content;
+      max-width: 1352px;
+      margin-inline: auto;
       border-radius: 26px;
-      box-shadow: var(--spatial-float-shadow);
     }
     .strip-bar {
+      ${phoneBar}
       display: flex;
-      flex: none;
-      background: var(--card-background-color);
       border-top: 1px solid var(--divider-color);
     }
   `;
@@ -221,6 +214,7 @@ class SpatialPanel extends LitElement {
   declare _message: string;
   declare _mapShown: boolean;
   declare _phone: boolean;
+  declare _bearing: number;
 
   private _map?: MapLibreMap;
   private _started = false;
@@ -232,7 +226,6 @@ class SpatialPanel extends LitElement {
   // Not reactive: the compass follows every rotate frame without rendering the panel.
   private _mapBearingDeg = 0;
   private _token = "";
-  private _bearing = 0;
   private _tokenTimer?: ReturnType<typeof setInterval>;
   private _unsubscribe?: () => void;
   private _areas: FeatureCollection = EMPTY;
@@ -248,6 +241,7 @@ class SpatialPanel extends LitElement {
     this._message = "";
     this._mapShown = readMapShown();
     this._phone = false;
+    this._bearing = 0;
   }
 
   connectedCallback() {
@@ -290,11 +284,12 @@ class SpatialPanel extends LitElement {
               .mapShown=${this._mapShown}
               .mapForced=${this._aligning}
               .bearing=${this._mapBearingDeg}
-              .compassDisabled=${onFloor && editor.tool === "draw"}
+              .aligned=${this._aligned}
+              .compassDisabled=${onFloor && editor.tool === "draw" && !this._aligned}
               @map-toggle=${this._toggleMap}
               @zoom-in=${() => this._map?.zoomIn()}
               @zoom-out=${() => this._map?.zoomOut()}
-              @face-north=${() => this._map?.resetNorth()}
+              @compass=${this._faceSite}
             ></spatial-map-stack>`
           : nothing}
         ${editor && onFloor && !phone ? html`<div class="strip">${editor.render()}</div>` : nothing}
@@ -351,7 +346,6 @@ class SpatialPanel extends LitElement {
     if (changed.has("floor") && this._started) this._stop();
     // A render queued by _stop must not start a map for a panel that has left.
     if (!this.hass || !this.isConnected) return;
-    this.toggleAttribute("dark", this.hass.themes.darkMode);
     if (!this._started) {
       this._started = true;
       this._failed = false;
@@ -590,6 +584,17 @@ class SpatialPanel extends LitElement {
     return (
       this._editor?.floors.find((entry) => entry.floor_id === floor)?.name ?? this.hass?.floors?.[floor]?.name ?? floor
     );
+  }
+
+  // A stored bearing of exactly 0 is the default of a site that was never aligned.
+  private get _aligned() {
+    return this._bearing !== 0;
+  }
+
+  // The compass turns the house back the way Align set it, or faces north before any Align.
+  private _faceSite() {
+    if (this._aligned) this._map?.easeTo({ bearing: mapBearing(this._bearing) });
+    else this._map?.resetNorth();
   }
 
   private _selectTool(tool: Tool) {

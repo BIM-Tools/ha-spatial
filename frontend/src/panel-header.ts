@@ -1,56 +1,92 @@
 // Gives the panel Home Assistant's subpage header, built here because `hass-subpage` is lazy loaded and undefined on a deep link.
 
-import { mdiArrowLeft, mdiHelpCircleOutline } from "@mdi/js";
+import { mdiArrowLeft, mdiArrowRight, mdiHelpCircleOutline } from "@mdi/js";
 import { LitElement, css, html } from "lit";
 import manifest from "../../custom_components/spatial/manifest.json";
 
 // The integration's page, where the panel is opened from.
 const BACK_FALLBACK = "/config/integrations/integration/spatial";
 
+/**
+ * Port of canGoBack and the fallback branch of goBack and performNavigation in home-assistant/frontend
+ * src/common/navigate.ts, release 20260930.3:
+ * https://github.com/home-assistant/frontend/blob/20260930.3/src/common/navigate.ts
+ * Copyright Home Assistant contributors, Apache License 2.0.
+ *
+ * Home Assistant's navigate() stamps `from` on every entry it pushes, so an entry without it was
+ * not reached inside the app (deep link, login redirect, fresh tab) and back would leave it.
+ * Dialog handling and unsaved-changes guards are left out: the panel opens neither.
+ */
+const goBack = (fallbackPath: string) => {
+  if (history.state?.from !== undefined) {
+    history.back();
+    return;
+  }
+  // A replaced entry keeps its predecessor, so it keeps `from`.
+  const { root, from } = history.state ?? {};
+  const data = root ? { root: true } : undefined;
+  history.replaceState(from === undefined ? (data ?? null) : { ...data, from }, "", fallbackPath);
+  window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: true } }));
+};
+
 class SpatialPanelHeader extends LitElement {
   static properties = {
     narrow: { type: Boolean, reflect: true },
   };
 
-  // Copies the look of Home Assistant's `hass-subpage` toolbar.
+  // The toolbar rules of home-assistant/frontend src/layouts/hass-subpage.ts, release 20260930.3,
+  // with the icon buttons at 40 px (44 px on a phone or touch screen).
   static styles = css`
     :host {
-      display: flex;
+      display: block;
       flex: none;
-      align-items: center;
-      gap: 4px;
-      box-sizing: border-box;
-      height: calc(56px + var(--safe-area-inset-top, 0px));
-      padding: var(--safe-area-inset-top, 0px) calc(8px + var(--safe-area-inset-right, 0px)) 0
-        calc(8px + var(--safe-area-inset-left, 0px));
       background-color: var(--app-header-background-color);
-      color: var(--app-header-text-color, var(--primary-text-color));
-      border-bottom: var(--app-header-border-bottom, none);
-      --mdc-icon-button-size: 40px;
+      padding-top: var(--safe-area-inset-top);
+      padding-right: var(--safe-area-inset-right);
+      --ha-icon-button-size: 40px;
     }
     :host([narrow]) {
-      padding-left: calc(4px + var(--safe-area-inset-left, 0px));
-      padding-right: calc(4px + var(--safe-area-inset-right, 0px));
-      --mdc-icon-button-size: 44px;
+      padding-left: var(--safe-area-inset-left);
     }
-    /* Touch screens get 44 px targets; a mouse keeps the compact 40 px. */
     @media (pointer: coarse) {
       :host {
-        --mdc-icon-button-size: 44px;
+        --ha-icon-button-size: 44px;
       }
     }
-    h1 {
-      flex: 1;
-      margin: 0 0 0 8px;
-      font-size: 20px;
-      font-weight: 400;
-      line-height: 20px;
-      white-space: nowrap;
+    :host([narrow]) {
+      --ha-icon-button-size: 44px;
+    }
+    .toolbar-content {
+      display: flex;
+      align-items: center;
+      font-size: var(--ha-font-size-xl);
+      height: var(--header-height);
+      font-weight: var(--ha-font-weight-normal);
+      color: var(--app-header-text-color, white);
+      border-bottom: var(--app-header-border-bottom, none);
+      box-sizing: border-box;
+      padding: 8px 12px;
+    }
+    ha-icon-button {
+      display: flex;
+      align-items: center;
+      pointer-events: auto;
+      color: var(--sidebar-icon-color);
+    }
+    .main-title {
+      margin-inline-start: var(--ha-space-6);
+      line-height: var(--ha-line-height-normal);
+      min-width: 0;
+      flex-grow: 1;
+      overflow-wrap: break-word;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    a {
-      color: inherit;
+    :host([narrow]) .main-title {
+      margin-inline-start: var(--ha-space-2);
     }
   `;
 
@@ -61,27 +97,32 @@ class SpatialPanelHeader extends LitElement {
     this.narrow = false;
   }
 
+  // Back is a link to the integration's page, so a ctrl-click opens it in a new tab, as in Home Assistant.
   render() {
     return html`
-      <ha-icon-button .path=${mdiArrowLeft} .label=${"Back"} @click=${this._back}></ha-icon-button>
-      <h1>Spaces</h1>
-      <a href=${manifest.documentation} target="_blank" rel="noreferrer">
-        <ha-icon-button .path=${mdiHelpCircleOutline} .label=${"Help"}></ha-icon-button>
-      </a>
+      <div class="toolbar-content">
+        <ha-icon-button
+          .path=${document.dir === "rtl" ? mdiArrowRight : mdiArrowLeft}
+          .label=${"Back"}
+          .href=${BACK_FALLBACK}
+          @click=${this._back}
+        ></ha-icon-button>
+        <div class="main-title">Spaces</div>
+        <ha-icon-button
+          .path=${mdiHelpCircleOutline}
+          .label=${"Help"}
+          .href=${manifest.documentation}
+          .target=${"_blank"}
+          .rel=${"noreferrer"}
+        ></ha-icon-button>
+      </div>
     `;
   }
 
-  // Back only returns to a page of this Home Assistant: the document was loaded on another of its
-  // pages and the router brought the user here. A deep link, or a link from another site, goes to
-  // the integration's page instead. Home Assistant's router follows `location-changed`.
-  private _back() {
-    const [loaded] = performance.getEntriesByType("navigation");
-    if (loaded && new URL(loaded.name).pathname !== location.pathname) {
-      history.back();
-      return;
-    }
-    history.replaceState(null, "", BACK_FALLBACK);
-    window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: true } }));
+  private _back(event: MouseEvent) {
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    goBack(BACK_FALLBACK);
   }
 }
 
