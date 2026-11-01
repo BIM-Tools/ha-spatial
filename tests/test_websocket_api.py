@@ -111,6 +111,11 @@ async def test_set_geometry_and_geojson(
         "area_m2": pytest.approx(11.31, rel=0.001),
         "base_m": -0.5,
         "top_m": pytest.approx(2.2),
+        "floors_up": 0,
+        "floor_ids": ["ground_floor"],
+        "on_facade_override": None,
+        "on_facade": False,
+        "is_external": False,
         "rev": ANY,
     }
 
