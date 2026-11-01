@@ -33,6 +33,12 @@ class SpatialPanelHeader extends LitElement {
       padding-right: calc(4px + var(--safe-area-inset-right, 0px));
       --mdc-icon-button-size: 44px;
     }
+    /* Touch screens get 44 px targets; a mouse keeps the compact 40 px. */
+    @media (pointer: coarse) {
+      :host {
+        --mdc-icon-button-size: 44px;
+      }
+    }
     h1 {
       flex: 1;
       margin: 0 0 0 8px;

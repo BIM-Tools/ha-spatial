@@ -230,6 +230,8 @@ export class RoomEditor {
   }
 
   private _undoKey = (event: KeyboardEvent) => {
+    // All floors is a view only, as its disabled Undo and Redo buttons show.
+    if (this._floor === "all") return;
     if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") return;
     if (event.composedPath()[0] instanceof HTMLInputElement) return;
     event.preventDefault();

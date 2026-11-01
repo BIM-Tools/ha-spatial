@@ -55,6 +55,13 @@ class SpatialMapStack extends LitElement {
     ha-svg-icon {
       --mdc-icon-size: 20px;
     }
+    /* Touch screens get 44 px targets; a mouse keeps the compact 40 px. */
+    @media (pointer: coarse) {
+      button {
+        width: 44px;
+        height: 44px;
+      }
+    }
     :host([round]) {
       border-radius: 22px;
     }

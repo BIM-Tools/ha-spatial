@@ -1069,3 +1069,17 @@ test("an update during a move saves the room as it was grabbed", async () => {
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
   expectCornersNear(saves(connection)[0].areas.kitchen, pixelBox(20, 0, 70, 50));
 });
+
+test("on All Ctrl+Z and Ctrl+Shift+Z change nothing, as the tools are off there", async () => {
+  const { panel, connection } = mountEditor();
+  await startDrawing(panel);
+  tap(100, 0);
+  tap(140, 30);
+  await vi.waitFor(() => expect(barButton(panel, "Undo")!.disabled).toBe(false));
+  barButton(panel, "All")!.click();
+  await settle(panel);
+  ctrlZ();
+  ctrlZ(true);
+  await settle(panel);
+  expect(saves(connection)).toHaveLength(1);
+});

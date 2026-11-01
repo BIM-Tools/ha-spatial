@@ -72,6 +72,19 @@ class SpatialEditorToolbar extends LitElement {
       margin: 0 4px;
       background: var(--divider-color);
     }
+    /* Touch screens get 44 px targets; a mouse keeps the compact 36 px. */
+    @media (pointer: coarse) {
+      :host(:not([bar])) {
+        border-radius: 26px;
+      }
+      :host(:not([bar])) button {
+        height: 44px;
+        border-radius: 22px;
+      }
+      :host(:not([bar])) button.icon {
+        width: 44px;
+      }
+    }
     :host([bar]) {
       display: grid;
       grid-template-columns: repeat(5, minmax(0, 1fr));

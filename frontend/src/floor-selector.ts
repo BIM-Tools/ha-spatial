@@ -34,6 +34,7 @@ class SpatialFloorSelector extends LitElement {
     }
     button {
       flex: none;
+      position: relative;
       display: flex;
       align-items: center;
       gap: 6px;
@@ -74,6 +75,21 @@ class SpatialFloorSelector extends LitElement {
     }
     :host([chips]) button[aria-pressed="true"] {
       border-color: var(--primary-color);
+    }
+    /* A 32 px chip still takes a 44 px tap; the row is 52 px high. */
+    :host([chips]) button::after {
+      content: "";
+      position: absolute;
+      inset: -7px 0;
+    }
+    @media (pointer: coarse) {
+      :host(:not([chips])) {
+        border-radius: 26px;
+      }
+      :host(:not([chips])) button {
+        height: 44px;
+        border-radius: 22px;
+      }
     }
   `;
 
