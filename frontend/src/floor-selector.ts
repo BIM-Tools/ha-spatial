@@ -2,6 +2,7 @@
 
 import { mdiLayers } from "@mdi/js";
 import { LitElement, css, html, nothing } from "lit";
+import { phoneBar, pillButtons } from "./styles";
 
 // A floor_id, null for areas without a floor, or "all".
 export type Floor = string | null | "all";
@@ -19,80 +20,49 @@ class SpatialFloorSelector extends LitElement {
     chips: { type: Boolean, reflect: true },
   };
 
-  static styles = css`
-    :host {
-      display: flex;
-      gap: 2px;
-      box-sizing: border-box;
-      flex-wrap: wrap;
-      padding: 4px;
-      background: var(--card-background-color);
-      border: var(--spatial-float-border);
-      border-radius: 24px;
-      box-shadow: var(--spatial-float-shadow);
-    }
-    button {
-      flex: none;
-      position: relative;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      height: 36px;
-      padding: 0 14px;
-      border: none;
-      border-radius: 18px;
-      background: none;
-      color: var(--secondary-text-color);
-      font: inherit;
-      font-size: 14px;
-      cursor: pointer;
-    }
-    button[aria-pressed="true"] {
-      background: var(--spatial-selected-tint);
-      color: var(--primary-text-color);
-      font-weight: 500;
-    }
-    ha-svg-icon {
-      --mdc-icon-size: 18px;
-    }
-    :host([chips]) {
-      flex: none;
-      flex-wrap: nowrap;
-      overflow-x: auto;
-      align-items: center;
-      gap: 8px;
-      height: 52px;
-      padding: 0 16px;
-      border: none;
-      border-bottom: 1px solid var(--divider-color);
-      border-radius: 0;
-      box-shadow: none;
-    }
-    :host([chips]) button {
-      height: 32px;
-      padding: 0 12px;
-      border: 1px solid var(--divider-color);
-      border-radius: 16px;
-    }
-    :host([chips]) button[aria-pressed="true"] {
-      border-color: var(--primary-color);
-    }
-    /* A 32 px chip still takes a 44 px tap; the row is 52 px high. */
-    :host([chips]) button::after {
-      content: "";
-      position: absolute;
-      inset: -7px 0;
-    }
-    @media (pointer: coarse) {
-      :host(:not([chips])) {
-        border-radius: 26px;
+  static styles = [
+    pillButtons,
+    css`
+      :host {
+        box-sizing: border-box;
+        flex-wrap: wrap;
       }
-      :host(:not([chips])) button {
-        height: 44px;
-        border-radius: 22px;
+      button {
+        position: relative;
       }
-    }
-  `;
+      button[aria-pressed="true"] {
+        font-weight: 500;
+      }
+      ha-svg-icon {
+        --mdc-icon-size: 18px;
+      }
+      :host([chips]) {
+        ${phoneBar}
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        align-items: center;
+        gap: 8px;
+        height: 52px;
+        padding: 0 16px;
+        border-bottom: 1px solid var(--divider-color);
+      }
+      :host([chips]) button {
+        height: 32px;
+        padding: 0 12px;
+        border: 1px solid var(--divider-color);
+        border-radius: 16px;
+      }
+      :host([chips]) button[aria-pressed="true"] {
+        border-color: var(--primary-color);
+      }
+      /* A 32 px chip still takes a 44 px tap; the row is 52 px high. */
+      :host([chips]) button::after {
+        content: "";
+        position: absolute;
+        inset: -7px 0;
+      }
+    `,
+  ];
 
   declare choices: FloorChoice[];
   declare selected: Floor;

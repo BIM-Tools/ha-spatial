@@ -3,6 +3,7 @@
 import { mdiAngleAcute, mdiCursorMove, mdiRedo, mdiUndo, mdiVectorRectangle } from "@mdi/js";
 import { LitElement, css, html } from "lit";
 import type { Tool } from "./room-editor";
+import { phoneBar, pillButtons, selectedFill } from "./styles";
 
 const TOOLS: { tool: Tool; label: string; icon: string }[] = [
   { tool: "align", label: "Align", icon: mdiAngleAcute },
@@ -20,107 +21,75 @@ class SpatialEditorToolbar extends LitElement {
     bar: { type: Boolean, reflect: true },
   };
 
-  static styles = css`
-    :host {
-      display: flex;
-      align-items: center;
-      gap: 2px;
-      padding: 4px;
-      background: var(--card-background-color);
-      border: var(--spatial-float-border);
-      border-radius: 24px;
-      box-shadow: var(--spatial-float-shadow);
-    }
-    button {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      height: 36px;
-      padding: 0 14px 0 10px;
-      border: none;
-      border-radius: 18px;
-      background: none;
-      color: var(--secondary-text-color);
-      font: inherit;
-      font-size: 14px;
-      font-weight: 500;
-      cursor: pointer;
-    }
-    button[aria-pressed="true"] {
-      background: var(--spatial-selected-tint);
-      color: var(--primary-text-color);
-    }
-    button[aria-pressed="true"] ha-svg-icon {
-      color: var(--primary-color);
-    }
-    button:disabled {
-      opacity: 0.38;
-      cursor: default;
-    }
-    button.icon {
-      justify-content: center;
-      width: 36px;
-      padding: 0;
-      color: var(--primary-text-color);
-    }
-    ha-svg-icon {
-      --mdc-icon-size: 20px;
-    }
-    .divider {
-      width: 1px;
-      height: 24px;
-      margin: 0 4px;
-      background: var(--divider-color);
-    }
-    /* Touch screens get 44 px targets; a mouse keeps the compact 36 px. */
-    @media (pointer: coarse) {
-      :host(:not([bar])) {
-        border-radius: 26px;
+  static styles = [
+    pillButtons,
+    css`
+      :host {
+        align-items: center;
       }
-      :host(:not([bar])) button {
-        height: 44px;
-        border-radius: 22px;
+      button {
+        padding: 0 14px 0 10px;
+        font-weight: 500;
       }
-      :host(:not([bar])) button.icon {
-        width: 44px;
+      button[aria-pressed="true"] ha-svg-icon {
+        color: var(--primary-color);
       }
-    }
-    :host([bar]) {
-      display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      flex: none;
-      gap: 0;
-      height: calc(72px + var(--safe-area-inset-bottom, 0px));
-      box-sizing: border-box;
-      padding: 8px 4px calc(10px + var(--safe-area-inset-bottom, 0px));
-      border: none;
-      border-top: 1px solid var(--divider-color);
-      border-radius: 0;
-      box-shadow: none;
-    }
-    :host([bar]) button {
-      flex-direction: column;
-      gap: 4px;
-      height: auto;
-      padding: 0;
-      font-size: 12px;
-      background: none;
-    }
-    :host([bar]) .pill {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 56px;
-      height: 32px;
-      border-radius: 16px;
-    }
-    :host([bar]) button[aria-pressed="true"] .pill {
-      background: var(--spatial-selected-tint);
-    }
-    :host([bar]) ha-svg-icon {
-      --mdc-icon-size: 22px;
-    }
-  `;
+      button:disabled {
+        opacity: 0.38;
+        cursor: default;
+      }
+      button.icon {
+        justify-content: center;
+        width: 36px;
+        padding: 0;
+        color: var(--primary-text-color);
+      }
+      ha-svg-icon {
+        --mdc-icon-size: 20px;
+      }
+      .divider {
+        width: 1px;
+        height: 24px;
+        margin: 0 4px;
+        background: var(--divider-color);
+      }
+      :host([bar]) {
+        ${phoneBar}
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 0;
+        height: calc(72px + var(--safe-area-inset-bottom, 0px));
+        box-sizing: border-box;
+        padding: 8px 4px calc(10px + var(--safe-area-inset-bottom, 0px));
+        border-top: 1px solid var(--divider-color);
+      }
+      :host([bar]) button {
+        flex-direction: column;
+        gap: 4px;
+        height: auto;
+        padding: 0;
+        font-size: 12px;
+        background: none;
+      }
+      :host([bar]) .pill {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 56px;
+        height: 32px;
+        border-radius: 16px;
+      }
+      :host([bar]) button[aria-pressed="true"] .pill {
+        background: ${selectedFill};
+      }
+      :host([bar]) button.action ha-svg-icon {
+        color: var(--primary-text-color);
+      }
+      :host([bar]) ha-svg-icon {
+        --mdc-icon-size: 22px;
+      }
+    `,
+  ];
 
   declare tool: Tool;
   declare disabled: boolean;
@@ -169,7 +138,7 @@ class SpatialEditorToolbar extends LitElement {
   private _action(type: "undo" | "redo", label: string, icon: string, enabled: boolean) {
     const disabled = this.disabled || !enabled;
     return this.bar
-      ? html`<button ?disabled=${disabled} @click=${() => this._fire(type)}>${this._icon(icon)}${label}</button>`
+      ? html`<button class="action" ?disabled=${disabled} @click=${() => this._fire(type)}>${this._icon(icon)}${label}</button>`
       : html`<button class="icon" aria-label=${label} ?disabled=${disabled} @click=${() => this._fire(type)}>
           ${this._icon(icon)}
         </button>`;

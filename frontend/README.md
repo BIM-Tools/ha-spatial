@@ -20,7 +20,7 @@ with room outlines. One tool is always active, **Adjust** by default.
 bearing, turns the map so that wall is horizontal and goes back to Adjust. The card shows the
 outline but has no tools.
 The map button hides the map under the plan (remembered in this browser; Align turns it back on
-while it is active); the compass faces north again.
+while it is active); the compass turns the house back the way Align set it.
 **Draw**, on a floor, draws the building outline and rooms. The strip at the bottom starts
 with **Building**, then lists the floor's areas, those without a footprint first; the highlighted
 one is drawn next and its shape is outlined on the map. Without an outline, Building comes first
@@ -62,6 +62,7 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/floor-selector.ts` | Floor buttons: a floating segmented control, or a chip row on a phone |
 | `src/editor-toolbar.ts` | Align, Draw, Adjust, Undo and Redo: floating, or a bottom bar on a phone |
 | `src/map-stack.ts` | Map toggle, zoom and compass |
+| `src/styles.ts` | The floating card, pill buttons and phone bar shared by the controls, from Home Assistant's theme tokens |
 | `src/room-editor.ts` | The space editor controller: the area strip, side length fields, undo and redo, saving each action, area creation and rename |
 | `src/box-interaction.ts` | Pointer and keyboard drafting input on the map, screen-rectangle projection, Space pan, draft preview |
 | `src/area-strip.ts` | The strip of pills, Building first: order, next area, new area names, rename |
