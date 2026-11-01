@@ -9,13 +9,18 @@ from homeassistant.components import websocket_api
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import floor_registry as fr
 
-from .const import DOMAIN, EVENT_SPATIAL_UPDATED
+from .const import DOMAIN, ERR_CONFLICT, EVENT_SPATIAL_UPDATED
 from .coordinator import SpatialCoordinator
 from .geometry import validate_polygon
 
 POSITIVE_METRES = vol.All(vol.Coerce(float), vol.Range(min=0, min_included=False))
+BEARING_OR_NONE = vol.Any(
+    None, vol.All(vol.Coerce(float), vol.Range(min=0, max=360, max_included=False))
+)
+LON_LAT = vol.ExactSequence([cv.longitude, cv.latitude])
 
 
 def _footprint(value: Any) -> dict[str, Any]:
@@ -106,7 +111,17 @@ def ws_adjacent_areas(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "spatial/area/update_geometries",
-        vol.Required("areas"): vol.All({str: vol.Any(_footprint, None)}, vol.Length(min=1)),
+        vol.Optional("areas", default={}): {str: vol.Any(_footprint, None)},
+        vol.Optional("site"): vol.All(
+            {
+                vol.Optional("bearing_deg"): BEARING_OR_NONE,
+                vol.Optional("origin"): vol.Any(None, LON_LAT),
+                vol.Optional("outline"): vol.Any(_footprint, None),
+            },
+            vol.Length(min=1),
+        ),
+        vol.Optional("expected_rev"): {str: vol.Any(None, str)},
+        vol.Optional("expected_site_rev"): str,
     }
 )
 @websocket_api.require_admin
@@ -114,28 +129,46 @@ def ws_adjacent_areas(
 def ws_update_area_geometries(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Set (polygon) or remove (null) the footprints of several areas at once.
+    """Set (polygon) or remove (null) footprints and set site fields in one change.
 
-    Everything is validated first: if any area is unknown, nothing changes.
+    Everything is checked first: if any area (written or expected) is unknown, or any expected rev
+    differs from the current one, nothing changes. Without expected revs the
+    last writer wins.
     """
+    if not msg["areas"] and "site" not in msg:
+        connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT, "Give areas and/or site")
+        return
     area_registry = ar.async_get(hass)
     if missing := sorted(
-        area_id for area_id in msg["areas"] if area_registry.async_get_area(area_id) is None
+        area_id
+        for area_id in {*msg["areas"], *msg.get("expected_rev", {})}
+        if area_registry.async_get_area(area_id) is None
     ):
         connection.send_error(
             msg["id"], websocket_api.ERR_NOT_FOUND, f"Areas not found: {', '.join(missing)}"
         )
         return
-    area_m2 = _coordinator(hass).async_set_area_geometries(msg["areas"])
-    connection.send_result(msg["id"], {"area_m2": area_m2})
+    coordinator = _coordinator(hass)
+    if changed := coordinator.conflicts(msg.get("expected_rev", {}), msg.get("expected_site_rev")):
+        connection.send_error(msg["id"], ERR_CONFLICT, f"Changed meanwhile: {', '.join(changed)}")
+        return
+    area_m2 = coordinator.async_apply_change(msg["areas"], msg.get("site", {}))
+    connection.send_result(
+        msg["id"],
+        {
+            "area_m2": area_m2,
+            "rev": {area_id: coordinator.area_rev(area_id) for area_id in msg["areas"]},
+            "site_rev": coordinator.site_rev(),
+        },
+    )
 
 
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "spatial/floor/update",
         vol.Required("floor_id"): str,
-        vol.Optional("elevation_m"): vol.Coerce(float),
-        vol.Optional("height_m"): POSITIVE_METRES,
+        vol.Optional("elevation_m"): vol.Any(None, vol.Coerce(float)),
+        vol.Optional("height_m"): vol.Any(None, POSITIVE_METRES),
     }
 )
 @websocket_api.require_admin
@@ -143,11 +176,14 @@ def ws_update_area_geometries(
 def ws_update_floor(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Set the elevation and height of a floor."""
+    """Set the elevation and/or height of a floor; null clears one, omitted ones are kept."""
     if fr.async_get(hass).async_get_floor(msg["floor_id"]) is None:
         connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND, "Floor not found")
         return
-    _coordinator(hass).async_set_floor(msg["floor_id"], msg.get("elevation_m"), msg.get("height_m"))
+    fields: dict[str, float | None] = {
+        key: msg[key] for key in ("elevation_m", "height_m") if key in msg
+    }
+    _coordinator(hass).async_update_floor(msg["floor_id"], fields)
     connection.send_result(msg["id"])
 
 
@@ -156,17 +192,15 @@ def ws_update_floor(
 def ws_site(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Return the site centre, bearing (null until the first Align) and outline."""
+    """Return the site centre, bearing (null until the first Align), origin, outline and rev."""
     connection.send_result(msg["id"], _coordinator(hass).get_site())
 
 
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "spatial/site/update",
-        vol.Optional("bearing_deg"): vol.Any(
-            None, vol.All(vol.Coerce(float), vol.Range(min=0, max=360, max_included=False))
-        ),
-        vol.Optional("outline"): vol.Any(None, validate_polygon),
+        vol.Optional("bearing_deg"): BEARING_OR_NONE,
+        vol.Optional("outline"): vol.Any(_footprint, None),
     }
 )
 @websocket_api.require_admin
@@ -181,7 +215,7 @@ def ws_update_site(
             msg["id"], websocket_api.ERR_INVALID_FORMAT, "Give bearing_deg and/or outline"
         )
         return
-    _coordinator(hass).async_update_site(fields)
+    _coordinator(hass).async_apply_change({}, fields)
     connection.send_result(msg["id"])
 
 

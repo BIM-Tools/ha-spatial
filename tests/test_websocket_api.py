@@ -2,7 +2,7 @@
 
 from datetime import timedelta
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -111,6 +111,7 @@ async def test_set_geometry_and_geojson(
         "area_m2": pytest.approx(11.31, rel=0.001),
         "base_m": -0.5,
         "top_m": pytest.approx(2.2),
+        "rev": ANY,
     }
 
 

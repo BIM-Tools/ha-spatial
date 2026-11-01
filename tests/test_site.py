@@ -1,6 +1,7 @@
 """Proves the site centre follows the footprints and the site can be aligned and outlined."""
 
 from typing import Any
+from unittest.mock import ANY
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -42,7 +43,9 @@ async def test_site_defaults_to_home_location(
         "lon": hass.config.longitude,
         "lat": hass.config.latitude,
         "bearing_deg": None,
+        "origin": None,
         "outline": None,
+        "rev": ANY,
     }
 
 
@@ -99,7 +102,9 @@ async def test_update_site_persists_bearing(
         "lon": hass.config.longitude,
         "lat": hass.config.latitude,
         "bearing_deg": 12.5,
+        "origin": None,
         "outline": None,
+        "rev": ANY,
     }
 
 
@@ -167,7 +172,9 @@ async def test_legacy_stored_site_loads(
         "lon": hass.config.longitude,
         "lat": hass.config.latitude,
         "bearing_deg": bearing_deg,
+        "origin": None,
         "outline": None,
+        "rev": ANY,
     }
 
 
