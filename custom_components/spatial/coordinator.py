@@ -114,20 +114,24 @@ class SpatialCoordinator:
             return EXTERIOR_WALL_OFFSET_US_CUSTOMARY_M
         return EXTERIOR_WALL_OFFSET_METRIC_M
 
-    def _net_size(self, polygon: dict[str, Any]) -> float:
+    def _net_size(self, area_id: str, data: AreaSpatial) -> float:
         """Return the net area in m² of a footprint, computed on every read.
 
-        When the footprint is on the outline by the same test as on_facade, each
-        edge of its outer ring along the outline (over more than the tolerance)
-        moves in by the exterior wall offset; every other edge by NET_INSET_M.
-        The test is on the whole footprint, so splitting a side into short edges
-        does not change the area.
+        When an indoor footprint is on the outline by the same test as on_facade,
+        each edge of its outer ring along the outline (over more than the
+        tolerance) moves in by the exterior wall offset; every other edge by
+        NET_INSET_M. The test is on the whole footprint, so splitting a side into
+        short edges does not change the area. An outdoor room keeps NET_INSET_M,
+        as the outside wall lies on the building side of the outline.
         """
+        polygon = data["polygon"]
         outline = self.store.site["outline"]
         edge_insets = None
         if outline is not None:
             shared_by_ring = shared_lengths_by_edge_m(polygon, outline, ADJACENCY_TOLERANCE_M)
-            if sum(map(sum, shared_by_ring)) >= ADJACENCY_MIN_SHARED_M:
+            if sum(map(sum, shared_by_ring)) >= ADJACENCY_MIN_SHARED_M and not self._is_external(
+                area_id, data, content_rev(data), self.site_rev()
+            ):
                 offset = self._exterior_wall_offset_m()
                 edge_insets = [
                     offset if shared > ADJACENCY_TOLERANCE_M else NET_INSET_M
@@ -193,7 +197,7 @@ class SpatialCoordinator:
         self._changed()
         # After the site fields, as a new outline changes the net areas.
         return {
-            area_id: self._net_size(polygon)
+            area_id: self._net_size(area_id, self.store.areas[area_id])
             for area_id, polygon in polygons.items()
             if polygon is not None
         }
@@ -344,7 +348,7 @@ class SpatialCoordinator:
                         "name": area.name if area else area_id,
                         "floor_id": area_floor_id,
                         "level": floor.level if floor else None,
-                        "area_m2": self._net_size(data["polygon"]),
+                        "area_m2": self._net_size(area_id, data),
                         "base_m": base,
                         "top_m": top,
                         "floors_up": data["floors_up"],
@@ -365,7 +369,7 @@ class SpatialCoordinator:
     def query_point(self, lon: float, lat: float, floor_id: str | None = None) -> str | None:
         """Return the smallest area containing the point, optionally among those on one floor."""
         matches = [
-            (self._net_size(data["polygon"]), area_id)
+            (self._net_size(area_id, data), area_id)
             for area_id, data in self.store.areas.items()
             if (floor_id is None or floor_id in self._floor_ids(area_id, data))
             and polygon_contains(data["polygon"], lon, lat)

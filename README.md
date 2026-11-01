@@ -60,7 +60,7 @@ Without HACS: download `spatial.zip` from the
 | Drawing convention | Rooms are drawn to wall centrelines, so neighbours share edges |
 | Adjacency | Derived from shared edges on the same floor, never stored |
 | Measurements | Computed by the integration in metres, never from the map projection |
-| Area | `area_m2` is net: the drawn polygon shrunk by 50 mm per side, edges on the building outline by the exterior wall offset (0.25 m metric, 0.11 m US customary) |
+| Area | `area_m2` is net: the drawn polygon shrunk by 50 mm per side, edges on the building outline by the exterior wall offset (0.25 m metric, 0.11 m US customary) for indoor rooms |
 | Building, sub-spaces | Home Assistant labels |
 | Site anchor | One bearing and optional building outline per installation; the centre follows the footprints, else the outline; aligns views only |
 | Finding the building | OSM buildings in Home Assistant's map tiles set the axis only; the outline is drawn on the map |

@@ -53,7 +53,7 @@ Change these only through an issue that names the reason.
 | Address search | The backend may call OpenStreetMap Nominatim, only on an explicit search, with an identifying user agent and its rate limit; country geocoders and authoritative outlines stay outside the integration |
 | Home location | When the chosen building lies more than 25 m from Home Assistant's home, onboarding asks once whether to move the home there, and remembers the answer; a move changes latitude and longitude only, through core config, and can be undone |
 | Units | Display follows Home Assistant's unit system; storage stays metric WGS84 |
-| Area | `area_m2` is net: the drawn polygon shrunk by 50 mm per side, edges on the outline by the exterior wall offset |
+| Area | `area_m2` is net: the drawn polygon shrunk by 50 mm per side, edges of indoor rooms on the outline by the exterior wall offset |
 | Outdoor, facade | `is_external` means an outdoor room (outside the outline, IFC `IsExternal`); `on_facade` is derived from touching the outline, with an optional override |
 | Building, sub-spaces | Home Assistant labels; no code |
 | Site anchor | One direction per installation; the centre follows all footprints, else the outline; aligns views only, so stored geometry never moves with it, except through the explicit, confirmed and undoable "Change alignment" (rotation reduced to a right angle, then snapped to the grid, in one write) |

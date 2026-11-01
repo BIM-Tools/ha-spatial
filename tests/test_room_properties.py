@@ -456,3 +456,29 @@ async def test_net_area_does_not_depend_on_short_edges_along_the_outline(
 
     expected_m2 = (1 - 0.05 - 0.05) * (1 - 0.25 - 0.05)
     assert (await _properties(client))["hall"]["area_m2"] == pytest.approx(expected_m2, abs=0.01)
+
+
+async def test_outdoor_room_on_the_outline_keeps_the_interior_inset(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test a balcony against the facade keeps 50 mm, the room inside the same edge loses more.
+
+    The outside wall lies on the building side of the outline.
+    """
+    client = await hass_ws_client(hass)
+    written = await _write(
+        client,
+        areas={"garden": rect(2, -2, 6, 0), "hall": rect(2, 0, 6, 3)},
+        site={"outline": OUTLINE},
+    )
+
+    balcony_m2 = (4 - 0.05 - 0.05) * (2 - 0.05 - 0.05)
+    hall_m2 = (4 - 0.05 - 0.05) * (3 - 0.25 - 0.05)
+    assert written["area_m2"] == {
+        "garden": pytest.approx(balcony_m2, abs=0.01),
+        "hall": pytest.approx(hall_m2, abs=0.01),
+    }
+    properties = await _properties(client)
+    assert properties["garden"]["is_external"] is True
+    assert properties["garden"]["area_m2"] == pytest.approx(balcony_m2, abs=0.01)
+    assert properties["hall"]["area_m2"] == pytest.approx(hall_m2, abs=0.01)
