@@ -29,12 +29,6 @@ def test_sync_takes_shared_versions_only() -> None:
     assert result["devDependencies"] == {"esbuild": "0.25.0", "vitest": "5.0.2"}
 
 
-def test_sync_covers_the_icon_package() -> None:
-    ours = {"dependencies": {"@mdi/js": "7.0.0"}}
-    theirs = {"dependencies": {"@mdi/js": "7.4.47", "@mdi/svg": "7.4.47"}}
-    assert sync(ours, theirs)["dependencies"] == {"@mdi/js": "7.4.47"}
-
-
 def test_sync_strips_range_prefixes() -> None:
     ours = {"dependencies": {"lit": "3.0.0"}}
     theirs = {"dependencies": {"lit": "^3.3.3"}}

@@ -2,6 +2,7 @@
 
 import { mdiMap, mdiMinus, mdiNavigation, mdiPlus } from "@mdi/js";
 import { LitElement, css, html } from "lit";
+import { floatingSurface, selectedFill } from "./styles";
 
 class SpatialMapStack extends LitElement {
   static properties = {
@@ -9,20 +10,17 @@ class SpatialMapStack extends LitElement {
     // Align needs the map's buildings, so the map stays on.
     mapForced: { attribute: false },
     bearing: { attribute: false },
-    compassDisabled: { attribute: false },
     // A phone pinches to zoom and turn, so it gets only a round map toggle.
     round: { type: Boolean, reflect: true },
   };
 
   static styles = css`
     :host {
+      ${floatingSurface}
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      background: var(--card-background-color);
-      border: var(--spatial-float-border);
       border-radius: 12px;
-      box-shadow: var(--spatial-float-shadow);
     }
     button {
       display: flex;
@@ -43,14 +41,12 @@ class SpatialMapStack extends LitElement {
       color: var(--secondary-text-color);
     }
     button[aria-pressed="true"] {
-      background: var(--spatial-selected-tint);
+      background: ${selectedFill};
       color: var(--primary-color);
     }
     button:disabled {
-      cursor: default;
-    }
-    button:disabled > * {
       opacity: 0.38;
+      cursor: default;
     }
     ha-svg-icon {
       --mdc-icon-size: 20px;
@@ -69,8 +65,9 @@ class SpatialMapStack extends LitElement {
       width: 44px;
       height: 44px;
     }
+    /* Opaque, as it floats straight on the map. */
     :host([round]) button[aria-pressed="true"] {
-      background: color-mix(in srgb, var(--primary-color) 10%, var(--card-background-color));
+      background: color-mix(in srgb, var(--primary-color) 14%, var(--card-background-color));
     }
     :host([round]) ha-svg-icon {
       --mdc-icon-size: 22px;
@@ -80,7 +77,6 @@ class SpatialMapStack extends LitElement {
   declare mapShown: boolean;
   declare mapForced: boolean;
   declare bearing: number;
-  declare compassDisabled: boolean;
   declare round: boolean;
 
   constructor() {
@@ -88,7 +84,6 @@ class SpatialMapStack extends LitElement {
     this.mapShown = true;
     this.mapForced = false;
     this.bearing = 0;
-    this.compassDisabled = false;
     this.round = false;
   }
 
@@ -112,7 +107,7 @@ class SpatialMapStack extends LitElement {
       <button aria-label="Zoom out" @click=${() => this._fire("zoom-out")}>
         <ha-svg-icon .path=${mdiMinus}></ha-svg-icon>
       </button>
-      <button aria-label="Face north" ?disabled=${this.compassDisabled} @click=${() => this._fire("face-north")}>
+      <button aria-label="Face the house" @click=${() => this._fire("compass")}>
         <ha-svg-icon .path=${mdiNavigation} style="transform: rotate(${-this.bearing}deg)"></ha-svg-icon>
       </button>
     `;
