@@ -12,7 +12,7 @@ from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import floor_registry as fr
 
-from .const import DOMAIN, ERR_CONFLICT, EVENT_SPATIAL_UPDATED
+from .const import DOMAIN, ERR_CONFLICT, EVENT_SPATIAL_UPDATED, SITE_FIELD_NAMES
 from .coordinator import SpatialCoordinator
 from .geometry import validate_polygon
 
@@ -34,6 +34,13 @@ def _footprint(value: Any) -> dict[str, Any]:
         return validate_polygon(value)
     except ValueError as err:
         raise vol.Invalid(str(err)) from err
+
+
+SITE_FIELDS = {
+    vol.Optional("bearing_deg"): BEARING_OR_NONE,
+    vol.Optional("origin"): vol.Any(None, LON_LAT),
+    vol.Optional("outline"): vol.Any(_footprint, None),
+}
 
 
 @callback
@@ -65,6 +72,27 @@ def _area_exists(
         return True
     connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND, "Area not found")
     return False
+
+
+def _apply_unless_changed(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg_id: int,
+    *,
+    polygons: dict[str, dict[str, Any] | None],
+    site_fields: dict[str, Any],
+    expected_area_revs: dict[str, str | None],
+    expected_site_rev: str | None,
+) -> dict[str, float] | None:
+    """Apply one change and return the m² set, or send a conflict error and return None.
+
+    Without expected revs the last writer wins.
+    """
+    coordinator = _coordinator(hass)
+    if changed := coordinator.conflicts(expected_area_revs, expected_site_rev):
+        connection.send_error(msg_id, ERR_CONFLICT, f"Changed meanwhile: {', '.join(changed)}")
+        return None
+    return coordinator.async_apply_change(polygons, site_fields)
 
 
 @websocket_api.websocket_command(
@@ -112,14 +140,7 @@ def ws_adjacent_areas(
     {
         vol.Required("type"): "spatial/area/update_geometries",
         vol.Optional("areas", default={}): {str: vol.Any(_footprint, None)},
-        vol.Optional("site"): vol.All(
-            {
-                vol.Optional("bearing_deg"): BEARING_OR_NONE,
-                vol.Optional("origin"): vol.Any(None, LON_LAT),
-                vol.Optional("outline"): vol.Any(_footprint, None),
-            },
-            vol.Length(min=1),
-        ),
+        vol.Optional("site"): vol.All(SITE_FIELDS, vol.Length(min=1)),
         vol.Optional("expected_rev"): {str: vol.Any(None, str)},
         vol.Optional("expected_site_rev"): str,
     }
@@ -148,11 +169,18 @@ def ws_update_area_geometries(
             msg["id"], websocket_api.ERR_NOT_FOUND, f"Areas not found: {', '.join(missing)}"
         )
         return
-    coordinator = _coordinator(hass)
-    if changed := coordinator.conflicts(msg.get("expected_rev", {}), msg.get("expected_site_rev")):
-        connection.send_error(msg["id"], ERR_CONFLICT, f"Changed meanwhile: {', '.join(changed)}")
+    area_m2 = _apply_unless_changed(
+        hass,
+        connection,
+        msg["id"],
+        polygons=msg["areas"],
+        site_fields=msg.get("site", {}),
+        expected_area_revs=msg.get("expected_rev", {}),
+        expected_site_rev=msg.get("expected_site_rev"),
+    )
+    if area_m2 is None:
         return
-    area_m2 = coordinator.async_apply_change(msg["areas"], msg.get("site", {}))
+    coordinator = _coordinator(hass)
     connection.send_result(
         msg["id"],
         {
@@ -199,8 +227,8 @@ def ws_site(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "spatial/site/update",
-        vol.Optional("bearing_deg"): BEARING_OR_NONE,
-        vol.Optional("outline"): vol.Any(_footprint, None),
+        **SITE_FIELDS,
+        vol.Optional("expected_rev"): str,
     }
 )
 @websocket_api.require_admin
@@ -208,15 +236,24 @@ def ws_site(
 def ws_update_site(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Set the bearing (clockwise from north) and/or the outline; null removes either."""
-    fields: dict[str, Any] = {key: msg[key] for key in ("bearing_deg", "outline") if key in msg}
+    """Set the bearing (clockwise from north), grid origin and/or outline; null removes one."""
+    fields: dict[str, Any] = {key: msg[key] for key in SITE_FIELD_NAMES if key in msg}
     if not fields:
         connection.send_error(
-            msg["id"], websocket_api.ERR_INVALID_FORMAT, "Give bearing_deg and/or outline"
+            msg["id"], websocket_api.ERR_INVALID_FORMAT, "Give bearing_deg, origin and/or outline"
         )
         return
-    _coordinator(hass).async_apply_change({}, fields)
-    connection.send_result(msg["id"])
+    applied = _apply_unless_changed(
+        hass,
+        connection,
+        msg["id"],
+        polygons={},
+        site_fields=fields,
+        expected_area_revs={},
+        expected_site_rev=msg.get("expected_rev"),
+    )
+    if applied is not None:
+        connection.send_result(msg["id"], {"site_rev": _coordinator(hass).site_rev()})
 
 
 @websocket_api.websocket_command({vol.Required("type"): "spatial/subscribe"})
