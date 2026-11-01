@@ -4,8 +4,8 @@ Development tools. Not part of the integration.
 
 ## Why
 
-- Get footprints into Home Assistant before there is an editor.
-- See the result in the panel on Home Assistant's own map.
+- Get footprints drawn elsewhere into Home Assistant in one go.
+- Try the panel, the card and the state gallery on an example house without drawing one.
 
 ## How to use
 
@@ -21,7 +21,7 @@ Development tools. Not part of the integration.
 | File | Purpose |
 | --- | --- |
 | `import_geojson.py` | Imports a GeoJSON file over the websocket API |
-| `example_house.geojson` | A fictional 10 x 8.5 m house on a public square: ground floor, first floor and attic, nine rooms drawn to wall centrelines |
+| `example_house.geojson` | A fictional 10 x 8.5 m house on a public square: ground floor, first floor and attic, nine rooms drawn to wall centrelines, and the building outline 0.25 m outside them |
 | `sync_frontend_versions.py` | Sets the `home-assistant-frontend` pin in `requirements_test.txt` and the versions in `frontend/package.json` and `frontend/.nvmrc` to what Home Assistant's frontend ships; `--check` lists differences and exits 1 |
 | `brand/icon.svg` | Source of `custom_components/spatial/brand/icon.png` and `icon@2x.png`: a zoning plan on Home Assistant map colours, rendered with headless Chromium at 256 and 512 px |
 
@@ -31,7 +31,7 @@ Development tools. Not part of the integration.
 | --- | --- |
 | `features[]` | `Polygon` with properties `area` (name), `floor` (name) and optionally `icon` (an `mdi:` name, set on the area) |
 | `floors[]` (optional) | `name`, `level`, `elevation_m`, `height_m` |
-| `site` (optional) | `bearing_deg`, sent only when present (`lon` and `lat` in older files are ignored) |
+| `site` (optional) | `bearing_deg` and `outline` (a `Polygon`), each sent only when present (`lon` and `lat` in older files are ignored) |
 
 - Names match the way Home Assistant matches them (case and spaces ignored).
 - Missing floors and areas are created with Home Assistant's own registry commands.

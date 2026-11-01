@@ -35,7 +35,7 @@ prefix `docker` commands with `MSYS_NO_PATHCONV=1`.
 | Debug in VS Code | `debugpy:` in `.ha-config/configuration.yaml`, then launch config "Attach to Home Assistant" (starts the test server first) or "Restart and attach to Home Assistant"; the `frontend` service adds panel source maps. Tasks "Start test server" and "Restart test server" do the same without the debugger |
 | Frontend (typecheck, test, build) | `MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/frontend":/app -v "$(pwd -W)/custom_components":/custom_components -w /app node:24-alpine sh -c "npm ci && npm run typecheck && npm test && npm run build"` |
 | E2E smoke test (build the panel first) | `docker compose run --rm e2e; docker compose rm -sf homeassistant-e2e` |
-| State gallery: screenshots and contact sheets of every UI state in `gallery-out/` (build the panel first) | `docker compose run --rm gallery; docker compose rm -sf homeassistant-e2e` |
+| State gallery: screenshots and contact sheets of every UI state in `gallery-out/`, and the documentation images in `docs/images/` (build the panel first) | `docker compose run --rm gallery; docker compose rm -sf homeassistant-e2e` |
 | Sync frontend versions | `python tools/sync_frontend_versions.py` (`--check` only compares) |
 | Tools | Run them against the real Home Assistant, see `tools/README.md` |
 
@@ -150,7 +150,7 @@ The panel and the card should look as if they were always part of Home Assistant
   the module docstring in Python, a `//` comment in TypeScript and JavaScript, a `#` comment
   in YAML, Dockerfiles and shell scripts. JSON is exempt.
 - Each part has one README: why it exists, how to use it, its architecture in lists and
-  tables. No other Markdown files.
+  tables. The only other Markdown files are the user guide and the architecture in `docs/`.
 - Never add a `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md`: Claude Code then stops
   reading this file. CI fails on the first two.
 

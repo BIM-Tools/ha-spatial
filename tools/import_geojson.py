@@ -105,9 +105,13 @@ async def import_file(path: str, url: str, token: str) -> None:
                 print(f"{names[area_id]}: {area_m2} m²")
 
         # Older files also carry lon and lat; the centre is derived now.
-        site = collection.get("site") or {}
-        if "bearing_deg" in site:
-            await client.call("spatial/site/update", bearing_deg=site["bearing_deg"])
+        site = {
+            field: value
+            for field, value in (collection.get("site") or {}).items()
+            if field in ("bearing_deg", "outline")
+        }
+        if site:
+            await client.call("spatial/site/update", **site)
 
 
 def main() -> None:

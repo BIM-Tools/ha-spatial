@@ -1,17 +1,19 @@
-# spatial
+# Spatial
 
 Room footprints for Home Assistant areas, on the same map as your zones.
+
+![The ground floor of the example house in the Spatial panel, the living room active with its side lengths](docs/images/hero.png)
 
 ## Why
 
 - Home Assistant knows your floors and areas, but not where they are or which rooms touch.
-- `spatial` adds an optional footprint per area and a height per floor.
-- Which rooms are neighbours follows from the footprints; nothing extra to maintain.
-- Follows Home Assistant's own conventions: small, no extra dependencies, uses Home Assistant's own map.
+- Spatial adds an optional footprint per area and a height per floor, drawn on Home Assistant's
+  own map in a few clicks.
+- Net room areas and neighbouring rooms follow from the footprints; nothing extra to maintain.
+- Small: pure Python, no extra dependencies, Home Assistant's own map and theme; the data
+  stays in Home Assistant.
 
-## Status
-
-Early version. The API and storage format can still change. The editor draws the building outline and the rooms as boxes along one wall.
+Early version: the API and storage format can still change.
 
 ## Install
 
@@ -30,60 +32,19 @@ Without HACS: download `spatial.zip` from the
 [releases page](https://github.com/BIM-Tools/ha-spatial/releases), unzip it into
 `config/custom_components/spatial/`, then continue with step 3.
 
-## Parts
+## Documentation
 
-| Path | What | Details |
-| --- | --- | --- |
-| `custom_components/spatial/` | The integration | [README](custom_components/spatial/README.md) |
-| `tools/` | GeoJSON importer, example house, version sync | [README](tools/README.md) |
-| `frontend/` | Map panel and dashboard card source, built into the integration | [README](frontend/README.md) |
-| `tests/` | Tests against a real Home Assistant | - |
-| `e2e/` | A browser smoke test (one room drawn in the panel) and a state gallery (every panel and card state as screenshots, both themes and sizes) | Commands in [AGENTS.md](AGENTS.md) |
-| `AGENTS.md` | Rules for contributors and coding agents | - |
-
-## Try it
-
-1. `docker compose up -d frontend homeassistant` (builds the panel, starts Home Assistant),
-   open <http://localhost:8123>, finish onboarding.
-2. Add the Spatial integration (Settings > Devices & services).
-3. Create a long-lived access token (profile > Security).
-4. Import the example house, see [tools/README.md](tools/README.md).
-5. Open the panel: Settings > Devices & services > Spatial > Configure.
-6. Optionally add `type: custom:spatial-map-card` to a dashboard, best in a panel view.
-
-## Design rules
-
-| Rule | Value |
+| Document | For |
 | --- | --- |
-| Coordinates | WGS84 GeoJSON, the same world as Home Assistant zones |
-| Footprint | One area has at most one `Polygon` (holes allowed, no MultiPolygon) |
-| Drawing convention | Rooms are drawn to wall centrelines, so neighbours share edges |
-| Adjacency | Derived from shared edges on the same floor, never stored |
-| Measurements | Computed by the integration in metres, never from the map projection |
-| Area | `area_m2` is net: the drawn polygon shrunk by 50 mm on every side |
-| Building, sub-spaces | Home Assistant labels |
-| Site anchor | One bearing and optional building outline per installation; the centre follows the footprints, else the outline; aligns views only |
-| Finding the building | OSM buildings in Home Assistant's map tiles set the axis only; the outline is drawn on the map |
-| Dependencies | Pure Python |
-| Concepts | Structure of the W3C Building Topology Ontology (BOT), Home Assistant naming |
-
-## Development
-
-| Task | Command |
-| --- | --- |
-| Tests | `docker compose run --rm test` |
-| Some tests | `docker compose run --rm test pytest -k <expr>` |
-| Lint | `docker compose run --rm test sh -c "ruff format --check . && ruff check ."` |
-| Panel build, rebuilt on change | `docker compose up -d frontend` |
-| Home Assistant | `docker compose up homeassistant` |
-
-- Home Assistant runs on Linux only, so everything runs in Docker. A VS Code devcontainer is included.
-- The Home Assistant version tested against is pinned in `requirements_test.txt`.
-- The built panel is not in git; HACS installs it from the release zip that `.github/workflows/release.yml` builds.
+| [User guide](docs/user-guide.md) | Drawing your house, the panel and the dashboard card |
+| [Architecture](docs/architecture.md) | Developers: parts, data model, design rules, development |
+| [Integration](custom_components/spatial/README.md) | Websocket API, storage and geometry rules |
+| [Frontend](frontend/README.md) | Panel and card source, build and serving |
+| [Tools](tools/README.md) | GeoJSON importer, example house, version sync |
 
 ## Contributing
 
-- Read `AGENTS.md` first; it applies to people and coding agents alike.
+- Read [AGENTS.md](AGENTS.md) first; it applies to people and coding agents alike.
 - You are responsible for every line you submit, however it was written
   ([Home Assistant AI policy](https://developers.home-assistant.io/docs/ai_policy)).
 
