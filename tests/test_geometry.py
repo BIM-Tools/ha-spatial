@@ -13,6 +13,7 @@ from custom_components.spatial.geometry import (
     overlap_area_m2,
     polygon_contains,
     shared_edge_length_m,
+    shared_lengths_by_edge_m,
     validate_polygon,
 )
 
@@ -139,6 +140,92 @@ def test_net_area_grows_holes() -> None:
 def test_net_area_of_thin_strip_is_zero() -> None:
     """Test a strip narrower than twice the inset has no net area, never a negative one."""
     assert net_area_m2(rect(0, 0, 10, 0.05), 0.05) == 0
+
+
+def polygon_of(*corners: tuple[float, float]) -> dict[str, Any]:
+    """Return a GeoJSON Polygon through corners given in metres from the origin."""
+    return {"type": "Polygon", "coordinates": [[lonlat(x, y) for x, y in (*corners, corners[0])]]}
+
+
+@pytest.mark.parametrize(
+    ("polygon", "outer_edge_insets_m", "expected_m2"),
+    [
+        (rect(0, 0, 5, 4), [0.25, 0.05, 0.05, 0.05], (5 - 0.05 - 0.05) * (4 - 0.25 - 0.05)),
+        (rect(0, 0, 5, 4), [0.25, 0.05, 0.05, 0.25], (5 - 0.25 - 0.05) * (4 - 0.25 - 0.05)),
+        (rect(0, 0, 5, 4), [0.11, 0.05, 0.05, 0.05], (5 - 0.05 - 0.05) * (4 - 0.11 - 0.05)),
+        (
+            polygon_of((0, 0), (0, 4), (5, 4), (5, 0)),
+            [0.25, 0.05, 0.05, 0.05],
+            (5 - 0.25 - 0.05) * (4 - 0.05 - 0.05),
+        ),
+        (
+            polygon_of((0, 0), (5, 0), (10, 0), (10, 4), (0, 4)),
+            [0.25, 0.05, 0.05, 0.05, 0.05],
+            (10 - 0.1) * (4 - 0.1) - (0.25 - 0.05) * (5 - 0.05),
+        ),
+    ],
+    ids=["one_facade_edge", "corner_room", "us_customary", "clockwise", "facade_on_half_a_side"],
+)
+def test_net_area_moves_each_edge_by_its_own_inset(
+    polygon: dict[str, Any], outer_edge_insets_m: list[float], expected_m2: float
+) -> None:
+    """Test against rectangles shrunk by hand, one inset per edge of the outer ring."""
+    assert net_area_m2(polygon, 0.05, outer_edge_insets_m) == pytest.approx(expected_m2, rel=1e-4)
+
+
+def test_net_area_keeps_the_hole_inset_with_facade_edges() -> None:
+    """Test a hole grows by the common inset when the outer ring has a facade edge."""
+    polygon = with_holes(rect(0, 0, 10, 10), rect(3, 4, 7, 6))
+    expected_m2 = (10 - 0.1) * (10 - 0.25 - 0.05) - (4 + 0.1) * (2 + 0.1)
+    assert net_area_m2(polygon, 0.05, [0.25, 0.05, 0.05, 0.05]) == pytest.approx(
+        expected_m2, rel=1e-4
+    )
+
+
+def test_net_area_of_triangle_is_exact_at_diagonal_corners() -> None:
+    """Test against the similar triangle: shrunk by d it scales by 1 - d / r (inradius r)."""
+    legs_m, inset_m = 4.0, 0.05
+    inradius_m = (2 * legs_m - legs_m * math.sqrt(2)) / 2
+    expected_m2 = legs_m * legs_m / 2 * (1 - inset_m / inradius_m) ** 2
+    polygon = polygon_of((0, 0), (legs_m, 0), (0, legs_m))
+    assert net_area_m2(polygon, inset_m) == pytest.approx(expected_m2, rel=1e-5)
+
+
+def test_net_area_of_sharp_corner_with_different_insets() -> None:
+    """Test a nearly reversing corner meets its neighbour's offset line instead of stepping.
+
+    By hand: the bottom moves to y = 0.25, the left side to x = 0.05 and the
+    hypotenuse x + 10y = 10 to x + 10y = 10 - 0.05 * sqrt(101).
+    """
+    hypotenuse_c = 10 - 0.05 * math.sqrt(101)
+    width_m = (hypotenuse_c - 10 * 0.25) - 0.05
+    height_m = (hypotenuse_c - 0.05) / 10 - 0.25
+    polygon = polygon_of((0, 0), (10, 0), (0, 1))
+    assert net_area_m2(polygon, 0.05, [0.25, 0.05, 0.05]) == pytest.approx(
+        width_m * height_m / 2, rel=1e-4
+    )
+
+
+def test_net_area_of_triangle_shrunk_past_nothing_is_zero() -> None:
+    """Test a triangle whose inradius is below the inset has no net area."""
+    assert net_area_m2(polygon_of((0, 0), (0.5, 0), (0, 0.5)), 0.25) == 0
+
+
+def test_shared_lengths_by_edge() -> None:
+    """Test a corner room shares its south and west edges with the outline, nothing else."""
+    lengths = shared_lengths_by_edge_m(rect(0, 0, 5, 4), rect(0, 0, 10, 10), tolerance_m=0.05)
+    assert lengths == [pytest.approx([5, 0, 0, 4], abs=0.001)]
+
+
+def test_repeated_position_keeps_edges_and_insets_in_step() -> None:
+    """Test a repeated corner is an edge without length, so insets still match their edges."""
+    room = polygon_of((0, 0), (5, 0), (5, 0), (5, 4), (0, 4))
+    lengths = shared_lengths_by_edge_m(room, rect(0, 0, 10, 10), tolerance_m=0.05)
+    assert lengths == [pytest.approx([5, 0, 0, 0, 4], abs=0.001)]
+    expected_m2 = (5 - 0.25 - 0.05) * (4 - 0.25 - 0.05)
+    assert net_area_m2(room, 0.05, [0.25, 0.05, 0.05, 0.05, 0.25]) == pytest.approx(
+        expected_m2, rel=1e-4
+    )
 
 
 def with_holes(shell: dict[str, Any], *holes: dict[str, Any]) -> dict[str, Any]:
