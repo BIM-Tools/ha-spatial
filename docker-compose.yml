@@ -42,3 +42,16 @@ services:
       - ./e2e:/e2e:ro
     # Keep the pip playwright version equal to the image tag.
     command: sh -c "pip install --quiet --break-system-packages --root-user-action=ignore --disable-pip-version-check playwright==1.55.0 websockets==15.0.1 && python /e2e/draw_room.py"
+
+  # Renders every panel and card state into ./gallery-out, see e2e/gallery.py.
+  gallery:
+    image: mcr.microsoft.com/playwright/python:v1.55.0-noble
+    depends_on:
+      - homeassistant-e2e
+    environment:
+      HA_URL: http://homeassistant-e2e:8123
+    volumes:
+      - ./e2e:/e2e:ro
+      - ./tools:/tools:ro
+      - ./gallery-out:/out
+    command: sh -c "pip install --quiet --break-system-packages --root-user-action=ignore --disable-pip-version-check playwright==1.55.0 websockets==15.0.1 aiohttp==3.12.15 && python /e2e/gallery.py"

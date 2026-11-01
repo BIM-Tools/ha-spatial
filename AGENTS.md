@@ -34,6 +34,7 @@ prefix `docker` commands with `MSYS_NO_PATHCONV=1`.
 | Real Home Assistant | `docker compose up homeassistant` |
 | Frontend (typecheck, test, build) | `MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/frontend":/app -v "$(pwd -W)/custom_components":/custom_components -w /app node:24-alpine sh -c "npm ci && npm run typecheck && npm test && npm run build"` |
 | E2E smoke test (build the panel first) | `docker compose run --rm e2e; docker compose rm -sf homeassistant-e2e` |
+| State gallery: screenshots and contact sheets of every UI state in `gallery-out/` (build the panel first) | `docker compose run --rm gallery; docker compose rm -sf homeassistant-e2e` |
 | Sync frontend versions | `python tools/sync_frontend_versions.py` (`--check` only compares) |
 | Tools | Run them against the real Home Assistant, see `tools/README.md` |
 
