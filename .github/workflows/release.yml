@@ -44,6 +44,8 @@ jobs:
           bignumber.js frontend/node_modules/bignumber.js/LICENCE.md
           splaytree-ts frontend/node_modules/splaytree-ts/LICENSE
           mdi-js frontend/node_modules/@mdi/js/LICENSE
+          polylabel frontend/node_modules/polylabel/LICENSE
+          tinyqueue frontend/node_modules/tinyqueue/LICENSE
           LIST
 
       # The tag is the version, so manifest.json in the repository is not bumped by hand.

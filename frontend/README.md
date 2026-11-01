@@ -37,6 +37,9 @@ as a button; tap one, type the length in metres and press Enter to save (at leas
 side's start corner stays). Dragging the active room moves it, as in Draw. **Undo** and **Redo**
 (Ctrl+Z, Ctrl+Shift+Z) undo every saved change of this session, each as one save. Undo restores
 footprints only: an area created by drawing stays in Home Assistant.
+Each room on a floor shows its Home Assistant area icon and name, and in the panel its net m²; a
+smaller room drops the m², then the name (pointing at or tapping it shows the name), and a tiny room
+has no label. The outline shows "Building" until the floor has rooms.
 On a dashboard, add a card with `type: custom:spatial-map-card`, best in a panel view; its
 `floor` option (`all` or a `floor_id`) fixes the view, see `custom_components/spatial/README.md`.
 
@@ -49,7 +52,7 @@ On a dashboard, add a card with `type: custom:spatial-map-card`, best in a panel
 
 The build output is not in git. Run a build or the `frontend` service before opening the panel
 locally. On a published GitHub release, `.github/workflows/release.yml` builds it, adds the
-licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and splaytree-ts) and @mdi/js code and uploads `spatial.zip`, which HACS installs.
+licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and splaytree-ts), polylabel (with tinyqueue) and @mdi/js code and uploads `spatial.zip`, which HACS installs.
 
 ## Architecture
 
@@ -62,6 +65,8 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/floor-selector.ts` | Floor buttons: a floating segmented control, or a chip row on a phone |
 | `src/editor-toolbar.ts` | Align, Draw, Adjust, Undo and Redo: floating, or a bottom bar on a phone |
 | `src/map-stack.ts` | Map toggle, zoom and compass |
+| `src/map-paint.ts` | The map layers' colours, read from Home Assistant's theme at style load and on a theme change |
+| `src/room-labels.ts` | Room labels: area icon, name and (in the panel) net m², placed and stepped by the room's size on screen |
 | `src/styles.ts` | The floating card, pill buttons and phone bar shared by the controls, from Home Assistant's theme tokens |
 | `src/room-editor.ts` | The space editor controller: the area strip, side length fields, undo and redo, saving each action, area creation and rename |
 | `src/box-interaction.ts` | Pointer and keyboard drafting input on the map, screen-rectangle projection, Space pan, draft preview |

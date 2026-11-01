@@ -22,7 +22,7 @@ class SpatialMapStack extends LitElement {
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      border-radius: 12px;
+      border-radius: var(--ha-border-radius-lg);
     }
     button {
       display: flex;

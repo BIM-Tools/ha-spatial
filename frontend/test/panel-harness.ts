@@ -15,7 +15,14 @@ export const setStyle = vi.fn();
 export const queryRenderedFeatures = vi.fn((): object[] => []);
 export let handlers: Record<string, (event?: object) => void> = {};
 export let sources: Record<string, { data: unknown }> = {};
-export let layers: { id: string; type: string; source: string; filter?: unknown; layout?: Record<string, unknown> }[] = [];
+export let layers: {
+  id: string;
+  type: string;
+  source: string;
+  filter?: unknown;
+  layout?: Record<string, unknown>;
+  paint?: Record<string, unknown>;
+}[] = [];
 export let mapBearingNow = 0;
 
 export interface FakeMarker {
@@ -124,6 +131,10 @@ export const fakeMapLibre = {
       const layer = layers.find((entry) => entry.id === id);
       if (layer) layer.layout = { ...layer.layout, [name]: value };
     }
+    setPaintProperty(id: string, name: string, value: unknown) {
+      const layer = layers.find((entry) => entry.id === id);
+      if (layer) layer.paint = { ...layer.paint, [name]: value };
+    }
     setFilter(id: string, filter: unknown) {
       const layer = layers.find((entry) => entry.id === id);
       if (layer) layer.filter = filter;
@@ -166,8 +177,8 @@ export const fakeMapLibre = {
     setStyle(...args: unknown[]) {
       setStyle(...args);
     }
-    project(lngLat: { lng: number; lat: number }) {
-      return projectLngLat(lngLat);
+    project(lngLat: { lng: number; lat: number } | [number, number]) {
+      return projectLngLat(Array.isArray(lngLat) ? { lng: lngLat[0], lat: lngLat[1] } : lngLat);
     }
     unproject(point: [number, number]) {
       const [lng, lat] = unprojectPixel(point);

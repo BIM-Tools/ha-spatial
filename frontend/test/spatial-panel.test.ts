@@ -633,3 +633,27 @@ test("on a phone the floors are chips under the header, the tools a bottom bar, 
   expect(buttonNamed(panel, "Undo")?.textContent?.trim()).toBe("Undo");
   query.mockRestore();
 });
+
+const paintOf = (layerId: string) => layers.find((layer) => layer.id === layerId)?.paint;
+
+test("the rooms are painted from the theme's primary colour and follow a changed theme", async () => {
+  const { panel } = mountPanel();
+  panel.style.setProperty("--primary-color", "rgb(0, 128, 0)");
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
+  expect(paintOf("areas-2d")).toEqual({ "fill-color": "rgba(0,128,0,0.1)" });
+  expect(paintOf("areas-outline")).toMatchObject({ "line-color": "rgba(0,128,0,0.7)", "line-width": 1.5 });
+  panel.style.setProperty("--primary-color", "rgb(200, 0, 100)");
+  panel.hass = { ...panel.hass, themes: { darkMode: false } };
+  await vi.waitFor(() => expect(paintOf("areas-2d")).toEqual({ "fill-color": "rgba(200,0,100,0.1)" }));
+  expect(paintOf("spatial-active")).toMatchObject({ "line-color": "rgba(200,0,100,1)", "line-width": 2 });
+});
+
+test("dark mode paints the rooms with the stronger dark fills", async () => {
+  const { panel } = mountPanel();
+  panel.style.setProperty("--primary-color", "rgb(0, 128, 0)");
+  panel.hass = { ...panel.hass, themes: { darkMode: true } };
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
+  expect(paintOf("areas-2d")).toEqual({ "fill-color": "rgba(0,128,0,0.12)" });
+});

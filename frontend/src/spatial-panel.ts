@@ -1,7 +1,7 @@
 // The space editor panel; the dashboard card embeds it to show the rooms on the map.
 
 import { lineString } from "@turf/helpers";
-import type { FeatureCollection, MultiPolygon, Polygon, Position } from "geojson";
+import type { Feature, FeatureCollection, MultiPolygon, Polygon, Position } from "geojson";
 import { LitElement, type PropertyValues, css, html, nothing } from "lit";
 import {
   type GeoJSONSource,
@@ -14,10 +14,12 @@ import "./editor-toolbar";
 import type { Floor, FloorChoice } from "./floor-selector";
 import "./floor-selector";
 import "./map-stack";
+import { type MapPaint, layerColours, readMapPaint, repaint } from "./map-paint";
 import { bounds, floorsByLevel, mapBearing, styleUrl, withMapTilesToken } from "./map-view";
 import { buildingAt, wallAt, wallBearingAt } from "./outline";
 import "./panel-header";
 import { RoomEditor, type Tool } from "./room-editor";
+import { type AreaInfo, RoomLabels, roomLabelStyles } from "./room-labels";
 import { floatingSurface, phoneBar } from "./styles";
 
 // The parts of Home Assistant's `hass` object this panel uses.
@@ -29,6 +31,7 @@ interface Hass {
     addEventListener(eventType: "ready", listener: () => void): void;
     removeEventListener(eventType: "ready", listener: () => void): void;
   };
+  areas?: Record<string, AreaInfo>;
   floors?: Record<string, { name: string }>;
   themes: { darkMode: boolean };
 }
@@ -107,7 +110,9 @@ class SpatialPanel extends LitElement {
     _bearing: { state: true },
   };
 
-  static styles = css`
+  static styles = [
+    roomLabelStyles,
+    css`
     :host {
       display: flex;
       flex-direction: column;
@@ -133,13 +138,13 @@ class SpatialPanel extends LitElement {
     /* Floors left, tools right; when both do not fit, the tools move to a row below. */
     .top {
       position: absolute;
-      top: 16px;
-      right: 16px;
-      left: 16px;
+      top: var(--ha-space-4);
+      right: var(--ha-space-4);
+      left: var(--ha-space-4);
       display: flex;
       flex-wrap: wrap;
       align-items: flex-start;
-      gap: 8px;
+      gap: var(--ha-space-2);
       pointer-events: none;
     }
     .top > * {
@@ -150,18 +155,18 @@ class SpatialPanel extends LitElement {
     }
     /* Clear of the round map toggle on the right. */
     .top.phone {
-      top: 12px;
+      top: var(--ha-space-3);
       right: 68px;
-      left: 12px;
+      left: var(--ha-space-3);
     }
     .map-stack {
       position: absolute;
-      right: 16px;
+      right: var(--ha-space-4);
       bottom: 96px;
     }
     .map-stack[round] {
       top: 64px;
-      right: 12px;
+      right: var(--ha-space-3);
       bottom: auto;
     }
     .messages {
@@ -169,7 +174,7 @@ class SpatialPanel extends LitElement {
       flex-basis: 100%;
       flex-direction: column;
       align-items: center;
-      gap: 8px;
+      gap: var(--ha-space-2);
       margin-top: 14px;
     }
     .top.phone .messages {
@@ -180,18 +185,18 @@ class SpatialPanel extends LitElement {
       align-items: center;
       min-height: 40px;
       box-sizing: border-box;
-      padding: 0 16px;
+      padding: 0 var(--ha-space-4);
       ${floatingSurface}
-      border-radius: 20px;
-      font-size: 14px;
+      border-radius: var(--ha-border-radius-2xl);
+      font-size: var(--ha-font-size-m);
     }
     /* Centred by its margins, so it can grow to the full stage width before it scrolls. */
     .strip {
       ${floatingSurface}
       position: absolute;
-      right: 16px;
-      bottom: 16px;
-      left: 16px;
+      right: var(--ha-space-4);
+      bottom: var(--ha-space-4);
+      left: var(--ha-space-4);
       display: flex;
       box-sizing: border-box;
       width: fit-content;
@@ -207,7 +212,8 @@ class SpatialPanel extends LitElement {
       display: flex;
       border-top: 1px solid var(--divider-color);
     }
-  `;
+  `,
+  ];
 
   // `declare` keeps class fields from shadowing Lit's accessors.
   declare hass: Hass | undefined;
@@ -236,6 +242,7 @@ class SpatialPanel extends LitElement {
   private _unsubscribe?: () => void;
   private _areas: FeatureCollection = EMPTY;
   private _outline: Polygon | FeatureCollection = EMPTY;
+  private _labels?: RoomLabels;
   // Only the admin panel edits; the card stays read-only.
   private _editor?: RoomEditor;
   private readonly _phoneQuery = window.matchMedia(PHONE_QUERY);
@@ -354,6 +361,12 @@ class SpatialPanel extends LitElement {
   updated(changed: PropertyValues<this>) {
     // MapLibre fixes interactivity at creation, so a new option rebuilds the map.
     if (changed.has("floor") && this._started) this._stop();
+    const previous = changed.get("hass") as Hass | undefined;
+    if (previous && this.hass) {
+      // Home Assistant hands over a new themes object only when the theme changes.
+      if (previous.themes !== this.hass.themes) this._repaint();
+      if (previous.areas !== this.hass.areas) this._showLabels();
+    }
     // A render queued by _stop must not start a map for a panel that has left.
     if (!this.hass || !this.isConnected) return;
     if (!this._started) {
@@ -409,6 +422,8 @@ class SpatialPanel extends LitElement {
     this._unsubscribe?.();
     this._editor?.detach();
     this._editor = undefined;
+    this._labels?.destroy();
+    this._labels = undefined;
     this._map?.remove();
     this._map = undefined;
     this._started = false;
@@ -447,6 +462,7 @@ class SpatialPanel extends LitElement {
       this._map?.getSource<GeoJSONSource>("areas")?.setData(this._areas);
       this._outline = (await site).outline ?? EMPTY;
       this._map?.getSource<GeoJSONSource>("outline")?.setData(this._outline);
+      this._showLabels();
       return site;
     };
     const editor = this.card
@@ -501,15 +517,24 @@ class SpatialPanel extends LitElement {
       interactive: !this.floor,
     });
     this._map = map;
+    this._labels = new RoomLabels(map, !this.card);
+    this._showLabels();
     map.on("style.load", () => this._addAreas());
-    map.on("mousemove", (event) => this._previewWall(event));
+    map.on("mousemove", (event) => {
+      this._previewWall(event);
+      this._pointAt(event);
+    });
+    map.on("mouseout", () => this._labels?.point(undefined));
     if (editor) {
       this._showBearing(this._mapBearingDeg);
       map.on("rotate", () => this._showBearing(map.getBearing()));
     }
     editor?.attach(map);
     // After the editor, so the click that ends Align is not also a room pick in Adjust.
-    map.on("click", (event) => this._pick(event));
+    map.on("click", (event) => {
+      this._pick(event);
+      this._pointAt(event);
+    });
     if (this.floor) this._fit();
   }
 
@@ -534,49 +559,71 @@ class SpatialPanel extends LitElement {
   // "All" stacks the floors in 3D; one floor is a flat plan with room outlines.
   private _addAreas() {
     const map = this._map!;
+    const colours = layerColours(this._readPaint());
     map.addSource("areas", { type: "geojson", data: this._areas });
     map.addLayer({
       id: "areas-3d",
       type: "fill-extrusion",
       source: "areas",
       paint: {
-        "fill-extrusion-color": "#03a9f4",
+        ...colours["areas-3d"],
         "fill-extrusion-base": ["get", "base_m"],
         "fill-extrusion-height": ["get", "top_m"],
         "fill-extrusion-opacity": 0.7,
       },
     });
-    map.addLayer({
-      id: "areas-2d",
-      type: "fill",
-      source: "areas",
-      paint: { "fill-color": "#03a9f4", "fill-opacity": 0.4 },
-    });
+    map.addLayer({ id: "areas-2d", type: "fill", source: "areas", paint: colours["areas-2d"] });
     map.addLayer({
       id: "areas-outline",
       type: "line",
       source: "areas",
-      paint: { "line-color": "#212121", "line-width": 2 },
+      paint: { ...colours["areas-outline"], "line-width": 1.5 },
     });
     map.addSource("outline", { type: "geojson", data: this._outline });
     map.addLayer({
       id: "spatial-outline",
       type: "line",
       source: "outline",
-      paint: { "line-color": "#ff9800", "line-width": 3 },
+      paint: { ...colours["spatial-outline"], "line-width": 2 },
     });
     map.addSource("spatial-wall", { type: "geojson", data: EMPTY });
     map.addLayer({
       id: "spatial-wall",
       type: "line",
       source: "spatial-wall",
-      paint: {
-        "line-color": getComputedStyle(map.getContainer()).getPropertyValue("--primary-color").trim() || "#03a9f4",
-        "line-width": 4,
-      },
+      paint: { ...colours["spatial-wall"], "line-width": 4 },
     });
-    this._editor?.addLayers(map);
+    this._editor?.addLayers(map, colours);
     this._applyFloor();
+  }
+
+  private _readPaint(): MapPaint {
+    return readMapPaint(this, this.hass!.themes.darkMode);
+  }
+
+  // A new primary colour repaints the rooms; dark mode also reloads the style, which adds them again.
+  // Home Assistant may set the theme's variables after handing over `hass`, so they are read a frame later.
+  private _repaint() {
+    requestAnimationFrame(() => {
+      if (this._map?.getLayer("areas-2d") && this.hass) repaint(this._map, this._readPaint());
+    });
+  }
+
+  // Labels name the rooms of one floor; the 3D view of all floors has none.
+  private _showLabels() {
+    if (!this._labels) return;
+    const onFloor = this._floor !== "all";
+    const rooms = onFloor
+      ? (this._areas.features.filter((feature) => feature.properties?.floor_id === this._floor) as Feature<Polygon>[])
+      : [];
+    const outline = onFloor && this._outline.type === "Polygon" ? this._outline : undefined;
+    this._labels.show(rooms, outline, this.hass?.areas ?? {});
+  }
+
+  private _pointAt(event: MapMouseEvent) {
+    if (!this._map?.getLayer("areas-2d")) return;
+    const [room] = this._map.queryRenderedFeatures(event.point, { layers: ["areas-2d"] });
+    this._labels?.point(room?.properties?.area_id === undefined ? undefined : String(room.properties.area_id));
   }
 
   // The panel lists every registered floor, so an empty one can be drawn; the card only those with rooms.
@@ -685,6 +732,7 @@ class SpatialPanel extends LitElement {
     if (floor === "all" && this._aligning) this._selectTool("adjust");
     this._floor = floor;
     this._editor?.setFloor(floor);
+    this._showLabels();
     // Before the style has loaded, `_addAreas` applies the floor.
     if (!this._map?.getLayer("areas-3d")) return;
     this._applyFloor();
