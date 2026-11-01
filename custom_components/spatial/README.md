@@ -9,7 +9,8 @@
 ## How to use
 
 1. Install and add **Spatial** as in the root [README](../../README.md#install) (one instance).
-2. Add footprints, for now with `tools/import_geojson.py` (no editor yet).
+2. Draw footprints in the panel (Spatial > Configure, Draw; see Panel below), or import them
+   with `tools/import_geojson.py`.
 3. Show the rooms on a dashboard: add a card with `type: custom:spatial-map-card`, best in a
    view of type Panel so the map fills it. Everyone who can see the dashboard sees the map.
    The card has one option, in YAML:

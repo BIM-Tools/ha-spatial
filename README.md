@@ -28,7 +28,7 @@ into that zip and are not in git, so copying the source folder gives no editor.
 
 Without HACS: download `spatial.zip` from the
 [releases page](https://github.com/BIM-Tools/ha-spatial/releases), unzip it into
-`config/custom_components/spatial/` and restart.
+`config/custom_components/spatial/`, then continue with step 3.
 
 ## Parts
 
