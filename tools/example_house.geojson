@@ -28,7 +28,8 @@
    "type": "Feature",
    "properties": {
     "area": "Living room",
-    "floor": "Ground floor"
+    "floor": "Ground floor",
+    "icon": "mdi:television"
    },
    "geometry": {
     "type": "Polygon",
@@ -41,6 +42,14 @@
       [
        5.12130688,
        52.09082558
+      ],
+      [
+       5.12132655,
+       52.09078935
+      ],
+      [
+       5.1213335,
+       52.09077657
       ],
       [
        5.12134623,
@@ -62,7 +71,8 @@
    "type": "Feature",
    "properties": {
     "area": "Kitchen",
-    "floor": "Ground floor"
+    "floor": "Ground floor",
+    "icon": "mdi:silverware-fork-knife"
    },
    "geometry": {
     "type": "Polygon",
@@ -81,6 +91,10 @@
        52.09080005
       ],
       [
+       5.12134869,
+       52.09079392
+      ],
+      [
        5.12132655,
        52.09078935
       ],
@@ -96,7 +110,8 @@
    "type": "Feature",
    "properties": {
     "area": "Toilet",
-    "floor": "Ground floor"
+    "floor": "Ground floor",
+    "icon": "mdi:toilet"
    },
    "geometry": {
     "type": "Polygon",
@@ -130,7 +145,8 @@
    "type": "Feature",
    "properties": {
     "area": "Hall",
-    "floor": "Ground floor"
+    "floor": "Ground floor",
+    "icon": "mdi:door"
    },
    "geometry": {
     "type": "Polygon",
@@ -139,6 +155,10 @@
       [
        5.1213335,
        52.09077657
+      ],
+      [
+       5.12135563,
+       52.09078113
       ],
       [
        5.12138538,
@@ -164,7 +184,8 @@
    "type": "Feature",
    "properties": {
     "area": "Bedroom",
-    "floor": "First floor"
+    "floor": "First floor",
+    "icon": "mdi:bed-king"
    },
    "geometry": {
     "type": "Polygon",
@@ -177,6 +198,10 @@
       [
        5.12129511,
        52.09082315
+      ],
+      [
+       5.12131039,
+       52.09079503
       ],
       [
        5.12131687,
@@ -198,7 +223,8 @@
    "type": "Feature",
    "properties": {
     "area": "Kids room",
-    "floor": "First floor"
+    "floor": "First floor",
+    "icon": "mdi:teddy-bear"
    },
    "geometry": {
     "type": "Polygon",
@@ -211,6 +237,10 @@
       [
        5.12131687,
        52.0907831
+      ],
+      [
+       5.12132382,
+       52.09077031
       ],
       [
        5.12133447,
@@ -232,7 +262,8 @@
    "type": "Feature",
    "properties": {
     "area": "Bathroom",
-    "floor": "First floor"
+    "floor": "First floor",
+    "icon": "mdi:shower"
    },
    "geometry": {
     "type": "Polygon",
@@ -266,7 +297,8 @@
    "type": "Feature",
    "properties": {
     "area": "Landing",
-    "floor": "First floor"
+    "floor": "First floor",
+    "icon": "mdi:stairs"
    },
    "geometry": {
     "type": "Polygon",
@@ -289,6 +321,10 @@
        52.09077031
       ],
       [
+       5.12131687,
+       52.0907831
+      ],
+      [
        5.12131039,
        52.09079503
       ]
@@ -300,7 +336,8 @@
    "type": "Feature",
    "properties": {
     "area": "Attic",
-    "floor": "Attic"
+    "floor": "Attic",
+    "icon": "mdi:home-roof"
    },
    "geometry": {
     "type": "Polygon",
