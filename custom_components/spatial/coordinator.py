@@ -5,10 +5,12 @@ from __future__ import annotations
 import hashlib
 from typing import Any, TypedDict
 
+from homeassistant.const import EVENT_CORE_CONFIG_UPDATE
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import floor_registry as fr
 from homeassistant.helpers.json import json_bytes_sorted
+from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
 from .const import (
     ADJACENCY_MIN_SHARED_M,
@@ -16,6 +18,8 @@ from .const import (
     BOT_SPACE,
     DEFAULT_FLOOR_HEIGHT_M,
     EVENT_SPATIAL_UPDATED,
+    EXTERIOR_WALL_OFFSET_METRIC_M,
+    EXTERIOR_WALL_OFFSET_US_CUSTOMARY_M,
     JSONFG_CORE,
     JSONFG_TYPES_SCHEMAS,
     NET_INSET_M,
@@ -23,7 +27,13 @@ from .const import (
     ROOM_PROPERTY_NAMES,
     SITE_FIELD_NAMES,
 )
-from .geometry import net_area_m2, overlap_area_m2, polygon_contains, shared_edge_length_m
+from .geometry import (
+    net_area_m2,
+    overlap_area_m2,
+    polygon_contains,
+    shared_edge_length_m,
+    shared_lengths_by_edge_m,
+)
 from .store import AreaSpatial, Site, SpatialStore, new_area
 
 
@@ -36,11 +46,6 @@ class SiteView(TypedDict):
     origin: list[float] | None
     outline: dict[str, Any] | None
     rev: str
-
-
-def _net_size(polygon: dict[str, Any]) -> float:
-    """Return the net area in m² of a footprint, computed on every read."""
-    return round(net_area_m2(polygon, NET_INSET_M), 2)
 
 
 def content_rev(entry: AreaSpatial | Site) -> str:
@@ -69,6 +74,7 @@ class SpatialCoordinator:
         self._unsubscribe = [
             self.hass.bus.async_listen(ar.EVENT_AREA_REGISTRY_UPDATED, self._async_area_updated),
             self.hass.bus.async_listen(fr.EVENT_FLOOR_REGISTRY_UPDATED, self._async_floor_updated),
+            self.hass.bus.async_listen(EVENT_CORE_CONFIG_UPDATE, self._async_core_config_updated),
         ]
 
     async def async_teardown(self) -> None:
@@ -96,6 +102,36 @@ class SpatialCoordinator:
             self._changed()
         else:
             self.hass.bus.async_fire(EVENT_SPATIAL_UPDATED)
+
+    @callback
+    def _async_core_config_updated(self, event: Event[dict[str, Any]]) -> None:
+        """Announce a core config change: the unit system sets net areas, home the centre."""
+        self.hass.bus.async_fire(EVENT_SPATIAL_UPDATED)
+
+    def _exterior_wall_offset_m(self) -> float:
+        """Return how far a room edge on the facade moves in, by Home Assistant's unit system."""
+        if self.hass.config.units is US_CUSTOMARY_SYSTEM:
+            return EXTERIOR_WALL_OFFSET_US_CUSTOMARY_M
+        return EXTERIOR_WALL_OFFSET_METRIC_M
+
+    def _net_size(self, polygon: dict[str, Any]) -> float:
+        """Return the net area in m² of a footprint, computed on every read.
+
+        An edge of the outer ring on the outline, by the same test as on_facade,
+        moves in by the exterior wall offset; every other edge by NET_INSET_M.
+        """
+        outline = self.store.site["outline"]
+        edge_insets = None
+        if outline is not None:
+            offset = self._exterior_wall_offset_m()
+            outer_shared_lengths = shared_lengths_by_edge_m(
+                polygon, outline, ADJACENCY_TOLERANCE_M
+            )[0]
+            edge_insets = [
+                offset if shared >= ADJACENCY_MIN_SHARED_M else NET_INSET_M
+                for shared in outer_shared_lengths
+            ]
+        return round(net_area_m2(polygon, NET_INSET_M, edge_insets), 2)
 
     def _changed(self) -> None:
         """Schedule a save and notify listeners."""
@@ -136,12 +172,10 @@ class SpatialCoordinator:
         Return the m² of the footprints set. Fields not given are kept. Room
         properties apply to areas that have a footprint after the polygons are set.
         """
-        sizes: dict[str, float] = {}
         for area_id, polygon in polygons.items():
             if polygon is None:
                 self.store.areas.pop(area_id, None)
                 continue
-            sizes[area_id] = _net_size(polygon)
             if (entry := self.store.areas.get(area_id)) is not None:
                 entry["polygon"] = polygon
             else:
@@ -155,7 +189,12 @@ class SpatialCoordinator:
             if key in site_fields:
                 self.store.site[key] = site_fields[key]
         self._changed()
-        return sizes
+        # After the site fields, as a new outline changes the net areas.
+        return {
+            area_id: self._net_size(polygon)
+            for area_id, polygon in polygons.items()
+            if polygon is not None
+        }
 
     @callback
     def async_update_floor(self, floor_id: str, fields: dict[str, float | None]) -> None:
@@ -303,7 +342,7 @@ class SpatialCoordinator:
                         "name": area.name if area else area_id,
                         "floor_id": area_floor_id,
                         "level": floor.level if floor else None,
-                        "area_m2": _net_size(data["polygon"]),
+                        "area_m2": self._net_size(data["polygon"]),
                         "base_m": base,
                         "top_m": top,
                         "floors_up": data["floors_up"],
@@ -324,7 +363,7 @@ class SpatialCoordinator:
     def query_point(self, lon: float, lat: float, floor_id: str | None = None) -> str | None:
         """Return the smallest area containing the point, optionally among those on one floor."""
         matches = [
-            (_net_size(data["polygon"]), area_id)
+            (self._net_size(data["polygon"]), area_id)
             for area_id, data in self.store.areas.items()
             if (floor_id is None or floor_id in self._floor_ids(area_id, data))
             and polygon_contains(data["polygon"], lon, lat)

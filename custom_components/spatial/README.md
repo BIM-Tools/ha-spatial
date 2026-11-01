@@ -78,7 +78,7 @@
   | --- | --- |
   | `area_id`, `name` | The area, named as in Home Assistant |
   | `floor_id`, `level` | Its Home Assistant floor, the lowest one it occupies (null for a site-level area) |
-  | `area_m2` | Net area |
+  | `area_m2` | Net area, see Rules |
   | `base_m`, `top_m` | Bottom of its floor and top of the highest floor it occupies (ready for MapLibre `fill-extrusion`) |
   | `floors_up` | Stored: floors it reaches above its own |
   | `floor_ids` | Derived: the floors it occupies, lowest first (empty without a floor) |
@@ -99,7 +99,7 @@
   writer wins.
 - Errors: `not_found` (unknown area or floor), `invalid_format` (bad input), `conflict` (an
   expected rev no longer matches; the message lists the area ids and `site`), `unauthorized`.
-- Event `spatial_updated` fires after every change, including every floor registry change (it can change the floors a room occupies); non-admin users follow it through `spatial/subscribe`.
+- Event `spatial_updated` fires after every change, including every floor registry change (it can change the floors a room occupies) and every core config change (the unit system sets net areas, the home location the centre); non-admin users follow it through `spatial/subscribe`.
 
 ### Panel
 
@@ -127,7 +127,7 @@ The admin-only Spatial panel at `/spatial` has no sidebar entry and Spatial has 
 | Adjacency | On every floor both rooms occupy (site-level rooms only with each other), edges of outer and inner rings within 0.05 m over at least 0.3 m, so a room filling a hole is adjacent to the room around it |
 | Rooms across floors | A room occupies its Home Assistant floor and the `floors_up` floors with the next higher levels (floors on one level ordered by `floor_id`); a floor deleted later shortens `floor_ids`, `floors_up` stays as stored |
 | Outdoor | `is_external` compares the room's common area with the outline (exact for any polygons, holes included) with half its gross area; exactly half counts as indoor |
-| Area | `area_m2` is the net area: local tangent plane with exact WGS84 radii, holes subtracted, shrunk by 50 mm on every side (exact for right angles) |
+| Area | `area_m2` is the net area: local tangent plane with exact WGS84 radii, holes subtracted. Every edge moves in by 50 mm, holes grow by 50 mm; an outer edge on the outline (within 0.05 m over at least 0.3 m, as for `on_facade`, the override aside) moves in by the exterior wall offset instead: 0.25 m with Home Assistant's metric unit system, 0.11 m with US customary (an assumption about thinner walls, not yet validated). Switching the unit system applies at once. Edges are offset and intersected (mitred), exact for any corner angle; a part narrower than twice its inset is miscounted, and edges turning less than 10 degrees with different insets step at their shared corner |
 | Point in polygon | PNPOLY; a point in a hole is outside the room; a point exactly on an edge may fall either way |
 | Overlaps | `query_point` returns the smallest containing area |
 

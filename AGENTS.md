@@ -49,11 +49,11 @@ Change these only through an issue that names the reason.
 | Measurement | In the integration, local tangent plane with exact WGS84 radii; never UTM, national grids, Mercator or screen space |
 | Footprint | One area has at most one `Polygon`, inner rings (holes) allowed; no MultiPolygon, its parts cannot carry identity |
 | Rooms across floors | `floors_up` per area: the Home Assistant floor is the main and lowest floor; the room occupies the floors above it, contiguous |
-| Adjacency | Derived from shared edges, outer and inner rings, on every floor a room occupies; interior walls on centrelines, exterior walls on a line inside the drawn facade at the options-flow offset (default by Home Assistant's country: 0.25 m, about 0.11 m for US and CA); both derived, never stored |
+| Adjacency | Derived from shared edges, outer and inner rings, on every floor a room occupies; interior walls on centrelines, exterior walls on a line inside the drawn facade at the exterior wall offset from Home Assistant's unit system (metric 0.25 m, US customary 0.11 m); both derived, never stored |
 | Address search | The backend may call OpenStreetMap Nominatim, only on an explicit search, with an identifying user agent and its rate limit; country geocoders and authoritative outlines stay outside the integration |
 | Home location | When the chosen building lies more than 25 m from Home Assistant's home, onboarding asks once whether to move the home there, and remembers the answer; a move changes latitude and longitude only, through core config, and can be undone |
 | Units | Display follows Home Assistant's unit system; storage stays metric WGS84 |
-| Area | `area_m2` is net: the drawn polygon shrunk by 50 mm on every side |
+| Area | `area_m2` is net: the drawn polygon shrunk by 50 mm per side, edges on the outline by the exterior wall offset |
 | Outdoor, facade | `is_external` means an outdoor room (outside the outline, IFC `IsExternal`); `on_facade` is derived from touching the outline, with an optional override |
 | Building, sub-spaces | Home Assistant labels; no code |
 | Site anchor | One direction per installation; the centre follows all footprints, else the outline; aligns views only, so stored geometry never moves with it, except through the explicit, confirmed and undoable "Change alignment" (rotation reduced to a right angle, then snapped to the grid, in one write) |

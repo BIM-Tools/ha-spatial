@@ -55,7 +55,12 @@ def _rings_m(polygon: dict[str, Any], lon0: float, lat0: float) -> list[Ring]:
 
 def _shoelace_area(ring: Ring) -> float:
     """Return the unsigned area of a closed ring (shoelace formula)."""
-    return abs(sum(x1 * y2 - x2 * y1 for (x1, y1), (x2, y2) in pairwise(ring))) / 2
+    return abs(_signed_area(ring))
+
+
+def _signed_area(ring: Ring) -> float:
+    """Return the area of a closed ring, positive when it runs counter-clockwise."""
+    return sum(x1 * y2 - x2 * y1 for (x1, y1), (x2, y2) in pairwise(ring)) / 2
 
 
 def _pnpoly(vertx: list[float], verty: list[float], testx: float, testy: float) -> bool:
@@ -331,28 +336,93 @@ def validate_polygon(value: Any) -> dict[str, Any]:
     return value
 
 
-def _perimeter(ring: Ring) -> float:
-    """Return the length of a closed ring."""
-    return sum(math.hypot(x2 - x1, y2 - y1) for (x1, y1), (x2, y2) in pairwise(ring))
+# Below this turn, two edges with different insets count as one straight wall that
+# changes thickness at their shared corner; their offset lines would meet far away.
+STRAIGHT_TURN_SINE = math.sin(math.radians(10))
 
 
-def net_area_m2(polygon: dict[str, Any], inset_m: float) -> float:
-    """Return the area in square metres of a polygon shrunk by inset_m on every side.
+def _inset_corner(
+    corner: Point, normal_in: Point, inset_in: float, normal_out: Point, inset_out: float
+) -> Ring:
+    """Return where the offset lines of the edges into and out of a corner meet.
 
-    Custom, from Steiner's formula for a parallel body: shrinking a polygon with
-    area A and perimeter P by d leaves A - P * d + 4 * d * d (convex minus reflex
-    corners is always four for a simple ring; the d² term is exact for right
-    angles). A hole grows by d, so it takes away A + P * d + 4 * d * d. Exact for
-    right-angled polygons; with diagonal walls the corner term is an approximation.
-    A shape thinner than twice inset_m has no net area: the result is clamped to zero.
-    A part narrower than twice inset_m within a larger shape is miscounted, because the
-    formula assumes the shape keeps its topology.
+    Each normal is a unit vector to the left of its edge, and each offset line
+    lies its inset along that normal. Solves normal . q = inset for both lines
+    (Cramer's rule) for the offset q from the corner. A nearly straight corner
+    between different insets gives both offset points: a step.
+    """
+    turn_sine = normal_in[0] * normal_out[1] - normal_in[1] * normal_out[0]
+    if inset_in == inset_out:
+        scale = inset_in / (1 + normal_in[0] * normal_out[0] + normal_in[1] * normal_out[1])
+        return [
+            (
+                corner[0] + (normal_in[0] + normal_out[0]) * scale,
+                corner[1] + (normal_in[1] + normal_out[1]) * scale,
+            )
+        ]
+    if abs(turn_sine) < STRAIGHT_TURN_SINE:
+        return [
+            (corner[0] + normal_in[0] * inset_in, corner[1] + normal_in[1] * inset_in),
+            (corner[0] + normal_out[0] * inset_out, corner[1] + normal_out[1] * inset_out),
+        ]
+    return [
+        (
+            corner[0] + (inset_in * normal_out[1] - inset_out * normal_in[1]) / turn_sine,
+            corner[1] + (normal_in[0] * inset_out - normal_out[0] * inset_in) / turn_sine,
+        )
+    ]
+
+
+def _inset_ring_signed_area(ring: Ring, insets: list[float], outer: bool) -> float:
+    """Return the signed area of a closed ring with each edge moved into the polygon.
+
+    The outer ring is turned counter-clockwise and a hole clockwise, so the
+    polygon's interior lies left of every edge: the outer ring shrinks to a
+    positive area and a hole grows to a negative one.
+    """
+    edges = [
+        (start, end, inset)
+        for (start, end), inset in zip(pairwise(ring), insets, strict=True)
+        if start != end
+    ]
+    if (_signed_area(ring) > 0) != outer:
+        edges = [(end, start, inset) for start, end, inset in reversed(edges)]
+    normals: Ring = []
+    for (x1, y1), (x2, y2), _ in edges:
+        length = math.hypot(x2 - x1, y2 - y1)
+        normals.append(((y1 - y2) / length, (x2 - x1) / length))
+    corners: Ring = []
+    for index, (_, corner, inset_in) in enumerate(edges):
+        following = (index + 1) % len(edges)
+        corners += _inset_corner(
+            corner, normals[index], inset_in, normals[following], edges[following][2]
+        )
+    return _signed_area([*corners, corners[0]])
+
+
+def net_area_m2(
+    polygon: dict[str, Any], inset_m: float, outer_edge_insets_m: list[float] | None = None
+) -> float:
+    """Return the area in square metres of a polygon with every edge moved inwards.
+
+    Edges of the outer ring move by outer_edge_insets_m, one value per edge in
+    ring order (repeated positions included), else by inset_m; holes grow by
+    inset_m. Custom: each edge is replaced by its parallel line at its inset and
+    neighbouring lines are intersected (a mitred offset, as the inner faces of
+    straight walls meet), then the shoelace formula gives the area. Exact for any
+    corner angle, convex or reflex, while the shape keeps its topology.
+
+    Known limits: two edges turning less than 10 degrees with different insets
+    are joined by a step at their corner instead of meeting far away. A shape
+    thinner than twice its inset has no net area: the result is clamped to zero.
+    A part narrower than twice its inset within a larger shape is miscounted, as
+    its offset edges cross over each other.
     """
     exterior, *holes = _rings_m(polygon, *_origin(polygon))
-    corners = 4 * inset_m * inset_m
-    area = _shoelace_area(exterior) - _perimeter(exterior) * inset_m + corners
+    exterior_insets = outer_edge_insets_m or [inset_m] * (len(exterior) - 1)
+    area = _inset_ring_signed_area(exterior, exterior_insets, outer=True)
     for hole in holes:
-        area -= _shoelace_area(hole) + _perimeter(hole) * inset_m + corners
+        area += _inset_ring_signed_area(hole, [inset_m] * (len(hole) - 1), outer=False)
     return max(area, 0.0)
 
 
@@ -370,31 +440,45 @@ def polygon_contains(polygon: dict[str, Any], lon: float, lat: float) -> bool:
     return inside
 
 
-def shared_edge_length_m(
+def _shared_length_m(edge: Segment, other_edges: list[Segment], tolerance_m: float) -> float:
+    """Return the length of an edge along which other edges lie; see shared_lengths_by_edge_m."""
+    (ax1, ay1), (ax2, ay2) = edge
+    length = math.hypot(ax2 - ax1, ay2 - ay1)
+    if length == 0:
+        return 0.0
+    ux, uy = (ax2 - ax1) / length, (ay2 - ay1) / length
+    total = 0.0
+    for b1, b2 in other_edges:
+        along = [(bx - ax1) * ux + (by - ay1) * uy for bx, by in (b1, b2)]
+        across = [abs((by - ay1) * ux - (bx - ax1) * uy) for bx, by in (b1, b2)]
+        if max(across) <= tolerance_m:
+            total += max(0.0, min(length, max(along)) - max(0.0, min(along)))
+    return total
+
+
+def shared_lengths_by_edge_m(
     polygon_a: dict[str, Any], polygon_b: dict[str, Any], tolerance_m: float
-) -> float:
-    """Return the length in metres along which the boundaries of two polygons coincide.
+) -> list[list[float]]:
+    """Return, per ring and edge of polygon_a, the length in metres it shares with polygon_b.
 
     Custom (no library equivalent without shapely): an edge of polygon_b lies
     on an edge of polygon_a when both its end points are within tolerance_m of
     the line through that edge; the shared length is their overlap along it.
+    Edges follow ring order, repeated positions included.
     """
     origin = _origin(polygon_a)
-    edges_a = [edge for ring in _rings_m(polygon_a, *origin) for edge in pairwise(ring)]
     edges_b = [edge for ring in _rings_m(polygon_b, *origin) for edge in pairwise(ring)]
+    return [
+        [_shared_length_m(edge_a, edges_b, tolerance_m) for edge_a in pairwise(ring)]
+        for ring in _rings_m(polygon_a, *origin)
+    ]
 
-    total = 0.0
-    for (ax1, ay1), (ax2, ay2) in edges_a:
-        length = math.hypot(ax2 - ax1, ay2 - ay1)
-        if length == 0:
-            continue
-        ux, uy = (ax2 - ax1) / length, (ay2 - ay1) / length
-        for b1, b2 in edges_b:
-            along = [(bx - ax1) * ux + (by - ay1) * uy for bx, by in (b1, b2)]
-            across = [abs((by - ay1) * ux - (bx - ax1) * uy) for bx, by in (b1, b2)]
-            if max(across) <= tolerance_m:
-                total += max(0.0, min(length, max(along)) - max(0.0, min(along)))
-    return total
+
+def shared_edge_length_m(
+    polygon_a: dict[str, Any], polygon_b: dict[str, Any], tolerance_m: float
+) -> float:
+    """Return the length in metres along which the boundaries of two polygons coincide."""
+    return sum(map(sum, shared_lengths_by_edge_m(polygon_a, polygon_b, tolerance_m)))
 
 
 def _crossing(start: Point, end: Point, start_side: float, end_side: float) -> Point:
@@ -428,11 +512,6 @@ def _clip_to_convex(subject: Ring, clip: Ring) -> Ring:
                 output.append(_crossing(previous, current, previous_side, current_side))
             previous, previous_side = current, current_side
     return output
-
-
-def _signed_area(ring: Ring) -> float:
-    """Return the area of a closed ring, positive when it runs counter-clockwise."""
-    return sum(x1 * y2 - x2 * y1 for (x1, y1), (x2, y2) in pairwise(ring)) / 2
 
 
 def _edge_triangles(polygon: dict[str, Any], lon0: float, lat0: float) -> list[tuple[Ring, float]]:

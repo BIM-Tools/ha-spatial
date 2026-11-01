@@ -386,3 +386,60 @@ async def test_floor_changes_are_announced(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
 
     assert len(events) == 3
+
+
+@pytest.mark.parametrize(
+    ("room", "outline", "unit_system", "area_m2"),
+    [
+        (rect(2, 0, 7, 4), OUTLINE, "metric", (5 - 0.05 - 0.05) * (4 - 0.25 - 0.05)),
+        (rect(0, 0, 5, 4), OUTLINE, "metric", (5 - 0.25 - 0.05) * (4 - 0.25 - 0.05)),
+        (rect(0, 0, 5, 4), OUTLINE, "us_customary", (5 - 0.11 - 0.05) * (4 - 0.11 - 0.05)),
+        (rect(2, 2, 7, 6), OUTLINE, "metric", (5 - 0.05 - 0.05) * (4 - 0.05 - 0.05)),
+        (rect(0, 0, 5, 4), None, "metric", (5 - 0.05 - 0.05) * (4 - 0.05 - 0.05)),
+    ],
+    ids=["one_facade_edge", "corner_room", "us_customary", "off_the_outline", "no_outline"],
+)
+async def test_net_area_moves_facade_edges_by_the_exterior_wall_offset(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    room: dict[str, Any],
+    outline: dict[str, Any] | None,
+    unit_system: str,
+    area_m2: float,
+) -> None:
+    """Test edges on the outline move in by the unit system's wall offset, others by 50 mm."""
+    await hass.config.async_update(unit_system=unit_system)
+    client = await hass_ws_client(hass)
+    written = await _write(client, areas={"hall": room}, site={"outline": outline})
+
+    assert written["area_m2"]["hall"] == pytest.approx(area_m2, abs=0.01)
+    assert (await _properties(client))["hall"]["area_m2"] == pytest.approx(area_m2, abs=0.01)
+
+
+async def test_net_area_of_a_room_with_a_hole_on_the_facade(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test only the outer ring's facade edge moves in by the offset; the hole grows by 50 mm."""
+    room = rect(0, 0, 5, 4)
+    room["coordinates"].append(rect(2, 1, 3, 2)["coordinates"][0])
+    client = await hass_ws_client(hass)
+    await _write(client, areas={"hall": room}, site={"outline": rect(-5, 0, 10, 10)})
+
+    expected_m2 = (5 - 0.05 - 0.05) * (4 - 0.25 - 0.05) - (1 + 0.1) * (1 + 0.1)
+    assert (await _properties(client))["hall"]["area_m2"] == pytest.approx(expected_m2, abs=0.01)
+
+
+async def test_switching_the_unit_system_recalculates_net_areas(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test a unit system change shows new net areas at once and is announced to clients."""
+    client = await hass_ws_client(hass)
+    await _write(client, areas={"hall": rect(0, 0, 5, 4)}, site={"outline": OUTLINE})
+    events = async_capture_events(hass, EVENT_SPATIAL_UPDATED)
+
+    await hass.config.async_update(unit_system="us_customary")
+    await hass.async_block_till_done()
+
+    assert len(events) == 1
+    hall = (await _properties(client))["hall"]
+    assert hall["area_m2"] == pytest.approx((5 - 0.11 - 0.05) * (4 - 0.11 - 0.05), abs=0.01)

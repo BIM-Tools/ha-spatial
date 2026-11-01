@@ -45,6 +45,11 @@ JSONFG_TYPES_SCHEMAS: Final = "http://www.opengis.net/spec/json-fg-1/1.0/conf/ty
 BOT_SPACE: Final = "https://w3id.org/bot#Space"
 
 # Reported room areas are net: the drawn polygon shrunk on every side, so an
-# interior centreline loses half of a 100 mm partition and an exterior line
-# (0.25 m inside the facade) loses the rest of a 300 mm wall.
+# interior centreline loses half of a 100 mm partition.
 NET_INSET_M: Final = 0.05
+
+# A room edge on the drawn facade moves in by the exterior wall instead. Spatial
+# has no settings, so the wall follows Home Assistant's unit system; the US
+# customary value assumes a thinner timber-frame wall and is not yet validated.
+EXTERIOR_WALL_OFFSET_METRIC_M: Final = 0.25
+EXTERIOR_WALL_OFFSET_US_CUSTOMARY_M: Final = 0.11
