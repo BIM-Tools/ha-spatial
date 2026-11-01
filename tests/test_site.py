@@ -1,4 +1,4 @@
-"""Proves the site centre follows the footprints and the site can be aligned and outlined."""
+"""Proves the site centre follows the footprints and the site can be aligned and gridded."""
 
 from typing import Any
 from unittest.mock import ANY
@@ -6,10 +6,14 @@ from unittest.mock import ANY
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
-from pytest_homeassistant_custom_component.common import MockConfigEntry, MockUser
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    MockUser,
+    async_capture_events,
+)
 from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
-from custom_components.spatial.const import DOMAIN
+from custom_components.spatial.const import DOMAIN, EVENT_SPATIAL_UPDATED
 
 from .common import lonlat, rect
 
@@ -296,3 +300,77 @@ async def test_site_outline_cleared_with_null(
     msg = await _call(client, type="spatial/site")
     assert msg["result"]["outline"] is None
     assert msg["result"]["bearing_deg"] == 30.0
+
+
+async def test_site_origin_set_and_cleared_with_null(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, setup_integration: MockConfigEntry
+) -> None:
+    """Test the origin survives a reload, null clears it, and the bearing is left alone."""
+    client = await hass_ws_client(hass)
+    origin = lonlat(1, 2)
+    await _call(client, type="spatial/site/update", bearing_deg=30.0)
+    msg = await _call(client, type="spatial/site/update", origin=origin)
+    assert msg["success"], msg
+
+    assert await hass.config_entries.async_reload(setup_integration.entry_id)
+    await hass.async_block_till_done()
+
+    site = (await _call(client, type="spatial/site"))["result"]
+    assert (site["origin"], site["bearing_deg"]) == (origin, 30.0)
+    assert msg["result"] == {"site_rev": site["rev"]}
+
+    msg = await _call(client, type="spatial/site/update", origin=None)
+    assert msg["success"], msg
+    site = (await _call(client, type="spatial/site"))["result"]
+    assert (site["origin"], site["bearing_deg"]) == (None, 30.0)
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [[5.0], [5.0, 52.0, 3.0], [200.0, 52.0], [5.0, 95.0], ["east", 52.0], [5.0, None], 5.0],
+    ids=["short", "long", "lon_out_of_range", "lat_out_of_range", "text", "none", "not_a_list"],
+)
+async def test_site_update_rejects_bad_origin(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, origin: Any
+) -> None:
+    """Test an origin that is not a [lon, lat] pair in range is rejected."""
+    client = await hass_ws_client(hass)
+    msg = await _call(client, type="spatial/site/update", origin=origin)
+    assert msg["error"]["code"] == "invalid_format"
+
+
+async def test_site_update_with_current_rev_writes(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test a write based on the current site rev succeeds."""
+    client = await hass_ws_client(hass)
+    rev = (await _call(client, type="spatial/site"))["result"]["rev"]
+    msg = await _call(client, type="spatial/site/update", origin=lonlat(0, 0), expected_rev=rev)
+    assert msg["success"], msg
+    site = (await _call(client, type="spatial/site"))["result"]
+    assert site["origin"] == lonlat(0, 0)
+    assert site["rev"] != rev
+
+
+async def test_site_update_with_stale_rev_changes_nothing(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test a write based on an old site rev returns conflict and fires no event."""
+    client = await hass_ws_client(hass)
+    await _call(client, type="spatial/site/update", bearing_deg=30.0)
+    before = (await _call(client, type="spatial/site"))["result"]
+    events = async_capture_events(hass, EVENT_SPATIAL_UPDATED)
+
+    msg = await _call(
+        client,
+        type="spatial/site/update",
+        origin=lonlat(0, 0),
+        bearing_deg=10.0,
+        expected_rev="000000000000",
+    )
+    await hass.async_block_till_done()
+
+    assert msg["error"]["code"] == "conflict"
+    assert "site" in msg["error"]["message"]
+    assert events == []
+    assert (await _call(client, type="spatial/site"))["result"] == before

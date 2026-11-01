@@ -20,6 +20,7 @@ from .const import (
     JSONFG_TYPES_SCHEMAS,
     NET_INSET_M,
     REV_LENGTH,
+    SITE_FIELD_NAMES,
 )
 from .geometry import net_area_m2, polygon_contains, shared_edge_length_m
 from .store import AreaSpatial, Site, SpatialStore, new_area
@@ -134,7 +135,7 @@ class SpatialCoordinator:
                 entry["polygon"] = polygon
             else:
                 self.store.areas[area_id] = new_area(polygon)
-        for key in ("bearing_deg", "origin", "outline"):
+        for key in SITE_FIELD_NAMES:
             if key in site_fields:
                 self.store.site[key] = site_fields[key]
         self._changed()

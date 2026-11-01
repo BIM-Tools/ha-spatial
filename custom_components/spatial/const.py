@@ -25,6 +25,9 @@ ERR_CONFLICT: Final = "conflict"
 # Hex characters of the sha256 that identify one version of a stored entry.
 REV_LENGTH: Final = 12
 
+# The site fields a write command may set; the centre is derived, never written.
+SITE_FIELD_NAMES: Final = ("bearing_deg", "origin", "outline")
+
 # Floors without spatial data stack this many metres per level.
 DEFAULT_FLOOR_HEIGHT_M: Final = 3.0
 
