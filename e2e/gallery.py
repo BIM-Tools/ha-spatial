@@ -286,7 +286,7 @@ class Shot:
         # The theme can reach the panel after the map started, which then swaps its style. So wait
         # a while for Home Assistant to follow the browser's colour scheme (its default theme
         # does), then until the style on the map is the one the panel asks for, with the rooms.
-        theme_followed = self.panel.evaluate(
+        theme_followed, idle = self.panel.evaluate(
             """async (panel, timeout) => {
                 await document.fonts.ready;
                 const pause = () => new Promise((resolve) => setTimeout(resolve, 100));
@@ -305,9 +305,9 @@ class Shot:
                     await pause();
                 }
                 const map = panel._map;
-                await new Promise((resolve) => {
-                    const timer = setTimeout(resolve, timeout);
-                    const done = () => { clearTimeout(timer); resolve(); };
+                const idle = await new Promise((resolve) => {
+                    const timer = setTimeout(() => resolve(false), timeout);
+                    const done = () => { clearTimeout(timer); resolve(true); };
                     if (map.loaded() && !map.isMoving()) done();
                     else map.once("idle", done);
                 });
@@ -315,13 +315,15 @@ class Shot:
                 const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
                 await frame();
                 await frame();
-                return panel.hass?.themes.darkMode === dark;
+                return [panel.hass?.themes.darkMode === dark, idle];
             }""",
             SETTLE_TIMEOUT_MS,
         )
         # Shown as it is, since that is what a user would see, but flagged in the index.
         if not theme_followed:
             self.warnings.add(f"the panel's hass.themes.darkMode is not {self.theme == 'dark'}")
+        if not idle:
+            self.warnings.add(f"the map was still loading after {SETTLE_TIMEOUT_MS // 1000} s")
         # Markers and the toolbar re-render on the frame after the map's idle event.
         self.page.wait_for_timeout(250)
 
