@@ -18,6 +18,7 @@ import {
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
 
 import { type ActiveRoom, BoxInteraction } from "../src/box-interaction";
+import { layerColours, readMapPaint } from "../src/map-paint";
 import type { Tool } from "../src/room-editor";
 
 let mounted: BoxInteraction | undefined;
@@ -56,7 +57,7 @@ const mountInteraction = (tool: Tool = "draw", activeRoom?: ActiveRoom) => {
     onMove,
     onPickRoom,
   });
-  mounted.addLayers();
+  mounted.addLayers(layerColours(readMapPaint(document.body, false)));
   return { onBox, onMove, onPickRoom };
 };
 

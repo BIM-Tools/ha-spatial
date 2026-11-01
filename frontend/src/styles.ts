@@ -30,8 +30,8 @@ export const pillButtons = css`
     ${floatingSurface}
     display: flex;
     gap: 2px;
-    padding: 4px;
-    border-radius: 24px;
+    padding: var(--ha-space-1);
+    border-radius: var(--ha-border-radius-3xl);
   }
   button {
     display: flex;
@@ -45,7 +45,7 @@ export const pillButtons = css`
     background: none;
     color: var(--secondary-text-color);
     font: inherit;
-    font-size: 14px;
+    font-size: var(--ha-font-size-m);
     cursor: pointer;
   }
   button[aria-pressed="true"] {

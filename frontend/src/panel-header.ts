@@ -65,7 +65,7 @@ class SpatialPanelHeader extends LitElement {
       color: var(--app-header-text-color, white);
       border-bottom: var(--app-header-border-bottom, none);
       box-sizing: border-box;
-      padding: 8px 12px;
+      padding: var(--ha-space-2) var(--ha-space-3);
     }
     ha-icon-button {
       display: flex;

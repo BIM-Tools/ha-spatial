@@ -1,10 +1,12 @@
 // Turns mouse input and keys on the map into box drafts, room moves and room picks, so the room editor only edits and saves.
 
 import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
+import { feature } from "@turf/helpers";
 import type { FeatureCollection, Polygon, Position } from "geojson";
 import { type GeoJSONSource, type LngLat, Marker, type MapMouseEvent, type Map as MapLibreMap } from "maplibre-gl";
+import type { LayerColours } from "./map-paint";
 import { mapBearing } from "./map-view";
-import { areaLabel, boxFromCorners, centreOf, movePolygon, sideLabels } from "./plan";
+import { addToFootprint, areaLabel, boxFromCorners, centreOf, movePolygon, sideLabels } from "./plan";
 import type { Tool } from "./room-editor";
 
 interface Pixel {
@@ -36,8 +38,8 @@ interface Grab {
 const lngLatOf = (event: MapMouseEvent): Position => [event.lngLat.lng, event.lngLat.lat];
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 const DRAG_MIN_PX = 5;
-export const LABEL_STYLE =
-  "font: 12px sans-serif; background: rgba(255, 255, 255, 0.85); color: #212121; padding: 0 3px; border-radius: 3px; pointer-events: none";
+const LABEL_STYLE =
+  "font: 12px sans-serif; background: color-mix(in srgb, var(--card-background-color) 85%, transparent); color: var(--primary-text-color); padding: 0 3px; border-radius: 3px; pointer-events: none";
 
 export class BoxInteraction {
   // A spot on the map, so a pan or zoom between the two taps does not move it.
@@ -69,13 +71,14 @@ export class BoxInteraction {
     this._map.off("click", this._click);
   }
 
-  addLayers() {
+  addLayers(colours: LayerColours) {
     this._map.addSource("spatial-draft", { type: "geojson", data: EMPTY });
+    this._map.addLayer({ id: "spatial-draft-fill", type: "fill", source: "spatial-draft", paint: colours["spatial-draft-fill"] });
     this._map.addLayer({
       id: "spatial-draft",
       type: "line",
       source: "spatial-draft",
-      paint: { "line-color": "#ff5722", "line-width": 2, "line-dasharray": [2, 1] },
+      paint: { ...colours["spatial-draft"], "line-width": 2, "line-dasharray": [2, 1] },
     });
   }
 
@@ -182,7 +185,10 @@ export class BoxInteraction {
       return;
     }
     const from = this._dragging ? press : this._corner && this._map.project(this._corner);
-    if (from) this._preview(this._box(from, event.point));
+    if (from) {
+      const box = this._box(from, event.point);
+      this._preview(box, box && this._apartFromActive(box));
+    }
   };
 
   private _up = (event: MapMouseEvent) => {
@@ -225,9 +231,15 @@ export class BoxInteraction {
     return boxFromCorners(corners as [Position, Position, Position, Position]);
   }
 
-  private _preview(box: Polygon | undefined) {
+  // A box the active footprint cannot join is refused on release, so it shows in the warning colour while drawn.
+  private _apartFromActive(box: Polygon): boolean {
+    const room = this._callbacks.activeRoom();
+    return Boolean(room && !addToFootprint(room.footprint, box));
+  }
+
+  private _preview(box: Polygon | undefined, apart = false) {
     const map = this._map;
-    map.getSource<GeoJSONSource>("spatial-draft")?.setData(box ?? EMPTY);
+    map.getSource<GeoJSONSource>("spatial-draft")?.setData(box ? feature(box, { apart }) : EMPTY);
     if (!box) {
       for (const label of this._labels) label.remove();
       this._labels = [];
