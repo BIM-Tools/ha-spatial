@@ -131,7 +131,7 @@ def ws_update_area_geometries(
 ) -> None:
     """Set (polygon) or remove (null) footprints and set site fields in one change.
 
-    Everything is checked first: if any area is unknown, or any expected rev
+    Everything is checked first: if any area (written or expected) is unknown, or any expected rev
     differs from the current one, nothing changes. Without expected revs the
     last writer wins.
     """
@@ -140,7 +140,9 @@ def ws_update_area_geometries(
         return
     area_registry = ar.async_get(hass)
     if missing := sorted(
-        area_id for area_id in msg["areas"] if area_registry.async_get_area(area_id) is None
+        area_id
+        for area_id in {*msg["areas"], *msg.get("expected_rev", {})}
+        if area_registry.async_get_area(area_id) is None
     ):
         connection.send_error(
             msg["id"], websocket_api.ERR_NOT_FOUND, f"Areas not found: {', '.join(missing)}"

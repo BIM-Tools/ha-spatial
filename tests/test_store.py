@@ -241,21 +241,28 @@ async def test_write_with_stale_revs_changes_nothing(
     assert await _snapshot(client) == before
 
 
+@pytest.mark.parametrize(
+    "references",
+    [
+        {"areas": {"kitchen": rect(0, 0, 4, 3), "nowhere": rect(0, 0, 1, 1)}},
+        {"areas": {"kitchen": rect(0, 0, 4, 3)}, "expected_rev": {"nowhere": None}},
+        {"expected_rev": {"nowhere": None}},
+    ],
+    ids=["in_areas", "in_expected_rev", "site_only"],
+)
 async def test_unknown_area_rejects_the_site_change_too(
-    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, references: dict[str, Any]
 ) -> None:
-    """Test site and areas are written together or not at all."""
+    """Test an unknown area anywhere in a write returns not_found and writes nothing."""
     client = await hass_ws_client(hass)
     before = await _snapshot(client)
 
     msg = await _call(
-        client,
-        type="spatial/area/update_geometries",
-        areas={"kitchen": rect(0, 0, 4, 3), "nowhere": rect(0, 0, 1, 1)},
-        site={"bearing_deg": 45.0},
+        client, type="spatial/area/update_geometries", site={"bearing_deg": 45.0}, **references
     )
 
     assert msg["error"]["code"] == "not_found"
+    assert "nowhere" in msg["error"]["message"]
     assert await _snapshot(client) == before
 
 
