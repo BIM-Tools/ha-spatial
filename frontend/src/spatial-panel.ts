@@ -10,8 +10,13 @@ import {
   type StyleSpecification,
   setWorkerUrl,
 } from "maplibre-gl";
+import "./editor-toolbar";
+import type { Floor, FloorChoice } from "./floor-selector";
+import "./floor-selector";
+import "./map-stack";
 import { bounds, floorsByLevel, mapBearing, styleUrl, withMapTilesToken } from "./map-view";
 import { buildingAt, wallAt, wallBearingAt } from "./outline";
+import "./panel-header";
 import { RoomEditor, type Tool } from "./room-editor";
 
 // The parts of Home Assistant's `hass` object this panel uses.
@@ -27,9 +32,6 @@ interface Hass {
   themes: { darkMode: boolean };
 }
 
-// A floor_id, null for areas without a floor, or "all".
-type Floor = string | null | "all";
-
 interface Site {
   lon: number;
   lat: number;
@@ -41,10 +43,29 @@ const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 // Share of the map height the aligned wall sits below the centre.
 const WALL_OFFSET_SHARE = 0.3;
 const REGISTRY_EVENTS = ["area_registry_updated", "floor_registry_updated"];
+const PHONE_QUERY = "(max-width: 600px)";
+const MAP_SHOWN_KEY = "spatial-show-map";
 
 // Core rotates the map tiles token every 30 minutes and keeps two live; this
 // is the interval Home Assistant's own frontend refreshes at.
 const TOKEN_REFRESH_MS = 20 * 60 * 1000;
+
+// Storage can be blocked; the map toggle then lasts only this visit.
+const readMapShown = (): boolean => {
+  try {
+    return localStorage.getItem(MAP_SHOWN_KEY) !== "false";
+  } catch {
+    return true;
+  }
+};
+
+const storeMapShown = (shown: boolean) => {
+  try {
+    localStorage.setItem(MAP_SHOWN_KEY, String(shown));
+  } catch {
+    // As above.
+  }
+};
 
 const loadStyle = async (darkMode: boolean): Promise<StyleSpecification> => {
   const style = await (await fetch(styleUrl(darkMode))).json();
@@ -58,10 +79,16 @@ const loadStyle = async (darkMode: boolean): Promise<StyleSpecification> => {
   return style;
 };
 
+// Without the map the plan lies on the page colour, and no vector tiles load.
+const plainStyle = (ground: string): StyleSpecification => ({
+  version: 8,
+  sources: {},
+  layers: [{ id: "ground", type: "background", paint: { "background-color": ground } }],
+});
+
 class SpatialPanel extends LitElement {
   static properties = {
     hass: { attribute: false },
-    narrow: { type: Boolean },
     // Set by the dashboard card.
     card: { type: Boolean },
     // Set by the card's `floor` option: a fixed, static view of "all" or one floor_id.
@@ -70,8 +97,9 @@ class SpatialPanel extends LitElement {
     _floors: { state: true },
     _floor: { state: true },
     _failed: { state: true },
-    _picking: { state: true },
     _message: { state: true },
+    _mapShown: { state: true },
+    _phone: { state: true },
   };
 
   static styles = css`
@@ -82,48 +110,127 @@ class SpatialPanel extends LitElement {
       height: 100dvh;
       background: var(--primary-background-color);
       color: var(--primary-text-color);
+      --spatial-float-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 4px 12px rgba(0, 0, 0, 0.06);
+      --spatial-float-border: 1px solid rgba(0, 0, 0, 0.04);
+      --spatial-selected-tint: rgba(var(--rgb-primary-color, 3, 169, 244), 0.12);
+    }
+    :host([dark]) {
+      --spatial-float-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+      --spatial-float-border: 1px solid var(--divider-color);
+      --spatial-selected-tint: rgba(var(--rgb-primary-color, 3, 169, 244), 0.16);
     }
     :host([card]) {
       height: 100%;
       background: none;
     }
-    .bar {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 8px;
-      padding: 8px;
-    }
-    .bar button[aria-pressed="true"] {
-      background: var(--primary-color);
-      color: var(--text-primary-color, #fff);
-    }
-    /* A static card has no buttons; a message still shows. */
-    .bar:not(:has(*)) {
-      display: none;
+    .stage {
+      position: relative;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
     }
     #map {
-      flex: 1;
+      position: absolute;
+      inset: 0;
+    }
+    /* Floors left, tools right; when both do not fit, the tools move to a row below. */
+    .top {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      left: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      gap: 8px;
+      pointer-events: none;
+    }
+    .top > * {
+      pointer-events: auto;
+    }
+    .toolbar {
+      margin-left: auto;
+    }
+    /* Clear of the round map toggle on the right. */
+    .top.phone {
+      top: 12px;
+      right: 68px;
+      left: 12px;
+    }
+    .map-stack {
+      position: absolute;
+      right: 16px;
+      bottom: 96px;
+    }
+    .map-stack[round] {
+      top: 64px;
+      right: 12px;
+      bottom: auto;
+    }
+    .messages {
+      display: flex;
+      flex-basis: 100%;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .top.phone .messages {
+      margin-top: 0;
+    }
+    .messages span {
+      display: flex;
+      align-items: center;
+      min-height: 40px;
+      box-sizing: border-box;
+      padding: 0 16px;
+      background: var(--card-background-color);
+      border: var(--spatial-float-border);
+      border-radius: 20px;
+      box-shadow: var(--spatial-float-shadow);
+      font-size: 14px;
+    }
+    .strip {
+      position: absolute;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      max-width: min(1352px, calc(100% - 32px));
+      background: var(--card-background-color);
+      border: var(--spatial-float-border);
+      border-radius: 26px;
+      box-shadow: var(--spatial-float-shadow);
+    }
+    .strip-bar {
+      display: flex;
+      flex: none;
+      background: var(--card-background-color);
+      border-top: 1px solid var(--divider-color);
     }
   `;
 
   // `declare` keeps class fields from shadowing Lit's accessors.
   declare hass: Hass | undefined;
-  declare narrow: boolean;
   declare card: boolean;
   declare floor: string | undefined;
   declare panel: object | undefined;
   declare _floors: (string | null)[] | undefined;
   declare _floor: Floor;
   declare _failed: boolean;
-  declare _picking: boolean;
   declare _message: string;
+  declare _mapShown: boolean;
+  declare _phone: boolean;
 
   private _map?: MapLibreMap;
   private _started = false;
   // Bumped on disconnect, so a startup still awaiting creates nothing.
   private _run = 0;
-  private _darkMode = false;
+  // Dark mode and map visibility of the style on the map, and of the one being fetched.
+  private _styleKey = "";
+  private _pendingStyleKey = "";
+  // Not reactive: the compass follows every rotate frame without rendering the panel.
+  private _mapBearingDeg = 0;
   private _token = "";
   private _bearing = 0;
   private _tokenTimer?: ReturnType<typeof setInterval>;
@@ -132,71 +239,119 @@ class SpatialPanel extends LitElement {
   private _outline: Polygon | FeatureCollection = EMPTY;
   // Only the admin panel edits; the card stays read-only.
   private _editor?: RoomEditor;
+  private readonly _phoneQuery = window.matchMedia(PHONE_QUERY);
 
   constructor() {
     super();
-    this.narrow = false;
     this.card = false;
     this._floor = "all";
-    this._picking = false;
     this._message = "";
+    this._mapShown = readMapShown();
+    this._phone = false;
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    this._phone = this._phoneQuery.matches;
+    this._phoneQuery.addEventListener("change", this._phoneChanged);
+  }
+
+  private _phoneChanged = () => {
+    this._phone = this._phoneQuery.matches;
+  };
+
+  private get _aligning() {
+    return this._editor?.tool === "align";
+  }
+
+  // The card keeps the map until it has its own option.
+  private get _mapVisible() {
+    return this.card || this._mapShown || this._aligning;
   }
 
   render() {
+    const editor = this._editor;
+    const phone = this._phone && !this.card;
+    const onFloor = this._floor !== "all";
     return html`
       <link rel="stylesheet" href="/static/map/maplibre-gl.css" />
-      <div class="bar">
-        ${this.card
-          ? nothing
-          : html`<ha-menu-button .hass=${this.hass} .narrow=${this.narrow}></ha-menu-button>`}
-        ${this._floorButtons().map(
-          (floor) => html`
-            <button ?disabled=${floor === this._floor} @click=${() => this._show(floor)}>
-              ${floor === "all"
-                ? "All"
-                : floor === null
-                  ? "No floor"
-                  : (this._editor?.floors.find((entry) => entry.floor_id === floor)?.name ??
-                    this.hass?.floors?.[floor]?.name ??
-                    floor)}
-            </button>
-          `,
-        )}
-        ${this._floors &&
-        (this.floor && this.floor !== "all"
-          ? !this._floors.includes(this.floor)
-          : this._floors.length === 0)
-          ? html`<span>No rooms yet</span>`
+      ${this.card ? nothing : html`<spatial-panel-header ?narrow=${phone}></spatial-panel-header>`}
+      ${phone ? this._floorSelector(true) : nothing}
+      <div class="stage">
+        <div id="map"></div>
+        <div class="top ${phone ? "phone" : ""}">
+          ${phone ? nothing : this._floorSelector(false)}
+          ${editor && !phone ? this._toolbar(editor, false) : nothing} ${this._messages()}
+        </div>
+        ${editor
+          ? html`<spatial-map-stack
+              class="map-stack"
+              ?round=${phone}
+              .mapShown=${this._mapShown}
+              .mapForced=${this._aligning}
+              .bearing=${this._mapBearingDeg}
+              .compassDisabled=${onFloor && editor.tool === "draw"}
+              @map-toggle=${this._toggleMap}
+              @zoom-in=${() => this._map?.zoomIn()}
+              @zoom-out=${() => this._map?.zoomOut()}
+              @face-north=${() => this._map?.resetNorth()}
+            ></spatial-map-stack>`
           : nothing}
-        ${this._editor
-          ? html`<button aria-pressed=${this._editor.tool === "draw"} @click=${() => this._toggleTool("draw")}>
-                Draw
-              </button>
-              <button aria-pressed=${this._editor.tool === "adjust"} @click=${() => this._toggleTool("adjust")}>
-                Adjust
-              </button>
-              <button ?disabled=${!this._editor.canUndo} @click=${this._editor.undo}>Undo</button>
-              <button ?disabled=${!this._editor.canRedo} @click=${this._editor.redo}>Redo</button>`
-          : nothing}
-        ${this.card
-          ? nothing
-          : html`<button aria-pressed=${this._picking} @click=${this._toggleAlign}>Align</button>`}
-        ${this._picking ? html`<span>Click your house near the wall the rooms follow</span>` : nothing}
-        ${this._message ? html`<span>${this._message}</span>` : nothing}
-        ${this._editor?.status ? html`<span>${this._editor.status}</span>` : nothing}
-        ${this._failed ? html`<span>Map could not load</span>` : nothing}
+        ${editor && onFloor && !phone ? html`<div class="strip">${editor.render()}</div>` : nothing}
       </div>
-      ${this._editor?.render() ?? nothing}
-      <div id="map"></div>
+      ${editor && onFloor && phone ? html`<div class="strip-bar">${editor.render()}</div>` : nothing}
+      ${editor && phone ? this._toolbar(editor, true) : nothing}
     `;
   }
 
+  private _floorSelector(chips: boolean) {
+    const choices = this._floorChoices();
+    if (!choices.length) return nothing;
+    return html`<spatial-floor-selector
+      ?chips=${chips}
+      .choices=${choices}
+      .selected=${this._floor}
+      @floor-select=${(event: CustomEvent<{ floor: Floor }>) => this._show(event.detail.floor)}
+    ></spatial-floor-selector>`;
+  }
+
+  private _toolbar(editor: RoomEditor, bar: boolean) {
+    return html`<spatial-editor-toolbar
+      class=${bar ? "" : "toolbar"}
+      ?bar=${bar}
+      ?disabled=${this._floor === "all"}
+      .tool=${editor.tool}
+      .canUndo=${editor.canUndo}
+      .canRedo=${editor.canRedo}
+      @tool-select=${(event: CustomEvent<{ tool: Tool }>) => this._selectTool(event.detail.tool)}
+      @undo=${editor.undo}
+      @redo=${editor.redo}
+    ></spatial-editor-toolbar>`;
+  }
+
+  private _messages() {
+    const noRooms =
+      this._floors &&
+      (this.floor && this.floor !== "all" ? !this._floors.includes(this.floor) : this._floors.length === 0);
+    const messages = [
+      noRooms ? "No rooms yet" : "",
+      this._aligning ? "Click your house near the wall the rooms follow" : "",
+      this._message,
+      this._editor?.message ?? "",
+      this._failed ? "Map could not load" : "",
+    ].filter(Boolean);
+    if (!messages.length) return nothing;
+    return html`<div class="messages">
+      ${messages.map((message) => html`<span>${message}</span>`)}
+    </div>`;
+  }
+
   updated(changed: PropertyValues<this>) {
-    if (changed.has("_picking") && !this._picking) this._showWall();
     // MapLibre fixes interactivity at creation, so a new option rebuilds the map.
     if (changed.has("floor") && this._started) this._stop();
     // A render queued by _stop must not start a map for a panel that has left.
     if (!this.hass || !this.isConnected) return;
+    this.toggleAttribute("dark", this.hass.themes.darkMode);
     if (!this._started) {
       this._started = true;
       this._failed = false;
@@ -204,16 +359,43 @@ class SpatialPanel extends LitElement {
         console.error(err);
         this._failed = true;
       });
-    } else if (this._map && this.hass.themes.darkMode !== this._darkMode) {
-      this._darkMode = this.hass.themes.darkMode;
+    } else if (this._map && ![this._styleKey, this._pendingStyleKey].includes(this._wantedStyleKey())) {
       // A full reload fires `style.load`, which adds the rooms again.
-      loadStyle(this._darkMode).then((style) => this._map?.setStyle(style, { diff: false }));
+      this._loadStyle()
+        .then((style) => style && this._map?.setStyle(style, { diff: false }))
+        .catch(console.error);
     }
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
+    this._phoneQuery.removeEventListener("change", this._phoneChanged);
     this._stop();
+  }
+
+  private _wantedStyleKey() {
+    return `${this.hass!.themes.darkMode} ${this._mapVisible}`;
+  }
+
+  // Resolves to undefined when a newer style was asked for in the meantime. A failed fetch
+  // leaves the style key as it was, so the next update asks again.
+  private async _loadStyle(): Promise<StyleSpecification | undefined> {
+    const key = this._wantedStyleKey();
+    this._pendingStyleKey = key;
+    const darkMode = this.hass!.themes.darkMode;
+    try {
+      const style = this._mapVisible
+        ? await loadStyle(darkMode)
+        : plainStyle(
+            getComputedStyle(this).getPropertyValue("--primary-background-color").trim() ||
+              (darkMode ? "#111111" : "#fafafa"),
+          );
+      if (key !== this._pendingStyleKey) return undefined;
+      this._styleKey = key;
+      return style;
+    } finally {
+      if (key === this._pendingStyleKey) this._pendingStyleKey = "";
+    }
   }
 
   private _stop() {
@@ -221,7 +403,6 @@ class SpatialPanel extends LitElement {
     this.hass?.connection.removeEventListener("ready", this._keepToken);
     clearInterval(this._tokenTimer);
     this._unsubscribe?.();
-    this._picking = false;
     this._editor?.detach();
     this._editor = undefined;
     this._map?.remove();
@@ -301,25 +482,37 @@ class SpatialPanel extends LitElement {
     this._unsubscribe = unsubscribe;
 
     this._bearing = site.bearing_deg;
-    this._darkMode = hass.themes.darkMode;
-    const style = await loadStyle(this._darkMode);
-    if (stopped()) return;
+    const style = await this._loadStyle();
+    if (stopped() || !style) return;
     setWorkerUrl("/spatial_static/maplibre-gl-worker.mjs");
-    this._map = new MapLibreMap({
+    this._mapBearingDeg = mapBearing(site.bearing_deg);
+    const map = new MapLibreMap({
       container: this.renderRoot.querySelector<HTMLElement>("#map")!,
       style,
       transformRequest: (url) => withMapTilesToken(url, location.origin, this._token),
       center: [site.lon, site.lat],
       zoom: 19,
       pitch: this._floor === "all" ? 50 : 0,
-      bearing: mapBearing(site.bearing_deg),
+      bearing: this._mapBearingDeg,
       interactive: !this.floor,
     });
-    this._map.on("style.load", () => this._addAreas());
-    this._map.on("click", (event) => this._pick(event));
-    this._map.on("mousemove", (event) => this._previewWall(event));
-    editor?.attach(this._map);
+    this._map = map;
+    map.on("style.load", () => this._addAreas());
+    map.on("mousemove", (event) => this._previewWall(event));
+    if (editor) {
+      this._showBearing(this._mapBearingDeg);
+      map.on("rotate", () => this._showBearing(map.getBearing()));
+    }
+    editor?.attach(map);
+    // After the editor, so the click that ends Align is not also a room pick in Adjust.
+    map.on("click", (event) => this._pick(event));
     if (this.floor) this._fit();
+  }
+
+  private _showBearing(bearingDeg: number) {
+    this._mapBearingDeg = bearingDeg;
+    const stack = this.renderRoot.querySelector<HTMLElement & { bearing: number }>("spatial-map-stack");
+    if (stack) stack.bearing = bearingDeg;
   }
 
   // Frames the rooms in view, keeping the picked wall horizontal.
@@ -383,22 +576,33 @@ class SpatialPanel extends LitElement {
   }
 
   // The panel lists every registered floor, so an empty one can be drawn; the card only those with rooms.
-  private _floorButtons(): Floor[] {
+  private _floorChoices(): FloorChoice[] {
     if (this.floor) return [];
-    if (this._editor) return ["all", ...this._editor.floors.map((entry) => entry.floor_id), null];
-    return ["all", ...(this._floors ?? [])];
+    const floors: Floor[] = this._editor
+      ? ["all", ...this._editor.floors.map((entry) => entry.floor_id), null]
+      : ["all", ...(this._floors ?? [])];
+    return floors.map((floor) => ({ floor, name: this._floorName(floor) }));
   }
 
-  private _toggleTool(tool: Tool) {
-    this._picking = false;
-    this._message = "";
-    this._editor?.setTool(this._editor.tool === tool ? undefined : tool);
+  private _floorName(floor: Floor): string {
+    if (floor === "all") return "All";
+    if (floor === null) return "No floor";
+    return (
+      this._editor?.floors.find((entry) => entry.floor_id === floor)?.name ?? this.hass?.floors?.[floor]?.name ?? floor
+    );
   }
 
-  private _toggleAlign() {
-    this._picking = !this._picking;
+  private _selectTool(tool: Tool) {
+    const editor = this._editor;
+    if (!editor || editor.tool === tool) return;
+    if (editor.tool === "align") this._showWall();
     this._message = "";
-    this._editor?.setTool(undefined);
+    editor.setTool(tool);
+  }
+
+  private _toggleMap() {
+    this._mapShown = !this._mapShown;
+    storeMapShown(this._mapShown);
   }
 
   private _showWall(wall?: [Position, Position]) {
@@ -420,18 +624,18 @@ class SpatialPanel extends LitElement {
   }
 
   private _previewWall(event: MapMouseEvent) {
-    if (!this._picking) return;
+    if (!this._aligning) return;
     const building = this._buildingUnder(event);
     this._showWall(building && wallAt(building, [event.lngLat.lng, event.lngLat.lat]));
   }
 
-  // One tap sets the site axis from the wall of the building nearest to it, and ends the mode.
+  // One tap sets the site axis from the wall of the building nearest to it, and goes back to Adjust.
   // The camera turns in place around the click, so the building stays in view. It turns before
   // the save, because Home Assistant sends the update event ahead of the reply.
   private _pick(event: MapMouseEvent) {
-    if (!this._picking) return;
-    this._picking = false;
+    if (!this._aligning) return;
     const building = this._buildingUnder(event);
+    this._selectTool("adjust");
     if (!building) {
       this._message = "No building here";
       return;
@@ -466,6 +670,9 @@ class SpatialPanel extends LitElement {
   }
 
   private _show(floor: Floor) {
+    if (floor === this._floor) return;
+    // All is a view only; Align would stay pressed on a disabled toolbar.
+    if (floor === "all" && this._aligning) this._selectTool("adjust");
     this._floor = floor;
     this._editor?.setFloor(floor);
     // Before the style has loaded, `_addAreas` applies the floor.

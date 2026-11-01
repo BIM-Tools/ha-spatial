@@ -8,17 +8,21 @@ import {
   EMPTY,
   type Reply,
   answer,
+  buttonNamed,
   dragPan,
   dragRotate,
   handlers,
+  floorButtonNames,
   liveMarkers,
   layers,
   mapCreated,
+  messageText,
   mountPanel,
   onUpdateOf,
   panMap,
   queryRenderedFeatures,
   resetFakes,
+  settle,
   sources,
   touchZoomRotate,
   unprojectPixel,
@@ -91,12 +95,6 @@ const mountEditor = (overrides: Reply = async () => undefined, outline: Polygon 
 
 type Panel = HTMLElement & { updateComplete: Promise<boolean> };
 
-const barButton = (panel: HTMLElement, name: string) =>
-  [...(panel.shadowRoot?.querySelectorAll(".bar > button") ?? [])].find(
-    (button) => button.textContent?.trim() === name,
-  ) as HTMLButtonElement | undefined;
-
-const barText = (panel: HTMLElement) => panel.shadowRoot?.querySelector(".bar")?.textContent ?? "";
 
 const strip = (panel: HTMLElement) =>
   panel.shadowRoot?.querySelector("spatial-area-strip") as
@@ -117,22 +115,17 @@ const activeChip = (panel: HTMLElement) =>
 const chip = (panel: HTMLElement, name: string) =>
   chips(panel).find((c) => c.textContent?.trim() === name)!;
 
-const settle = async (panel: HTMLElement) => {
-  await (panel as Panel).updateComplete;
-  await strip(panel)?.updateComplete;
-};
-
 const showFloor = async (panel: HTMLElement, floor = "Ground floor") => {
   await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
   handlers["style.load"]();
-  await vi.waitFor(() => expect(barButton(panel, floor)).toBeDefined());
-  barButton(panel, floor)!.click();
+  await vi.waitFor(() => expect(buttonNamed(panel, floor)).toBeDefined());
+  buttonNamed(panel, floor)!.click();
   await settle(panel);
 };
 
 const startDrawing = async (panel: HTMLElement, floor = "Ground floor") => {
   await showFloor(panel, floor);
-  barButton(panel, "Draw")!.click();
+  buttonNamed(panel, "Draw")!.click();
   await settle(panel);
 };
 
@@ -169,13 +162,10 @@ const saves = (connection: { sendMessagePromise: unknown }) =>
     areas: Record<string, Polygon>;
   }[];
 
-test("the panel's floor buttons come from the floor registry, with No floor and a Draw button", async () => {
+test("the panel's floor buttons come from the floor registry, with No floor, and the toolbar has the tools", async () => {
   const { panel } = mountEditor();
-  await vi.waitFor(() =>
-    expect(
-      [...(panel.shadowRoot?.querySelectorAll(".bar > button") ?? [])].map((b) => b.textContent?.trim()),
-    ).toEqual(["All", "Ground floor", "Loft", "No floor", "Draw", "Adjust", "Undo", "Redo", "Align"]),
-  );
+  await vi.waitFor(() => expect(floorButtonNames(panel)).toEqual(["All", "Ground floor", "Loft", "No floor"]));
+  for (const name of ["Align", "Draw", "Adjust", "Undo", "Redo"]) expect(buttonNamed(panel, name)).toBeDefined();
 });
 
 test("floors out of level order in the registry show in level order", async () => {
@@ -187,11 +177,7 @@ test("floors out of level order in the registry show in level order", async () =
         ]
       : undefined,
   );
-  await vi.waitFor(() =>
-    expect(
-      [...(panel.shadowRoot?.querySelectorAll(".bar > button") ?? [])].map((b) => b.textContent?.trim()).slice(0, 4),
-    ).toEqual(["All", "Ground floor", "Loft", "No floor"]),
-  );
+  await vi.waitFor(() => expect(floorButtonNames(panel)).toEqual(["All", "Ground floor", "Loft", "No floor"]));
 });
 
 test("the strip is shown in the panel and not in the card", async () => {
@@ -202,7 +188,7 @@ test("the strip is shown in the panel and not in the card", async () => {
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalledTimes(2));
   await (card as Panel).updateComplete;
   expect(strip(card)).toBeNull();
-  for (const name of ["Draw", "Adjust", "Undo", "Redo"]) expect(barButton(card, name)).toBeUndefined();
+  for (const name of ["Draw", "Adjust", "Undo", "Redo"]) expect(buttonNamed(card, name)).toBeUndefined();
 });
 
 test("on a floor the first area without a footprint is active", async () => {
@@ -231,13 +217,13 @@ test("in Draw the map pans only while Space is held, and leaving Draw restores p
   const { panel } = mountEditor();
   await showFloor(panel);
   expect(dragPan.isEnabled()).toBe(true);
-  barButton(panel, "Draw")!.click();
+  buttonNamed(panel, "Draw")!.click();
   expect(dragPan.isEnabled()).toBe(false);
   key("keydown", " ");
   expect(dragPan.isEnabled()).toBe(true);
   key("keyup", " ");
   expect(dragPan.isEnabled()).toBe(false);
-  barButton(panel, "Draw")!.click();
+  buttonNamed(panel, "Adjust")!.click();
   expect(dragPan.isEnabled()).toBe(true);
 });
 
@@ -251,7 +237,7 @@ test("two taps save a box along the site axis and move on to the next area", asy
   expect(isAxisRectangle(areas.bath, SITE_BEARING)).toBe(true);
   await vi.waitFor(() => expect(activeChip(panel)).toBe("Hall"));
   expect(activeFilter()).toEqual(["==", ["get", "area_id"], "hall"]);
-  expect(barButton(panel, "Undo")!.disabled).toBe(false);
+  expect(buttonNamed(panel, "Undo")!.disabled).toBe(false);
 });
 
 test("a box against an area's footprint saves their union", async () => {
@@ -274,9 +260,9 @@ test("a box apart from the area's footprint saves nothing and says why", async (
   await settle(panel);
   tap(200, 200);
   tap(240, 240);
-  await vi.waitFor(() => expect(barText(panel)).toContain("A room is one shape: draw against it"));
+  await vi.waitFor(() => expect(messageText(panel)).toContain("A room is one shape: draw against it"));
   expect(saves(connection)).toEqual([]);
-  expect(barButton(panel, "Undo")!.disabled).toBe(true);
+  expect(buttonNamed(panel, "Undo")!.disabled).toBe(true);
 });
 
 test("two taps 0.1 m apart save nothing", async () => {
@@ -311,8 +297,8 @@ test("in Draw a drag inside the active room moves it in one batch, and undo puts
   expect(Object.keys(areas)).toEqual(["kitchen"]);
   expectCornersNear(areas.kitchen, pixelBox(20, 0, 70, 50));
   expect(area(areas.kitchen)).toBeCloseTo(25, 1);
-  await vi.waitFor(() => expect(barButton(panel, "Undo")!.disabled).toBe(false));
-  barButton(panel, "Undo")!.click();
+  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
+  buttonNamed(panel, "Undo")!.click();
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
   expect(saves(connection)[1].areas).toEqual({ kitchen: KITCHEN });
 });
@@ -337,9 +323,9 @@ test("a rejected move reloads the rooms, says so and records nothing", async () 
   await activateKitchen(panel);
   const feedLoads = sent(connection, "spatial/geojson").length;
   drag([25, 25], [45, 25]);
-  await vi.waitFor(() => expect(barText(panel)).toContain("Could not save"));
+  await vi.waitFor(() => expect(messageText(panel)).toContain("Could not save"));
   expect(sent(connection, "spatial/geojson").length).toBe(feedLoads + 1);
-  expect(barButton(panel, "Undo")!.disabled).toBe(true);
+  expect(buttonNamed(panel, "Undo")!.disabled).toBe(true);
 });
 
 test("a drag starting inside a room that is not active draws a box", async () => {
@@ -395,9 +381,9 @@ test("a rejected save reloads the rooms, says so and records nothing", async () 
   const feedLoads = sent(connection, "spatial/geojson").length;
   tap(100, 0);
   tap(140, 30);
-  await vi.waitFor(() => expect(barText(panel)).toContain("Could not save"));
+  await vi.waitFor(() => expect(messageText(panel)).toContain("Could not save"));
   expect(sent(connection, "spatial/geojson").length).toBe(feedLoads + 1);
-  expect(barButton(panel, "Undo")!.disabled).toBe(true);
+  expect(buttonNamed(panel, "Undo")!.disabled).toBe(true);
 });
 
 test("Escape after the first tap cancels the box", async () => {
@@ -412,13 +398,12 @@ test("Escape after the first tap cancels the box", async () => {
   expect(saves(connection)).toEqual([]);
 });
 
-test("on All taps draw nothing and the bar asks for a floor", async () => {
+test("on All the tools are disabled, and Draw chosen on a floor draws nothing there", async () => {
   const { panel, connection } = mountEditor();
-  await vi.waitFor(() => expect(barButton(panel, "Draw")).toBeDefined());
-  await vi.waitFor(() => expect(handlers.click).toBeDefined());
-  barButton(panel, "Draw")!.click();
+  await startDrawing(panel);
+  buttonNamed(panel, "All")!.click();
   await settle(panel);
-  expect(barText(panel)).toContain("Pick a floor to draw");
+  expect(buttonNamed(panel, "Draw")!.disabled).toBe(true);
   expect(dragPan.isEnabled()).toBe(true);
   tap(100, 0);
   tap(140, 30);
@@ -495,7 +480,7 @@ test("a created area whose first save fails stays active, so a retry creates no 
   await settle(panel);
   tap(100, 0);
   tap(140, 30);
-  await vi.waitFor(() => expect(barText(panel)).toContain("Could not save"));
+  await vi.waitFor(() => expect(messageText(panel)).toContain("Could not save"));
   await vi.waitFor(() => expect(activeChip(panel)).toBe("Room 1"));
   tap(100, 0);
   tap(140, 30);
@@ -536,8 +521,8 @@ test("a floor change cancels a box in progress", async () => {
   const { panel, connection } = mountEditor();
   await startDrawing(panel);
   tap(100, 0);
-  barButton(panel, "Loft")!.click();
-  barButton(panel, "Ground floor")!.click();
+  buttonNamed(panel, "Loft")!.click();
+  buttonNamed(panel, "Ground floor")!.click();
   await settle(panel);
   tap(140, 30);
   await settle(panel);
@@ -559,19 +544,19 @@ test("a failed registry read does not stop the map", async () => {
     return undefined;
   });
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
-  expect(barText(panel)).not.toContain("Map could not load");
+  expect(messageText(panel)).not.toContain("Map could not load");
   errors.mockRestore();
 });
 
 test("Draw clears an Align message", async () => {
   const { panel } = mountEditor();
   await showFloor(panel);
-  barButton(panel, "Align")!.click();
+  buttonNamed(panel, "Align")!.click();
   handlers.click(mouse(0, 0));
-  await vi.waitFor(() => expect(barText(panel)).toContain("No building here"));
-  barButton(panel, "Draw")!.click();
+  await vi.waitFor(() => expect(messageText(panel)).toContain("No building here"));
+  buttonNamed(panel, "Draw")!.click();
   await settle(panel);
-  expect(barText(panel)).not.toContain("No building here");
+  expect(messageText(panel)).not.toContain("No building here");
 });
 
 const pixelShape = (...pixels: [number, number][]): Polygon => ({
@@ -588,7 +573,7 @@ const feature = (id: string, geometry: Polygon, areaM2?: number) => ({
 
 const startAdjusting = async (panel: HTMLElement) => {
   await showFloor(panel);
-  barButton(panel, "Adjust")!.click();
+  buttonNamed(panel, "Adjust")!.click();
   await settle(panel);
 };
 
@@ -650,7 +635,7 @@ test("typing 5 on a side saves the room with that side 5 m long, in one batch", 
   expect(Object.keys(areas)).toEqual(["kitchen"]);
   expect(edgeLengths(areas.kitchen)[0]).toBeCloseTo(5, 3);
   expect(edgeLengths(areas.kitchen)[1]).toBeCloseTo(3, 3);
-  await vi.waitFor(() => expect(barButton(panel, "Undo")!.disabled).toBe(false));
+  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
 });
 
 test.each(["0.1", ""])("a side typed as %j saves nothing and the bar says a side is at least 0.20 m", async (value) => {
@@ -660,7 +645,7 @@ test.each(["0.1", ""])("a side typed as %j saves nothing and the bar says a side
   typeSide(0, value);
   await settle(panel);
   expect(saves(connection)).toEqual([]);
-  expect(barText(panel)).toContain("A side is at least 0.20 m");
+  expect(messageText(panel)).toContain("A side is at least 0.20 m");
   expect(sideField()).toBeDefined();
 });
 
@@ -670,9 +655,9 @@ test("a refusal message is gone once the tool changes", async () => {
   await tapRoom(panel, "kitchen");
   typeSide(0, "0.1");
   await settle(panel);
-  barButton(panel, "Adjust")!.click();
+  buttonNamed(panel, "Draw")!.click();
   await settle(panel);
-  expect(barText(panel)).not.toContain("A side is at least");
+  expect(messageText(panel)).not.toContain("A side is at least");
 });
 
 test("Adjust shows the active room's area from the feed in its centre", async () => {
@@ -691,14 +676,14 @@ test("in Adjust taps and drags save nothing, and leaving leaves no side markers"
   drag([100, 0], [160, 40]);
   await settle(panel);
   expect(saves(connection)).toEqual([]);
-  const leavers = ["Draw", "Loft", "Adjust"];
+  const leavers = ["Draw", "Loft", "Align"];
   for (const name of leavers) {
     await tapRoom(panel, "kitchen");
     expect(sideButtons()).toHaveLength(4);
-    barButton(panel, name)!.click();
+    buttonNamed(panel, name)!.click();
     await settle(panel);
     expect(liveMarkers()).toEqual([]);
-    if (barButton(panel, "Adjust")!.getAttribute("aria-pressed") !== "true") await startAdjusting(panel);
+    if (buttonNamed(panel, "Adjust")!.getAttribute("aria-pressed") !== "true") await startAdjusting(panel);
   }
   expect(saves(connection)).toEqual([]);
 });
@@ -713,24 +698,24 @@ test("a rejected resize reloads the rooms, says so and records nothing", async (
   await tapRoom(panel, "kitchen");
   const feedLoads = sent(connection, "spatial/geojson").length;
   typeSide(0, "7");
-  await vi.waitFor(() => expect(barText(panel)).toContain("Could not save"));
+  await vi.waitFor(() => expect(messageText(panel)).toContain("Could not save"));
   expect(sent(connection, "spatial/geojson").length).toBe(feedLoads + 1);
-  expect(barButton(panel, "Undo")!.disabled).toBe(true);
+  expect(buttonNamed(panel, "Undo")!.disabled).toBe(true);
 });
 
 test("Undo and Redo are disabled until they can act", async () => {
   const { panel, connection } = mountEditor();
   await startDrawing(panel);
-  expect(barButton(panel, "Undo")!.disabled).toBe(true);
-  expect(barButton(panel, "Redo")!.disabled).toBe(true);
+  expect(buttonNamed(panel, "Undo")!.disabled).toBe(true);
+  expect(buttonNamed(panel, "Redo")!.disabled).toBe(true);
   tap(100, 0);
   tap(140, 30);
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
-  await vi.waitFor(() => expect(barButton(panel, "Undo")!.disabled).toBe(false));
-  expect(barButton(panel, "Redo")!.disabled).toBe(true);
-  barButton(panel, "Undo")!.click();
-  await vi.waitFor(() => expect(barButton(panel, "Redo")!.disabled).toBe(false));
-  expect(barButton(panel, "Undo")!.disabled).toBe(true);
+  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
+  expect(buttonNamed(panel, "Redo")!.disabled).toBe(true);
+  buttonNamed(panel, "Undo")!.click();
+  await vi.waitFor(() => expect(buttonNamed(panel, "Redo")!.disabled).toBe(false));
+  expect(buttonNamed(panel, "Undo")!.disabled).toBe(true);
 });
 
 test("undo of a new footprint removes it and redo saves it again", async () => {
@@ -738,12 +723,12 @@ test("undo of a new footprint removes it and redo saves it again", async () => {
   await startDrawing(panel);
   tap(100, 0);
   tap(140, 30);
-  await vi.waitFor(() => expect(barButton(panel, "Undo")!.disabled).toBe(false));
-  barButton(panel, "Undo")!.click();
+  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
+  buttonNamed(panel, "Undo")!.click();
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
   expect(saves(connection)[1].areas).toEqual({ bath: null });
-  await vi.waitFor(() => expect(barButton(panel, "Redo")!.disabled).toBe(false));
-  barButton(panel, "Redo")!.click();
+  await vi.waitFor(() => expect(buttonNamed(panel, "Redo")!.disabled).toBe(false));
+  buttonNamed(panel, "Redo")!.click();
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(3));
   expect(saves(connection)[2].areas).toEqual(saves(connection)[0].areas);
 });
@@ -755,8 +740,8 @@ test("undo of an extended footprint saves the previous polygon", async () => {
   await settle(panel);
   tap(50, 0);
   tap(100, 50);
-  await vi.waitFor(() => expect(barButton(panel, "Undo")!.disabled).toBe(false));
-  barButton(panel, "Undo")!.click();
+  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
+  buttonNamed(panel, "Undo")!.click();
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
   expect(saves(connection)[1].areas).toEqual({ kitchen: KITCHEN });
 });
@@ -768,8 +753,8 @@ test("undo of a created area's first box keeps the area in Home Assistant", asyn
   await settle(panel);
   tap(100, 0);
   tap(140, 30);
-  await vi.waitFor(() => expect(barButton(panel, "Undo")!.disabled).toBe(false));
-  barButton(panel, "Undo")!.click();
+  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
+  buttonNamed(panel, "Undo")!.click();
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
   expect(saves(connection)[1].areas).toEqual({ room_1: null });
   expect(sent(connection, "config/area_registry/delete")).toEqual([]);
@@ -786,15 +771,15 @@ test("a rejected undo reloads the rooms, says so and can be tried again", async 
   await startDrawing(panel);
   tap(100, 0);
   tap(140, 30);
-  await vi.waitFor(() => expect(barButton(panel, "Undo")!.disabled).toBe(false));
+  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
   reject = true;
   const feedLoads = sent(connection, "spatial/geojson").length;
-  barButton(panel, "Undo")!.click();
-  await vi.waitFor(() => expect(barText(panel)).toContain("Could not save"));
+  buttonNamed(panel, "Undo")!.click();
+  await vi.waitFor(() => expect(messageText(panel)).toContain("Could not save"));
   expect(sent(connection, "spatial/geojson").length).toBe(feedLoads + 1);
   await settle(panel);
-  expect(barButton(panel, "Undo")!.disabled).toBe(false);
-  expect(barButton(panel, "Redo")!.disabled).toBe(true);
+  expect(buttonNamed(panel, "Undo")!.disabled).toBe(false);
+  expect(buttonNamed(panel, "Redo")!.disabled).toBe(true);
 });
 
 test("Ctrl+Z undoes and Ctrl+Shift+Z redoes", async () => {
@@ -802,11 +787,11 @@ test("Ctrl+Z undoes and Ctrl+Shift+Z redoes", async () => {
   await startDrawing(panel);
   tap(100, 0);
   tap(140, 30);
-  await vi.waitFor(() => expect(barButton(panel, "Undo")!.disabled).toBe(false));
+  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
   ctrlZ();
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
   expect(saves(connection)[1].areas).toEqual({ bath: null });
-  await vi.waitFor(() => expect(barButton(panel, "Redo")!.disabled).toBe(false));
+  await vi.waitFor(() => expect(buttonNamed(panel, "Redo")!.disabled).toBe(false));
   ctrlZ(true);
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(3));
   expect(saves(connection)[2].areas).toEqual(saves(connection)[0].areas);
@@ -817,12 +802,12 @@ test("Ctrl+Z in the rename field or a side field undoes nothing", async () => {
   await startDrawing(panel);
   tap(100, 0);
   tap(140, 30);
-  await vi.waitFor(() => expect(barButton(panel, "Undo")!.disabled).toBe(false));
+  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
   chip(panel, "Hall").click();
   await settle(panel);
   const rename = strip(panel)!.shadowRoot!.querySelector("input")!;
   rename.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true, composed: true }));
-  barButton(panel, "Adjust")!.click();
+  buttonNamed(panel, "Adjust")!.click();
   await tapRoom(panel, "kitchen");
   sideButtons()[0].click();
   sideField()!.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true, composed: true }));
@@ -844,7 +829,7 @@ test("a reload that hangs after a failed save does not block the next box", asyn
   await startDrawing(panel);
   tap(100, 0);
   tap(140, 30);
-  await vi.waitFor(() => expect(barText(panel)).toContain("Could not save"));
+  await vi.waitFor(() => expect(messageText(panel)).toContain("Could not save"));
   tap(100, 0);
   tap(140, 30);
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
@@ -881,10 +866,10 @@ test("Draw chosen before the map attaches takes effect when it does", async () =
       }),
   );
   const { panel } = mountEditor();
-  await vi.waitFor(() => expect(barButton(panel, "Ground floor")).toBeDefined());
-  barButton(panel, "Ground floor")!.click();
+  await vi.waitFor(() => expect(buttonNamed(panel, "Ground floor")).toBeDefined());
+  buttonNamed(panel, "Ground floor")!.click();
   await settle(panel);
-  barButton(panel, "Draw")!.click();
+  buttonNamed(panel, "Draw")!.click();
   release();
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
   expect(dragPan.isEnabled()).toBe(false);
@@ -934,10 +919,10 @@ test("without an outline the Building pill is active on every floor; a box saves
   await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Building", "Bath", "Hall", "Kitchen", "+ New area"]));
   expect(activeChip(panel)).toBe("Building");
   expect(chip(panel, "Building").getAttribute("data-linked")).toBe("false");
-  barButton(panel, "Loft")!.click();
+  buttonNamed(panel, "Loft")!.click();
   await settle(panel);
   expect(activeChip(panel)).toBe("Building");
-  barButton(panel, "Ground floor")!.click();
+  buttonNamed(panel, "Ground floor")!.click();
   await settle(panel);
   tap(100, 0);
   tap(140, 30);
@@ -955,8 +940,8 @@ test("undo of the first outline box removes the outline", async () => {
   await startDrawing(panel);
   tap(100, 0);
   tap(140, 30);
-  await vi.waitFor(() => expect(barButton(panel, "Undo")!.disabled).toBe(false));
-  barButton(panel, "Undo")!.click();
+  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
+  buttonNamed(panel, "Undo")!.click();
   await vi.waitFor(() => expect(siteSaves(connection)).toHaveLength(2));
   expect(siteSaves(connection)[1]).toEqual({ type: "spatial/site/update", outline: null });
 });
@@ -1018,7 +1003,7 @@ test("outside Draw Space and Escape keep their usual meaning, also when Space wa
   const { panel, connection } = mountEditor();
   await startDrawing(panel);
   key("keydown", " ");
-  barButton(panel, "Adjust")!.click();
+  buttonNamed(panel, "Adjust")!.click();
   await tapRoom(panel, "kitchen");
   const space = new KeyboardEvent("keydown", { key: " ", cancelable: true });
   window.dispatchEvent(space);
@@ -1059,7 +1044,7 @@ test("the box from a first tap follows the mouse while an undo is saving", async
   await startDrawing(panel);
   tap(100, 0);
   tap(140, 30);
-  await vi.waitFor(() => expect(barButton(panel, "Undo")!.disabled).toBe(false));
+  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
   tap(100, 100);
   hold = true;
   ctrlZ();
@@ -1080,4 +1065,28 @@ test("an update during a move saves the room as it was grabbed", async () => {
   handlers.mouseup(mouse(45, 25));
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
   expectCornersNear(saves(connection)[0].areas.kitchen, pixelBox(20, 0, 70, 50));
+});
+
+test("on All Ctrl+Z and Ctrl+Shift+Z change nothing, as the tools are off there", async () => {
+  const { panel, connection } = mountEditor();
+  await startDrawing(panel);
+  tap(100, 0);
+  tap(140, 30);
+  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
+  buttonNamed(panel, "All")!.click();
+  await settle(panel);
+  ctrlZ();
+  ctrlZ(true);
+  await settle(panel);
+  expect(saves(connection)).toHaveLength(1);
+});
+
+test("Space keeps its usual meaning on All after Draw, so it still presses a focused button", async () => {
+  const { panel } = mountEditor();
+  await startDrawing(panel);
+  buttonNamed(panel, "All")!.click();
+  await settle(panel);
+  const space = new KeyboardEvent("keydown", { key: " ", cancelable: true });
+  window.dispatchEvent(space);
+  expect(space.defaultPrevented).toBe(false);
 });

@@ -27,7 +27,8 @@ export interface FloorEntry {
   level: number | null;
 }
 
-export type Tool = "draw" | "adjust";
+// Exactly one is active; Adjust is the default.
+export type Tool = "align" | "draw" | "adjust";
 
 const SIDE_STYLE = "font: 12px sans-serif; background: #fff; color: #212121; border: 1px solid #ff5722; border-radius: 3px";
 // A side button or field sits on the map, inside a Marker that would block focus; its presses and keys stay its own.
@@ -35,9 +36,10 @@ const MAP_EVENTS = ["mousedown", "touchstart", "click", "dblclick", "keydown"];
 
 export class RoomEditor {
   floors: FloorEntry[] = [];
-  tool?: Tool;
+  tool: Tool = "adjust";
   private readonly _history = new History();
-  private _message = "";
+  // The last refusal or failure, shown by the panel.
+  message = "";
   private _areas: AreaEntry[] = [];
   private _footprints = new Map<string, Polygon>();
   private _sizesM2 = new Map<string, number>();
@@ -57,10 +59,6 @@ export class RoomEditor {
     private readonly _reloadRooms: () => Promise<void>,
     private readonly _siteBearing: () => number,
   ) {}
-
-  get status(): string {
-    return this.tool && this._floor === "all" ? `Pick a floor to ${this.tool}` : this._message;
-  }
 
   get canUndo() {
     return !this._saving && this._history.canUndo;
@@ -106,7 +104,8 @@ export class RoomEditor {
   }
 
   detach() {
-    this.setTool(undefined);
+    // Adjust leaves the map's own panning and rotating on.
+    this.setTool("adjust");
     window.removeEventListener("keydown", this._undoKey);
     this._interaction?.destroy();
     this._interaction = undefined;
@@ -144,15 +143,14 @@ export class RoomEditor {
 
   setFloor(floor: string | null | "all") {
     this._floor = floor;
-    this._message = "";
-    this._interaction?.cancel();
-    this._interaction?.applyInput();
+    this.message = "";
+    this._interaction?.toolChanged();
     this._select(this._nextActive());
   }
 
-  setTool(tool: Tool | undefined) {
+  setTool(tool: Tool) {
     this.tool = tool;
-    this._message = "";
+    this.message = "";
     this._interaction?.toolChanged();
     this._select(this._active);
   }
@@ -228,6 +226,8 @@ export class RoomEditor {
   }
 
   private _undoKey = (event: KeyboardEvent) => {
+    // All floors is a view only, as its disabled Undo and Redo buttons show.
+    if (this._floor === "all") return;
     if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") return;
     if (event.composedPath()[0] instanceof HTMLInputElement) return;
     event.preventDefault();
@@ -288,7 +288,7 @@ export class RoomEditor {
   private _resize(areaId: string, footprint: Polygon, edgeIndex: number, lengthM: number) {
     // An empty field reads as 0.
     if (!(lengthM >= MIN_SIDE_M)) {
-      this._message = `A side is at least ${MIN_SIDE_M.toFixed(2)} m`;
+      this.message = `A side is at least ${MIN_SIDE_M.toFixed(2)} m`;
       this._requestUpdate();
       return;
     }
@@ -303,7 +303,7 @@ export class RoomEditor {
     const current = areaId === NEW_AREA ? undefined : this._footprints.get(areaId);
     const footprint = addToFootprint(current, box);
     if (!footprint) {
-      this._message = "A room is one shape: draw against it";
+      this.message = "A room is one shape: draw against it";
       this._requestUpdate();
       return;
     }
@@ -333,10 +333,10 @@ export class RoomEditor {
     let failed = false;
     try {
       await action();
-      this._message = "";
+      this.message = "";
     } catch (err) {
       console.error(err);
-      this._message = "Could not save";
+      this.message = "Could not save";
       failed = true;
     }
     // Released before the reload, so a reload that hangs does not block input.
@@ -376,7 +376,7 @@ export class RoomEditor {
       await this._reloadRooms();
     } catch (err) {
       console.error(err);
-      this._message = "Could not rename";
+      this.message = "Could not rename";
       this._requestUpdate();
     }
   }
