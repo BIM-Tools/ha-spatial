@@ -338,6 +338,49 @@
      ]
     ]
    }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "area": "Utility",
+    "floor": "Ground floor",
+    "icon": "mdi:washing-machine"
+   },
+   "geometry": null
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "area": "Study",
+    "floor": "First floor",
+    "icon": "mdi:desk"
+   },
+   "geometry": null
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "area": "Storage",
+    "floor": "Attic",
+    "icon": "mdi:package-variant-closed"
+   },
+   "geometry": null
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "area": "Garden",
+    "icon": "mdi:flower"
+   },
+   "geometry": null
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "area": "Driveway",
+    "icon": "mdi:car"
+   },
+   "geometry": null
   }
  ]
 }
