@@ -10,7 +10,7 @@
       "single_instance_allowed": "Spatial is already configured. Only a single configuration is allowed."
     },
     "create_entry": {
-      "default": "**Spatial is set up**\n\nYour rooms and floors, drawn on Home Assistant's map. Next: place your home.\n\n[Open Spaces]({panel_url})"
+      "default": "Your rooms and floors, drawn on Home Assistant's map. Next: place your home.\n\n[Open Spaces]({panel_url})"
     }
   }
 }
