@@ -420,3 +420,74 @@ async def test_invalid_writes(
     client = await hass_ws_client(hass)
     msg = await _call(client, **command)
     assert msg["error"]["code"] == code
+
+
+def _with_hole(shell: dict[str, Any], hole: dict[str, Any]) -> dict[str, Any]:
+    """Return the shell polygon with the outer ring of hole added as an inner ring."""
+    return {"type": "Polygon", "coordinates": shell["coordinates"] + hole["coordinates"]}
+
+
+async def test_footprint_with_a_hole(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test a hole is stored, excluded from the area, from points and shared as a wall."""
+    client = await hass_ws_client(hass)
+    hallway = _with_hole(rect(0, 0, 10, 10), rect(3, 4, 7, 6))
+    msg = await _call(client, type="spatial/area/update_geometries", areas={"hallway": hallway})
+    assert msg["success"], msg
+    # Shrunk by hand: a 9.9 m square minus the hole grown to 4.1 m x 2.1 m.
+    assert msg["result"]["area_m2"] == {"hallway": pytest.approx(9.9 * 9.9 - 4.1 * 2.1, abs=0.01)}
+
+    msg = await _call(client, type="spatial/geojson")
+    [feature] = msg["result"]["features"]
+    assert feature["geometry"] == hallway
+
+    in_hole = lonlat(5, 5)
+    msg = await _call(client, type="spatial/query_point", lon=in_hole[0], lat=in_hole[1])
+    assert msg["result"] == {"area_id": None}
+
+    await _set_geometry(client, "kitchen", rect(3, 4, 7, 6))
+    msg = await _call(client, type="spatial/query_point", lon=in_hole[0], lat=in_hole[1])
+    assert msg["result"] == {"area_id": "kitchen"}
+    beside_hole = lonlat(1, 5)
+    msg = await _call(client, type="spatial/query_point", lon=beside_hole[0], lat=beside_hole[1])
+    assert msg["result"] == {"area_id": "hallway"}
+
+    msg = await _call(client, type="spatial/area/adjacent", area_id="kitchen")
+    assert msg["result"] == {"area_ids": ["hallway"]}
+    msg = await _call(client, type="spatial/area/adjacent", area_id="hallway")
+    assert msg["result"] == {"area_ids": ["kitchen"]}
+
+
+@pytest.mark.parametrize(
+    ("polygon", "message"),
+    [
+        (
+            {
+                "type": "Polygon",
+                "coordinates": [
+                    [lonlat(0, 0), lonlat(4, 0), lonlat(0, 3), lonlat(4, 3), lonlat(0, 0)]
+                ],
+            },
+            "A ring crosses itself",
+        ),
+        (
+            _with_hole(rect(0, 0, 10, 10), rect(8, 2, 12, 4)),
+            "Rings must not cross or share an edge",
+        ),
+        (_with_hole(rect(0, 0, 10, 10), rect(12, 2, 14, 4)), "A hole must lie inside the outline"),
+        (
+            _with_hole(_with_hole(rect(0, 0, 10, 10), rect(2, 2, 6, 6)), rect(3, 3, 4, 4)),
+            "A hole must not lie inside another hole",
+        ),
+    ],
+    ids=["crosses_itself", "rings_cross", "hole_outside", "hole_in_hole"],
+)
+async def test_update_geometries_explains_bad_rings(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, polygon: dict[str, Any], message: str
+) -> None:
+    """Test a bad ring returns invalid_format with a message a frontend can map."""
+    client = await hass_ws_client(hass)
+    msg = await _call(client, type="spatial/area/update_geometries", areas={"kitchen": polygon})
+    assert msg["error"]["code"] == "invalid_format"
+    assert msg["error"]["message"].startswith(message)
