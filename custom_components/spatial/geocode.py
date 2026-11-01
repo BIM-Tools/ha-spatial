@@ -16,9 +16,8 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.loader import async_get_integration
 from homeassistant.util.hass_dict import HassKey
 
-from .const import DOMAIN
+from .const import CONF_GEOCODE_URL, DEFAULT_GEOCODE_URL, DOMAIN
 
-NOMINATIM_SEARCH_URL: Final = "https://nominatim.openstreetmap.org/search"
 ATTRIBUTION: Final = "Search by OpenStreetMap"
 
 # Nominatim's usage policy allows at most one request per second per application.
@@ -83,6 +82,13 @@ class NominatimClient:
             self._lock.release()
             raise
 
+    def _search_url(self) -> str:
+        """Return the search endpoint of the server set in the options, read on every search."""
+        entries = self.hass.config_entries.async_entries(DOMAIN)
+        options = entries[0].options if entries else {}
+        base_url: str = options.get(CONF_GEOCODE_URL, DEFAULT_GEOCODE_URL)
+        return f"{base_url.rstrip('/')}/search"
+
     async def _request(self, query: str, limit: int) -> list[Any]:
         """Send one search request and return the decoded result list."""
         params = {
@@ -94,7 +100,7 @@ class NominatimClient:
         session = async_get_clientsession(self.hass)
         try:
             async with session.get(
-                NOMINATIM_SEARCH_URL,
+                self._search_url(),
                 params=params,
                 headers={"User-Agent": self.user_agent},
                 timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_S),

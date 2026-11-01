@@ -9,5 +9,21 @@
     "abort": {
       "single_instance_allowed": "Spatial is already configured. Only a single configuration is allowed."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Spatial options",
+        "data": {
+          "geocode_url": "Address search server"
+        },
+        "data_description": {
+          "geocode_url": "The Nominatim server that finds your home by address. The public OpenStreetMap server is the default; your own server may use plain http on your network."
+        }
+      }
+    },
+    "error": {
+      "invalid_url": "Enter an address that starts with http:// or https:// and names a server"
+    }
   }
 }

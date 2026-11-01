@@ -306,3 +306,28 @@ async def test_search_requires_admin(
     msg = await _call(client, type="spatial/geocode", query=QUERY)
     assert msg["error"]["code"] == "unauthorized"
     assert aioclient_mock.call_count == 0
+
+
+async def test_search_uses_the_configured_server_without_a_restart(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    aioclient_mock: AiohttpClientMocker,
+    setup_integration: MockConfigEntry,
+) -> None:
+    """Test a server set in the options serves the next search; the public one is the default."""
+    aioclient_mock.get(SEARCH_URL, json=[])
+    aioclient_mock.get("http://192.168.1.20:8080/nominatim/search", json=[PLACE])
+    client = await hass_ws_client(hass)
+
+    msg = await _call(client, type="spatial/geocode", query=QUERY)
+    assert msg["result"]["results"] == []
+
+    hass.config_entries.async_update_entry(
+        setup_integration, options={"geocode_url": "http://192.168.1.20:8080/nominatim/"}
+    )
+    msg = await _call(client, type="spatial/geocode", query=QUERY)
+    assert [place["name"] for place in msg["result"]["results"]] == [PLACE["display_name"]]
+    assert [str(url).split("?")[0] for _, url, _, _ in aioclient_mock.mock_calls] == [
+        SEARCH_URL,
+        "http://192.168.1.20:8080/nominatim/search",
+    ]

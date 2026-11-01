@@ -89,6 +89,10 @@
   second for the whole installation: a search within a second of the last one waits for the rest
   of it, and one queued for more than 5 seconds gives up. The answer carries the attribution to
   show with the results.
+- The server is the option "Address search server" in Spatial's options flow (`geocode_url`, an
+  http or https base URL, default `https://nominatim.openstreetmap.org`), read on every search, so
+  a change needs no restart. The public server is for light use only; for heavy use, point the
+  option at your own Nominatim, which may be plain http on your network.
 - Its errors: `geocode_unavailable` (Nominatim cannot be reached or does not answer within 10
   seconds), `geocode_failed` (an HTTP error or an unreadable answer), `geocode_rate_limited`
   (Nominatim answered 429, or the search queued too long), plus `invalid_format` and
@@ -132,7 +136,7 @@ Settings > Devices & services > Spatial > Configure opens the admin-only Spatial
 | File | Responsibility |
 | --- | --- |
 | `__init__.py` | Setup, `runtime_data`, websocket registration, admin-only `spatial` panel and the card module (bundles in `frontend/`, served at `/spatial_static`) |
-| `config_flow.py` | Single-instance config flow |
+| `config_flow.py` | Single-instance config flow; options flow with the address search server |
 | `coordinator.py` | Data access, registry sync, queries |
 | `store.py` | Persistence and migration of data saved by older releases |
 | `geometry.py` | All geometry: validation, m², point in polygon, shared edges |

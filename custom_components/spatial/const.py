@@ -45,3 +45,7 @@ BOT_SPACE: Final = "https://w3id.org/bot#Space"
 # interior centreline loses half of a 100 mm partition and an exterior line
 # (0.25 m inside the facade) loses the rest of a 300 mm wall.
 NET_INSET_M: Final = 0.05
+
+# Options: the Nominatim server for the address search; a local one may be plain http.
+CONF_GEOCODE_URL: Final = "geocode_url"
+DEFAULT_GEOCODE_URL: Final = "https://nominatim.openstreetmap.org"
