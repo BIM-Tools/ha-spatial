@@ -17,7 +17,10 @@ import {
   liveMarkers,
   layers,
   mapCreated,
-  messageText,
+  guideText,
+  partsText,
+  toastMessages,
+  toasts,
   mountPanel,
   onUpdateOf,
   panMap,
@@ -102,7 +105,7 @@ const strip = (panel: HTMLElement) =>
     | (HTMLElement & { updateComplete: Promise<boolean> })
     | null;
 
-const chips = (panel: HTMLElement) => [...(strip(panel)?.shadowRoot?.querySelectorAll("button") ?? [])];
+const chips = (panel: HTMLElement) => [...(strip(panel)?.shadowRoot?.querySelectorAll<HTMLButtonElement>("button.pill") ?? [])];
 
 // The markers the editor adds while drawing or adjusting, without the room labels.
 const editorMarkers = () =>
@@ -199,7 +202,7 @@ test("the strip is shown in the panel and not in the card", async () => {
 test("on a floor the first area without a footprint is active", async () => {
   const { panel } = mountEditor();
   await showFloor(panel);
-  await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Building", "Bath", "Hall", "Kitchen", "+ New area"]));
+  await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Building", "Kitchen", "Bath", "Hall", "New area"]));
   expect(activeChip(panel)).toBe("Bath");
 });
 
@@ -278,7 +281,7 @@ test("a box apart from the area's footprint saves nothing and says why", async (
   await settle(panel);
   tap(200, 200);
   tap(240, 240);
-  await vi.waitFor(() => expect(messageText(panel)).toContain("A room is one shape: draw against it"));
+  await vi.waitFor(() => expect(toasts).toEqual([{ message: "A room is one shape: draw against it" }]));
   expect(saves(connection)).toEqual([]);
   expect(buttonNamed(panel, "Undo")!.disabled).toBe(true);
 });
@@ -354,7 +357,7 @@ test("a rejected move reloads the rooms, says so and records nothing", async () 
   await activateKitchen(panel);
   const feedLoads = sent(connection, "spatial/geojson").length;
   drag([25, 25], [45, 25]);
-  await vi.waitFor(() => expect(messageText(panel)).toContain("Could not save"));
+  await vi.waitFor(() => expect(toastMessages()).toContain("Could not save"));
   expect(sent(connection, "spatial/geojson").length).toBe(feedLoads + 1);
   expect(buttonNamed(panel, "Undo")!.disabled).toBe(true);
 });
@@ -384,24 +387,6 @@ test("in Adjust a drag inside the active room moves it without panning, and a ta
   expect(activeChip(panel)).toBe("Bath");
 });
 
-test("with New area active a box first creates Room 1 on the floor, then saves its footprint", async () => {
-  const { panel, connection } = mountEditor();
-  await startDrawing(panel);
-  chip(panel, "+ New area").click();
-  await settle(panel);
-  tap(100, 0);
-  tap(140, 30);
-  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
-  const writes = sent(connection).filter((m) =>
-    ["config/area_registry/create", "spatial/area/update_geometries"].includes(m.type),
-  );
-  expect(writes.map((m) => m.type)).toEqual(["config/area_registry/create", "spatial/area/update_geometries"]);
-  expect(writes[0]).toEqual({ type: "config/area_registry/create", name: "Room 1", floor_id: "ground" });
-  expect(Object.keys(saves(connection)[0].areas)).toEqual(["room_1"]);
-  await vi.waitFor(() => expect(activeChip(panel)).toBe("Bath"));
-  expect(activeFilter()).toEqual(["==", ["get", "area_id"], "bath"]);
-});
-
 test("a rejected save reloads the rooms, says so and records nothing", async () => {
   const { panel, connection } = mountEditor(async (message) => {
     if (message.type === "spatial/area/update_geometries") throw new Error("not allowed");
@@ -412,7 +397,7 @@ test("a rejected save reloads the rooms, says so and records nothing", async () 
   const feedLoads = sent(connection, "spatial/geojson").length;
   tap(100, 0);
   tap(140, 30);
-  await vi.waitFor(() => expect(messageText(panel)).toContain("Could not save"));
+  await vi.waitFor(() => expect(toastMessages()).toContain("Could not save"));
   expect(sent(connection, "spatial/geojson").length).toBe(feedLoads + 1);
   expect(buttonNamed(panel, "Undo")!.disabled).toBe(true);
 });
@@ -453,7 +438,7 @@ test("an update that removes the active area makes the first area in the order a
   ]);
   setFeed([]);
   await onUpdateOf(connection)();
-  await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Building", "Bath", "Hall", "+ New area"]));
+  await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Building", "Bath", "Hall", "New area"]));
   expect(activeChip(panel)).toBe("Bath");
   expect(activeFilter()).toEqual(["==", ["get", "area_id"], "bath"]);
 });
@@ -494,30 +479,6 @@ test("boxes while a save is in flight are ignored", async () => {
   tap(100, 100);
   tap(140, 130);
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
-});
-
-test("a created area whose first save fails stays active, so a retry creates no second area", async () => {
-  let fail = true;
-  const { panel, connection } = mountEditor(async (message) => {
-    if (message.type === "spatial/area/update_geometries" && fail) {
-      fail = false;
-      throw new Error("connection lost");
-    }
-    return undefined;
-  });
-  vi.spyOn(console, "error").mockImplementationOnce(() => {});
-  await startDrawing(panel);
-  chip(panel, "+ New area").click();
-  await settle(panel);
-  tap(100, 0);
-  tap(140, 30);
-  await vi.waitFor(() => expect(messageText(panel)).toContain("Could not save"));
-  await vi.waitFor(() => expect(activeChip(panel)).toBe("Room 1"));
-  tap(100, 0);
-  tap(140, 30);
-  await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
-  expect(sent(connection, "config/area_registry/create")).toHaveLength(1);
-  expect(Object.keys(saves(connection)[1].areas)).toEqual(["room_1"]);
 });
 
 test("a press or taps while Space is held draw nothing", async () => {
@@ -575,19 +536,8 @@ test("a failed registry read does not stop the map", async () => {
     return undefined;
   });
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
-  expect(messageText(panel)).not.toContain("Map could not load");
+  expect(guideText(panel)).not.toContain("Map could not load");
   errors.mockRestore();
-});
-
-test("Draw clears an Align message", async () => {
-  const { panel } = mountEditor();
-  await showFloor(panel);
-  buttonNamed(panel, "Align")!.click();
-  handlers.click(mouse(0, 0));
-  await vi.waitFor(() => expect(messageText(panel)).toContain("No building here"));
-  buttonNamed(panel, "Draw")!.click();
-  await settle(panel);
-  expect(messageText(panel)).not.toContain("No building here");
 });
 
 const pixelShape = (...pixels: [number, number][]): Polygon => ({
@@ -669,26 +619,15 @@ test("typing 5 on a side saves the room with that side 5 m long, in one batch", 
   await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
 });
 
-test.each(["0.1", ""])("a side typed as %j saves nothing and the bar says a side is at least 0.20 m", async (value) => {
+test.each(["0.1", ""])("a side typed as %j saves nothing and a toast says a side is at least 0.20 m", async (value) => {
   const { panel, connection } = mountEditor();
   await startAdjusting(panel);
   await tapRoom(panel, "kitchen");
   typeSide(0, value);
   await settle(panel);
   expect(saves(connection)).toEqual([]);
-  expect(messageText(panel)).toContain("A side is at least 0.20 m");
+  expect(toasts).toEqual([{ message: "A side is at least 0.20 m" }]);
   expect(sideField()).toBeDefined();
-});
-
-test("a refusal message is gone once the tool changes", async () => {
-  const { panel } = mountEditor();
-  await startAdjusting(panel);
-  await tapRoom(panel, "kitchen");
-  typeSide(0, "0.1");
-  await settle(panel);
-  buttonNamed(panel, "Draw")!.click();
-  await settle(panel);
-  expect(messageText(panel)).not.toContain("A side is at least");
 });
 
 test("on a floor each room is labelled with its area's icon, name and net m² from the feed", async () => {
@@ -755,7 +694,7 @@ test("a rejected resize reloads the rooms, says so and records nothing", async (
   await tapRoom(panel, "kitchen");
   const feedLoads = sent(connection, "spatial/geojson").length;
   typeSide(0, "7");
-  await vi.waitFor(() => expect(messageText(panel)).toContain("Could not save"));
+  await vi.waitFor(() => expect(toastMessages()).toContain("Could not save"));
   expect(sent(connection, "spatial/geojson").length).toBe(feedLoads + 1);
   expect(buttonNamed(panel, "Undo")!.disabled).toBe(true);
 });
@@ -806,8 +745,8 @@ test("undo of an extended footprint saves the previous polygon", async () => {
 test("undo of a created area's first box keeps the area in Home Assistant", async () => {
   const { panel, connection } = mountEditor();
   await startDrawing(panel);
-  chip(panel, "+ New area").click();
-  await settle(panel);
+  chip(panel, "New area").click();
+  await vi.waitFor(() => expect(activeChip(panel) ?? renameField(panel)?.value).toBe("Room 1"));
   tap(100, 0);
   tap(140, 30);
   await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
@@ -832,7 +771,7 @@ test("a rejected undo reloads the rooms, says so and can be tried again", async 
   reject = true;
   const feedLoads = sent(connection, "spatial/geojson").length;
   buttonNamed(panel, "Undo")!.click();
-  await vi.waitFor(() => expect(messageText(panel)).toContain("Could not save"));
+  await vi.waitFor(() => expect(toastMessages()).toContain("Could not save"));
   expect(sent(connection, "spatial/geojson").length).toBe(feedLoads + 1);
   await settle(panel);
   expect(buttonNamed(panel, "Undo")!.disabled).toBe(false);
@@ -886,7 +825,7 @@ test("a reload that hangs after a failed save does not block the next box", asyn
   await startDrawing(panel);
   tap(100, 0);
   tap(140, 30);
-  await vi.waitFor(() => expect(messageText(panel)).toContain("Could not save"));
+  await vi.waitFor(() => expect(toastMessages()).toContain("Could not save"));
   tap(100, 0);
   tap(140, 30);
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
@@ -942,14 +881,14 @@ test("a pan between the two taps keeps the box on the first tapped spot", async 
   expect(area(saves(connection)[0].areas.bath)).toBeCloseTo(35, 1);
 });
 
-test("pills tell linked areas from unlinked ones by data-linked, without a dot", async () => {
+test("pills tell linked areas from unlinked ones by data-linked", async () => {
   const { panel } = mountEditor();
   await showFloor(panel);
-  await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Building", "Bath", "Hall", "Kitchen", "+ New area"]));
-  expect(chips(panel).map((c) => c.getAttribute("data-linked"))).toEqual(["true", "false", "false", "true", null]);
+  await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Building", "Kitchen", "Bath", "Hall", "New area"]));
+  expect(chips(panel).map((c) => c.getAttribute("data-linked"))).toEqual(["true", "true", "false", "false", null]);
 });
 
-test("the map highlights the active area's polygon and nothing for an unlinked or new area", async () => {
+test("the map highlights the active area's polygon, which an unlinked area does not have", async () => {
   const { panel } = mountEditor();
   await showFloor(panel);
   await vi.waitFor(() => expect(chipNames(panel)).toContain("Kitchen"));
@@ -959,9 +898,6 @@ test("the map highlights the active area's polygon and nothing for an unlinked o
   chip(panel, "Bath").click();
   await settle(panel);
   expect(activeFilter()).toEqual(["==", ["get", "area_id"], "bath"]);
-  chip(panel, "+ New area").click();
-  await settle(panel);
-  expect(activeFilter()).toEqual(["==", ["get", "area_id"], ""]);
 });
 
 const siteSaves = (connection: { sendMessagePromise: unknown }) =>
@@ -973,7 +909,7 @@ const buildingHighlight = () =>
 test("without an outline the Building pill is active on every floor; a box saves the outline, then the first unlinked area is active", async () => {
   const { panel, connection } = mountEditor(undefined, null);
   await startDrawing(panel);
-  await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Building", "Bath", "Hall", "Kitchen", "+ New area"]));
+  await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Building", "Kitchen", "Bath", "Hall", "New area"]));
   expect(activeChip(panel)).toBe("Building");
   expect(chip(panel, "Building").getAttribute("data-linked")).toBe("false");
   buttonNamed(panel, "Loft")!.click();
@@ -1146,4 +1082,267 @@ test("Space keeps its usual meaning on All after Draw, so it still presses a foc
   const space = new KeyboardEvent("keydown", { key: " ", cancelable: true });
   window.dispatchEvent(space);
   expect(space.defaultPrevented).toBe(false);
+});
+
+const renameField = (panel: HTMLElement) => strip(panel)?.shadowRoot?.querySelector("input") ?? null;
+
+const toolPressed = (panel: HTMLElement, name: string) => buttonNamed(panel, name)!.getAttribute("aria-pressed");
+
+test("choosing a pill without a shape picks Draw; a pill with one keeps the tool", async () => {
+  const { panel } = mountEditor();
+  await startAdjusting(panel);
+  chip(panel, "Kitchen").click();
+  await settle(panel);
+  expect(toolPressed(panel, "Adjust")).toBe("true");
+  chip(panel, "Hall").click();
+  await settle(panel);
+  expect(toolPressed(panel, "Draw")).toBe("true");
+  expect(activeChip(panel)).toBe("Hall");
+});
+
+test("New area creates the area on the floor at once, makes it active in Draw and opens its name", async () => {
+  const { panel, connection } = mountEditor();
+  await startAdjusting(panel);
+  chip(panel, "New area").click();
+  await vi.waitFor(() => expect(renameField(panel)?.value).toBe("Room 1"));
+  expect(sent(connection, "config/area_registry/create")).toEqual([
+    { type: "config/area_registry/create", name: "Room 1", floor_id: "ground" },
+  ]);
+  expect(toolPressed(panel, "Draw")).toBe("true");
+  expect(guideText(panel)).toBe("Draw Room 1 2 of 4");
+  const field = renameField(panel)!;
+  field.value = "Study";
+  field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+  await vi.waitFor(() =>
+    expect(sent(connection, "config/area_registry/update")).toEqual([
+      { type: "config/area_registry/update", area_id: "room_1", name: "Study" },
+    ]),
+  );
+  tap(100, 0);
+  tap(140, 30);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  expect(Object.keys(saves(connection)[0].areas)).toEqual(["room_1"]);
+});
+
+test("a tap on the active pill opens its name, and Escape closes it without a rename", async () => {
+  const { panel, connection } = mountEditor();
+  await showFloor(panel);
+  chip(panel, "Bath").click();
+  await settle(panel);
+  const field = renameField(panel)!;
+  expect(field.value).toBe("Bath");
+  field.value = "Scullery";
+  field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  await settle(panel);
+  expect(renameField(panel)).toBeNull();
+  expect(sent(connection, "config/area_registry/update")).toEqual([]);
+});
+
+test("the guide says which area to draw and how far the floor is, and nothing for a drawn one", async () => {
+  const { panel, connection } = mountEditor();
+  await showFloor(panel);
+  expect(guideText(panel)).toBe("Draw Bath 2 of 3");
+  buttonNamed(panel, "Draw")!.click();
+  tap(100, 0);
+  tap(140, 30);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  await settle(panel);
+  expect(guideText(panel)).toBe("Draw Hall 3 of 3");
+  chip(panel, "Kitchen").click();
+  await settle(panel);
+  expect(guideText(panel)).toBe("");
+  buttonNamed(panel, "All")!.click();
+  await settle(panel);
+  expect(guideText(panel)).toBe("");
+});
+
+test("on All the strip shows only the Building and a hint, and nothing is highlighted", async () => {
+  const { panel } = mountEditor();
+  await vi.waitFor(() => expect(strip(panel)).not.toBeNull());
+  await settle(panel);
+  expect(partsText(strip(panel)!)).toBe("Building Choose a floor to edit its rooms");
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
+  expect(buildingHighlight()).toBe("none");
+  expect(activeFilter()).toEqual(["==", ["get", "area_id"], ""]);
+});
+
+const hoverFilter = () => layers.find((layer) => layer.id === "spatial-hover")?.filter;
+
+test("pointing at a pill outlines its room, and pointing at a room marks its pill", async () => {
+  const { panel } = mountEditor();
+  await showFloor(panel);
+  chip(panel, "Kitchen").dispatchEvent(new MouseEvent("mouseenter"));
+  await settle(panel);
+  expect(hoverFilter()).toEqual(["==", ["get", "area_id"], "kitchen"]);
+  chip(panel, "Kitchen").dispatchEvent(new MouseEvent("mouseleave"));
+  chip(panel, "Building").dispatchEvent(new MouseEvent("mouseenter"));
+  await settle(panel);
+  expect(hoverFilter()).not.toEqual(["==", ["get", "area_id"], "kitchen"]);
+  expect(layers.find((layer) => layer.id === "spatial-hover-building")?.layout?.visibility).toBe("visible");
+  queryRenderedFeatures.mockReturnValue([{ properties: { area_id: "kitchen" } }]);
+  handlers.mousemove(mouse(10, 10));
+  await settle(panel);
+  expect(chips(panel).filter((c) => c.hasAttribute("data-hovered")).map((c) => c.textContent?.trim())).toEqual([
+    "Kitchen",
+  ]);
+  handlers.mouseout();
+  await settle(panel);
+  expect(chips(panel).some((c) => c.hasAttribute("data-hovered"))).toBe(false);
+});
+
+test("Retry after a failed box saves it again, the box stays on the map until then, and success closes the toast", async () => {
+  let fail = true;
+  const { panel, connection } = mountEditor(async (message) => {
+    if (message.type === "spatial/area/update_geometries" && fail) throw new Error("connection lost");
+    return undefined;
+  });
+  vi.spyOn(console, "error").mockImplementationOnce(() => {});
+  await startDrawing(panel);
+  tap(100, 0);
+  tap(140, 30);
+  await vi.waitFor(() => expect(toastMessages()).toEqual(["Could not save"]));
+  const [failure] = toasts;
+  expect(failure).toMatchObject({ action: { text: "Retry" }, duration: -1, dismissable: true });
+  const kept = (sources["spatial-draft"].data as Feature<Polygon>).geometry;
+  expect(kept).toEqual(saves(connection)[0].areas.bath);
+  fail = false;
+  failure.action!.action();
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
+  expect(saves(connection)[1]).toEqual(saves(connection)[0]);
+  await vi.waitFor(() => expect(sources["spatial-draft"].data).toEqual(EMPTY));
+  expect(toasts.at(-1)).toEqual({ id: failure.id, message: "", duration: 0 });
+  expect(buttonNamed(panel, "Undo")!.disabled).toBe(false);
+});
+
+test("a failed rename offers Retry, which renames the area", async () => {
+  let fail = true;
+  const { panel, connection } = mountEditor(async (message) => {
+    if (message.type === "config/area_registry/update" && fail) throw new Error("connection lost");
+    return undefined;
+  });
+  vi.spyOn(console, "error").mockImplementationOnce(() => {});
+  await showFloor(panel);
+  chip(panel, "Bath").click();
+  await settle(panel);
+  renameField(panel)!.value = "Scullery";
+  renameField(panel)!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+  await vi.waitFor(() => expect(toastMessages()).toEqual(["Could not save"]));
+  fail = false;
+  toasts[0].action!.action();
+  await vi.waitFor(() => expect(sent(connection, "config/area_registry/update")).toHaveLength(2));
+  expect(sent(connection, "config/area_registry/update")[1]).toEqual({
+    type: "config/area_registry/update",
+    area_id: "bath",
+    name: "Scullery",
+  });
+});
+
+test("Delete removes the active shape in one save, and undo brings it back", async () => {
+  const { panel, connection } = mountEditor();
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  key("keydown", "Delete");
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  expect(saves(connection)[0].areas).toEqual({ kitchen: null });
+  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
+  buttonNamed(panel, "Undo")!.click();
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
+  expect(saves(connection)[1].areas).toEqual({ kitchen: KITCHEN });
+});
+
+test("Delete without a shape, or in a field, removes nothing", async () => {
+  const { panel, connection } = mountEditor();
+  await startAdjusting(panel);
+  key("keydown", "Delete");
+  chip(panel, "Bath").click();
+  await settle(panel);
+  renameField(panel)!.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true, composed: true }));
+  await settle(panel);
+  expect(saves(connection)).toEqual([]);
+});
+
+const failingFirstSave = () => {
+  let fail = true;
+  const mounted = mountEditor(async (message) => {
+    if (message.type === "spatial/area/update_geometries" && fail) {
+      fail = false;
+      throw new Error("connection lost");
+    }
+    return undefined;
+  });
+  vi.spyOn(console, "error").mockImplementationOnce(() => {});
+  return mounted;
+};
+
+const draftGeometry = () => (sources["spatial-draft"].data as Feature<Polygon>).geometry;
+
+test("a new map style keeps the shape of a failed save on the map", async () => {
+  const { panel } = failingFirstSave();
+  await startDrawing(panel);
+  tap(100, 0);
+  tap(140, 30);
+  await vi.waitFor(() => expect(toastMessages()).toEqual(["Could not save"]));
+  const kept = draftGeometry();
+  handlers["style.load"]();
+  expect(draftGeometry()).toEqual(kept);
+});
+
+test("Ctrl+Z with nothing to undo keeps the failure toast and the failed shape", async () => {
+  const { panel } = failingFirstSave();
+  await startDrawing(panel);
+  tap(100, 0);
+  tap(140, 30);
+  await vi.waitFor(() => expect(toastMessages()).toEqual(["Could not save"]));
+  ctrlZ();
+  ctrlZ(true);
+  await settle(panel);
+  expect(toasts).toHaveLength(1);
+  expect(draftGeometry()).toBeDefined();
+});
+
+test("a removal that saves after a failed move clears the failed shape and its toast", async () => {
+  const { panel, connection } = failingFirstSave();
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  drag([25, 25], [45, 25]);
+  await vi.waitFor(() => expect(toastMessages()).toEqual(["Could not save"]));
+  await vi.waitFor(() => expect(draftGeometry()).toBeDefined());
+  key("keydown", "Delete");
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
+  await vi.waitFor(() => expect(sources["spatial-draft"].data).toEqual(EMPTY));
+  expect(toasts.at(-1)).toMatchObject({ message: "", duration: 0 });
+});
+
+test("Retry of a failed New area creates it on the floor it was asked on, with the same name", async () => {
+  let fail = true;
+  const { panel, connection } = mountEditor(async (message) => {
+    if (message.type === "config/area_registry/create" && fail) {
+      fail = false;
+      throw new Error("connection lost");
+    }
+    return undefined;
+  });
+  vi.spyOn(console, "error").mockImplementationOnce(() => {});
+  await showFloor(panel);
+  chip(panel, "New area").click();
+  await vi.waitFor(() => expect(toastMessages()).toEqual(["Could not save"]));
+  buttonNamed(panel, "Loft")!.click();
+  await settle(panel);
+  toasts[0].action!.action();
+  await vi.waitFor(() => expect(sent(connection, "config/area_registry/create")).toHaveLength(2));
+  expect(sent(connection, "config/area_registry/create")[1]).toEqual({
+    type: "config/area_registry/create",
+    name: "Room 1",
+    floor_id: "ground",
+  });
+});
+
+test("two quick taps on New area create one area", async () => {
+  const { panel, connection } = mountEditor();
+  await showFloor(panel);
+  chip(panel, "New area").click();
+  chip(panel, "New area").click();
+  await vi.waitFor(() => expect(renameField(panel)?.value).toBe("Room 1"));
+  expect(sent(connection, "config/area_registry/create")).toHaveLength(1);
 });
