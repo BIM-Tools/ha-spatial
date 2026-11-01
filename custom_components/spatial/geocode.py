@@ -61,19 +61,27 @@ class NominatimClient:
         """Return up to limit places matching the query, trimmed to what the panel shows."""
         try:
             async with asyncio.timeout(MAX_QUEUE_WAIT_S):
-                await self._lock.acquire()
+                await self._wait_for_turn()
         except TimeoutError as err:
             raise GeocodeError(ERR_GEOCODE_RATE_LIMITED, "Too many searches, try again") from err
         try:
-            if self._last_request_at is not None:
-                wait_s = self._last_request_at + MIN_REQUEST_INTERVAL_S - monotonic()
-                if wait_s > 0:
-                    await sleep(wait_s)
             self._last_request_at = monotonic()
             places = await self._request(query, limit)
         finally:
             self._lock.release()
         return [place for item in places if (place := _trim_place(item)) is not None]
+
+    async def _wait_for_turn(self) -> None:
+        """Take the lock and wait until a second has passed since the last request."""
+        await self._lock.acquire()
+        try:
+            if self._last_request_at is not None:
+                wait_s = self._last_request_at + MIN_REQUEST_INTERVAL_S - monotonic()
+                if wait_s > 0:
+                    await sleep(wait_s)
+        except BaseException:
+            self._lock.release()
+            raise
 
     async def _request(self, query: str, limit: int) -> list[Any]:
         """Send one search request and return the decoded result list."""

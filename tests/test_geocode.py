@@ -205,6 +205,32 @@ async def test_search_queued_too_long_is_rate_limited(
     assert first["success"]
 
 
+async def test_queue_deadline_includes_the_spacing_wait(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    aioclient_mock: AiohttpClientMocker,
+    clock: FakeClock,
+) -> None:
+    """Test a search whose spacing wait outlasts the deadline gives up and frees the next turn."""
+    aioclient_mock.get(SEARCH_URL, json=[])
+    client = await hass_ws_client(hass)
+    assert (await _call(client, type="spatial/geocode", query=QUERY))["success"]
+
+    async def endless_sleep(seconds: float) -> None:
+        await asyncio.Event().wait()
+
+    with (
+        patch("custom_components.spatial.geocode.MAX_QUEUE_WAIT_S", 0.01),
+        patch("custom_components.spatial.geocode.sleep", endless_sleep),
+    ):
+        msg = await _call(client, type="spatial/geocode", query=QUERY)
+    assert msg["error"]["code"] == "geocode_rate_limited"
+
+    clock.now += 2
+    assert (await _call(client, type="spatial/geocode", query=QUERY))["success"]
+    assert aioclient_mock.call_count == 2
+
+
 @pytest.mark.parametrize(
     ("mock", "code"),
     [
@@ -234,13 +260,17 @@ async def test_failures_return_their_error_code_without_logging_the_query(
     assert "Voorbeeldstraat" not in _logged_text(caplog)
 
 
-@pytest.mark.parametrize("query", ["", "   ", QUERY * 7], ids=["empty", "blank", "too_long"])
-async def test_empty_or_too_long_query_is_invalid(
+@pytest.mark.parametrize(
+    "query",
+    ["", "   ", QUERY * 7, [QUERY]],
+    ids=["empty", "blank", "too_long", "not_a_string"],
+)
+async def test_empty_too_long_or_non_string_query_is_invalid(
     hass: HomeAssistant,
     hass_ws_client: WebSocketGenerator,
     aioclient_mock: AiohttpClientMocker,
     caplog: pytest.LogCaptureFixture,
-    query: str,
+    query: Any,
 ) -> None:
     """Test a bad query is refused before any request, and is not logged."""
     client = await hass_ws_client(hass)

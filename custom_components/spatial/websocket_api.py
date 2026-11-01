@@ -250,7 +250,7 @@ def ws_subscribe(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "spatial/geocode",
-        vol.Required("query"): str,
+        vol.Required("query"): object,
         vol.Optional("limit", default=DEFAULT_LIMIT): vol.All(int, vol.Range(min=1, max=MAX_LIMIT)),
     }
 )
@@ -264,7 +264,7 @@ async def ws_geocode(
     The query is checked here, not in the schema: Home Assistant logs a schema
     error with the offending value, and an address search must never be logged.
     """
-    query = msg["query"].strip()
+    query = msg["query"].strip() if isinstance(msg["query"], str) else ""
     if not 0 < len(query) <= MAX_QUERY_LENGTH:
         connection.send_error(
             msg["id"],
