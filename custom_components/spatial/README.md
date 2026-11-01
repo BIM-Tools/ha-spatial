@@ -94,10 +94,10 @@ Settings > Devices & services > Spatial > Configure opens the admin-only Spatial
 
 | Rule | Value |
 | --- | --- |
-| Polygon | RFC 7946 `Polygon`, closed rings, at least 4 positions, holes allowed; self-intersection is not checked |
-| Adjacency | Same floor, edges within 0.05 m over at least 0.3 m |
+| Polygon | RFC 7946 `Polygon`, closed rings, at least 4 positions; holes (inner rings) allowed, never a MultiPolygon. Rejected with `invalid_format`; `spatial/area/update_geometries` names the reason: "A ring needs at least three corners", "A polygon may have at most 500 corners", "A ring crosses itself", "Rings must not cross or share an edge", "A hole must lie inside the outline", "A hole must not lie inside another hole", "Holes must not split the area". Rings may touch in single points that leave the area in one piece; tests are exact in degrees |
+| Adjacency | Same floor, edges of outer and inner rings within 0.05 m over at least 0.3 m, so a room filling a hole is adjacent to the room around it |
 | Area | `area_m2` is the net area: local tangent plane with exact WGS84 radii, holes subtracted, shrunk by 50 mm on every side (exact for right angles) |
-| Point in polygon | PNPOLY; a point exactly on an edge may fall either way |
+| Point in polygon | PNPOLY; a point in a hole is outside the room; a point exactly on an edge may fall either way |
 | Overlaps | `query_point` returns the smallest containing area |
 
 ### Modules

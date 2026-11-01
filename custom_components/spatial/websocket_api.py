@@ -18,6 +18,19 @@ from .geometry import validate_polygon
 POSITIVE_METRES = vol.All(vol.Coerce(float), vol.Range(min=0, min_included=False))
 
 
+def _footprint(value: Any) -> dict[str, Any]:
+    """Validate an area polygon and keep the reason in the error message.
+
+    Voluptuous replaces the message of a plain ValueError with "not a valid
+    value". Listed before None in vol.Any, whose error is that of the first
+    validator, so the reason reaches the client.
+    """
+    try:
+        return validate_polygon(value)
+    except ValueError as err:
+        raise vol.Invalid(str(err)) from err
+
+
 @callback
 def async_register_websocket_commands(hass: HomeAssistant) -> None:
     """Register the websocket commands."""
@@ -93,7 +106,7 @@ def ws_adjacent_areas(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "spatial/area/update_geometries",
-        vol.Required("areas"): vol.All({str: vol.Any(None, validate_polygon)}, vol.Length(min=1)),
+        vol.Required("areas"): vol.All({str: vol.Any(_footprint, None)}, vol.Length(min=1)),
     }
 )
 @websocket_api.require_admin
