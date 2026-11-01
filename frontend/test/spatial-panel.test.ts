@@ -19,6 +19,8 @@ import {
   setBearing,
   setStyle,
   settle,
+  zoomIn,
+  zoomOut,
   easeTo,
   sources,
 } from "./panel-harness";
@@ -512,4 +514,79 @@ test("the compass turns with the map and a click faces north", async () => {
   handlers.rotate();
   await settle(panel);
   expect(needle()).toContain("rotate(0deg)");
+});
+
+test("zoom in and zoom out zoom the map", async () => {
+  const { panel } = mountPanel();
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
+  await settle(panel);
+  buttonNamed(panel, "Zoom in")!.click();
+  buttonNamed(panel, "Zoom out")!.click();
+  expect(zoomIn).toHaveBeenCalledTimes(1);
+  expect(zoomOut).toHaveBeenCalledTimes(1);
+});
+
+test("a style that fails to load is asked for again on the next update", async () => {
+  const { panel } = mountPanel();
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
+  await settle(panel);
+  buttonNamed(panel, "Show map")!.click();
+  await vi.waitFor(() => expect(setStyle).toHaveBeenCalledTimes(1));
+  vi.mocked(fetch).mockRejectedValueOnce(new Error("offline"));
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  buttonNamed(panel, "Show map")!.click();
+  await vi.waitFor(() => expect(errors).toHaveBeenCalled());
+  expect(setStyle).toHaveBeenCalledTimes(1);
+  await showNoFloor(panel);
+  await vi.waitFor(() => expect(setStyle).toHaveBeenCalledTimes(2));
+  expect(groundOnly(setStyle.mock.calls[1][0])).toBe(false);
+  errors.mockRestore();
+});
+
+const backButton = (panel: HTMLElement) =>
+  panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!.querySelector("ha-icon-button")! as HTMLElement;
+
+test("Back from a deep link goes to the integration page, not out of Home Assistant", async () => {
+  history.replaceState(null, "", "/spatial");
+  const back = vi.spyOn(history, "back").mockImplementation(() => {});
+  const changed = vi.fn();
+  window.addEventListener("location-changed", changed);
+  const { panel } = mountPanel();
+  await settle(panel);
+  backButton(panel).click();
+  expect(back).not.toHaveBeenCalled();
+  expect(location.pathname).toBe("/config/integrations/integration/spatial");
+  expect(changed).toHaveBeenCalledTimes(1);
+  window.removeEventListener("location-changed", changed);
+  back.mockRestore();
+});
+
+test("Back goes back when Home Assistant was loaded on another of its pages", async () => {
+  history.replaceState(null, "", "/spatial");
+  const back = vi.spyOn(history, "back").mockImplementation(() => {});
+  const entries = vi
+    .spyOn(performance, "getEntriesByType")
+    .mockReturnValue([{ name: `${location.origin}/config/integrations` } as PerformanceEntry]);
+  const { panel } = mountPanel();
+  await settle(panel);
+  backButton(panel).click();
+  expect(back).toHaveBeenCalledTimes(1);
+  entries.mockRestore();
+  back.mockRestore();
+});
+
+test("on a phone the floors are chips under the header, the tools a bottom bar, and the map toggle round", async () => {
+  const phone = { matches: true, addEventListener: () => {}, removeEventListener: () => {} };
+  const query = vi.spyOn(window, "matchMedia").mockReturnValue(phone as unknown as MediaQueryList);
+  const { panel } = mountPanel();
+  await vi.waitFor(() => expect(buttonNamed(panel, "Align")).toBeDefined());
+  await settle(panel);
+  const root = panel.shadowRoot!;
+  expect(root.querySelector("spatial-floor-selector")?.hasAttribute("chips")).toBe(true);
+  expect(root.querySelector(".stage spatial-floor-selector")).toBeNull();
+  expect(root.querySelector("spatial-editor-toolbar")?.hasAttribute("bar")).toBe(true);
+  expect(root.querySelector("spatial-map-stack")?.hasAttribute("round")).toBe(true);
+  expect(buttonNamed(panel, "Zoom in")).toBeUndefined();
+  expect(buttonNamed(panel, "Undo")?.textContent?.trim()).toBe("Undo");
+  query.mockRestore();
 });

@@ -99,7 +99,6 @@ class SpatialPanel extends LitElement {
     _failed: { state: true },
     _message: { state: true },
     _mapShown: { state: true },
-    _mapBearingDeg: { state: true },
     _phone: { state: true },
   };
 
@@ -134,20 +133,29 @@ class SpatialPanel extends LitElement {
       position: absolute;
       inset: 0;
     }
-    .floors {
-      position: absolute;
-      top: 16px;
-      left: 16px;
-      max-width: calc(100% - 32px);
-    }
-    /* Leaves room for the toolbar on the right. */
-    .floors.beside-toolbar {
-      max-width: calc(100% - 440px);
-    }
-    .toolbar {
+    /* Floors left, tools right; when both do not fit, the tools move to a row below. */
+    .top {
       position: absolute;
       top: 16px;
       right: 16px;
+      left: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      gap: 8px;
+      pointer-events: none;
+    }
+    .top > * {
+      pointer-events: auto;
+    }
+    .toolbar {
+      margin-left: auto;
+    }
+    /* Clear of the round map toggle on the right. */
+    .top.phone {
+      top: 12px;
+      right: 68px;
+      left: 12px;
     }
     .map-stack {
       position: absolute;
@@ -160,21 +168,15 @@ class SpatialPanel extends LitElement {
       bottom: auto;
     }
     .messages {
-      position: absolute;
-      top: 84px;
-      left: 50%;
-      transform: translateX(-50%);
       display: flex;
+      flex-basis: 100%;
       flex-direction: column;
       align-items: center;
       gap: 8px;
-      max-width: calc(100% - 32px);
+      margin-top: 14px;
     }
-    :host([card]) .messages {
-      top: 68px;
-    }
-    .messages.phone {
-      top: 12px;
+    .top.phone .messages {
+      margin-top: 0;
     }
     .messages span {
       display: flex;
@@ -218,15 +220,17 @@ class SpatialPanel extends LitElement {
   declare _failed: boolean;
   declare _message: string;
   declare _mapShown: boolean;
-  declare _mapBearingDeg: number;
   declare _phone: boolean;
 
   private _map?: MapLibreMap;
   private _started = false;
   // Bumped on disconnect, so a startup still awaiting creates nothing.
   private _run = 0;
-  // Dark mode and map visibility of the style last asked for.
+  // Dark mode and map visibility of the style on the map, and of the one being fetched.
   private _styleKey = "";
+  private _pendingStyleKey = "";
+  // Not reactive: the compass follows every rotate frame without rendering the panel.
+  private _mapBearingDeg = 0;
   private _token = "";
   private _bearing = 0;
   private _tokenTimer?: ReturnType<typeof setInterval>;
@@ -243,7 +247,6 @@ class SpatialPanel extends LitElement {
     this._floor = "all";
     this._message = "";
     this._mapShown = readMapShown();
-    this._mapBearingDeg = 0;
     this._phone = false;
   }
 
@@ -276,8 +279,10 @@ class SpatialPanel extends LitElement {
       ${phone ? this._floorSelector(true) : nothing}
       <div class="stage">
         <div id="map"></div>
-        ${phone ? nothing : this._floorSelector(false)}
-        ${editor && !phone ? this._toolbar(editor, false) : nothing}
+        <div class="top ${phone ? "phone" : ""}">
+          ${phone ? nothing : this._floorSelector(false)}
+          ${editor && !phone ? this._toolbar(editor, false) : nothing} ${this._messages()}
+        </div>
         ${editor
           ? html`<spatial-map-stack
               class="map-stack"
@@ -292,7 +297,6 @@ class SpatialPanel extends LitElement {
               @face-north=${() => this._map?.resetNorth()}
             ></spatial-map-stack>`
           : nothing}
-        ${this._messages(phone)}
         ${editor && onFloor && !phone ? html`<div class="strip">${editor.render()}</div>` : nothing}
       </div>
       ${editor && onFloor && phone ? html`<div class="strip-bar">${editor.render()}</div>` : nothing}
@@ -304,7 +308,6 @@ class SpatialPanel extends LitElement {
     const choices = this._floorChoices();
     if (!choices.length) return nothing;
     return html`<spatial-floor-selector
-      class=${chips ? "" : this._editor ? "floors beside-toolbar" : "floors"}
       ?chips=${chips}
       .choices=${choices}
       .selected=${this._floor}
@@ -326,7 +329,7 @@ class SpatialPanel extends LitElement {
     ></spatial-editor-toolbar>`;
   }
 
-  private _messages(phone: boolean) {
+  private _messages() {
     const noRooms =
       this._floors &&
       (this.floor && this.floor !== "all" ? !this._floors.includes(this.floor) : this._floors.length === 0);
@@ -334,11 +337,11 @@ class SpatialPanel extends LitElement {
       noRooms ? "No rooms yet" : "",
       this._aligning ? "Click your house near the wall the rooms follow" : "",
       this._message,
-      this._editor?.status ?? "",
+      this._editor?.message ?? "",
       this._failed ? "Map could not load" : "",
     ].filter(Boolean);
     if (!messages.length) return nothing;
-    return html`<div class="messages ${phone ? "phone" : ""}">
+    return html`<div class="messages">
       ${messages.map((message) => html`<span>${message}</span>`)}
     </div>`;
   }
@@ -356,7 +359,7 @@ class SpatialPanel extends LitElement {
         console.error(err);
         this._failed = true;
       });
-    } else if (this._map && this._wantedStyleKey() !== this._styleKey) {
+    } else if (this._map && ![this._styleKey, this._pendingStyleKey].includes(this._wantedStyleKey())) {
       // A full reload fires `style.load`, which adds the rooms again.
       this._loadStyle()
         .then((style) => style && this._map?.setStyle(style, { diff: false }))
@@ -374,18 +377,25 @@ class SpatialPanel extends LitElement {
     return `${this.hass!.themes.darkMode} ${this._mapVisible}`;
   }
 
-  // Resolves to undefined when a newer style was asked for in the meantime.
+  // Resolves to undefined when a newer style was asked for in the meantime. A failed fetch
+  // leaves the style key as it was, so the next update asks again.
   private async _loadStyle(): Promise<StyleSpecification | undefined> {
     const key = this._wantedStyleKey();
-    this._styleKey = key;
+    this._pendingStyleKey = key;
     const darkMode = this.hass!.themes.darkMode;
-    const style = this._mapVisible
-      ? await loadStyle(darkMode)
-      : plainStyle(
-          getComputedStyle(this).getPropertyValue("--primary-background-color").trim() ||
-            (darkMode ? "#111111" : "#fafafa"),
-        );
-    return key === this._styleKey ? style : undefined;
+    try {
+      const style = this._mapVisible
+        ? await loadStyle(darkMode)
+        : plainStyle(
+            getComputedStyle(this).getPropertyValue("--primary-background-color").trim() ||
+              (darkMode ? "#111111" : "#fafafa"),
+          );
+      if (key !== this._pendingStyleKey) return undefined;
+      this._styleKey = key;
+      return style;
+    } finally {
+      if (key === this._pendingStyleKey) this._pendingStyleKey = "";
+    }
   }
 
   private _stop() {
@@ -489,13 +499,20 @@ class SpatialPanel extends LitElement {
     this._map = map;
     map.on("style.load", () => this._addAreas());
     map.on("mousemove", (event) => this._previewWall(event));
-    map.on("rotate", () => {
-      this._mapBearingDeg = map.getBearing();
-    });
+    if (editor) {
+      this._showBearing(this._mapBearingDeg);
+      map.on("rotate", () => this._showBearing(map.getBearing()));
+    }
     editor?.attach(map);
     // After the editor, so the click that ends Align is not also a room pick in Adjust.
     map.on("click", (event) => this._pick(event));
     if (this.floor) this._fit();
+  }
+
+  private _showBearing(bearingDeg: number) {
+    this._mapBearingDeg = bearingDeg;
+    const stack = this.renderRoot.querySelector<HTMLElement & { bearing: number }>("spatial-map-stack");
+    if (stack) stack.bearing = bearingDeg;
   }
 
   // Frames the rooms in view, keeping the picked wall horizontal.

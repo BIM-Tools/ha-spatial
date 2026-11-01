@@ -87,11 +87,12 @@ export class BoxInteraction {
     this._preview(undefined);
   }
 
-  // Space pans and Escape cancels only in Draw; elsewhere the keys keep their usual meaning.
+  // Space pans and Escape cancels only in Draw on a floor; elsewhere the keys keep their usual meaning.
+  // Also called on a floor change, since All does not draw.
   toolChanged() {
     this.cancel();
     this._spaceHeld = false;
-    this._listenToKeys(this._callbacks.tool() === "draw");
+    this._listenToKeys(this._canDraw());
     this.applyInput();
   }
 
@@ -135,6 +136,7 @@ export class BoxInteraction {
   }
 
   private _key = (event: KeyboardEvent) => {
+    if (!this._canDraw()) return;
     if (event.composedPath()[0] instanceof HTMLInputElement) return;
     if (event.key === "Escape") this.cancel();
     if (event.key !== " ") return;

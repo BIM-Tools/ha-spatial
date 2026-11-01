@@ -38,7 +38,8 @@ export class RoomEditor {
   floors: FloorEntry[] = [];
   tool: Tool = "adjust";
   private readonly _history = new History();
-  private _message = "";
+  // The last refusal or failure, shown by the panel.
+  message = "";
   private _areas: AreaEntry[] = [];
   private _footprints = new Map<string, Polygon>();
   private _sizesM2 = new Map<string, number>();
@@ -58,10 +59,6 @@ export class RoomEditor {
     private readonly _reloadRooms: () => Promise<void>,
     private readonly _siteBearing: () => number,
   ) {}
-
-  get status(): string {
-    return this._message;
-  }
 
   get canUndo() {
     return !this._saving && this._history.canUndo;
@@ -146,15 +143,14 @@ export class RoomEditor {
 
   setFloor(floor: string | null | "all") {
     this._floor = floor;
-    this._message = "";
-    this._interaction?.cancel();
-    this._interaction?.applyInput();
+    this.message = "";
+    this._interaction?.toolChanged();
     this._select(this._nextActive());
   }
 
   setTool(tool: Tool) {
     this.tool = tool;
-    this._message = "";
+    this.message = "";
     this._interaction?.toolChanged();
     this._select(this._active);
   }
@@ -292,7 +288,7 @@ export class RoomEditor {
   private _resize(areaId: string, footprint: Polygon, edgeIndex: number, lengthM: number) {
     // An empty field reads as 0.
     if (!(lengthM >= MIN_SIDE_M)) {
-      this._message = `A side is at least ${MIN_SIDE_M.toFixed(2)} m`;
+      this.message = `A side is at least ${MIN_SIDE_M.toFixed(2)} m`;
       this._requestUpdate();
       return;
     }
@@ -307,7 +303,7 @@ export class RoomEditor {
     const current = areaId === NEW_AREA ? undefined : this._footprints.get(areaId);
     const footprint = addToFootprint(current, box);
     if (!footprint) {
-      this._message = "A room is one shape: draw against it";
+      this.message = "A room is one shape: draw against it";
       this._requestUpdate();
       return;
     }
@@ -337,10 +333,10 @@ export class RoomEditor {
     let failed = false;
     try {
       await action();
-      this._message = "";
+      this.message = "";
     } catch (err) {
       console.error(err);
-      this._message = "Could not save";
+      this.message = "Could not save";
       failed = true;
     }
     // Released before the reload, so a reload that hangs does not block input.
@@ -380,7 +376,7 @@ export class RoomEditor {
       await this._reloadRooms();
     } catch (err) {
       console.error(err);
-      this._message = "Could not rename";
+      this.message = "Could not rename";
       this._requestUpdate();
     }
   }

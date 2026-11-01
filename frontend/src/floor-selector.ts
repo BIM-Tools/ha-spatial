@@ -24,9 +24,8 @@ class SpatialFloorSelector extends LitElement {
       display: flex;
       gap: 2px;
       box-sizing: border-box;
+      flex-wrap: wrap;
       padding: 4px;
-      overflow-x: auto;
-      scrollbar-width: none;
       background: var(--card-background-color);
       border: var(--spatial-float-border);
       border-radius: 24px;
@@ -58,6 +57,8 @@ class SpatialFloorSelector extends LitElement {
     }
     :host([chips]) {
       flex: none;
+      flex-wrap: nowrap;
+      overflow-x: auto;
       align-items: center;
       gap: 8px;
       height: 52px;

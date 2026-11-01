@@ -71,9 +71,12 @@ class SpatialPanelHeader extends LitElement {
     `;
   }
 
-  // A deep link has no page to go back to; Home Assistant's router follows `location-changed`.
+  // Back only returns to a page of this Home Assistant: the document was loaded on another of its
+  // pages and the router brought the user here. A deep link, or a link from another site, goes to
+  // the integration's page instead. Home Assistant's router follows `location-changed`.
   private _back() {
-    if (history.length > 1) {
+    const [loaded] = performance.getEntriesByType("navigation");
+    if (loaded && new URL(loaded.name).pathname !== location.pathname) {
       history.back();
       return;
     }

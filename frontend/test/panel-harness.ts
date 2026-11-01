@@ -11,6 +11,7 @@ export const fitBounds = vi.fn();
 export const jumpTo = vi.fn();
 export const resetNorth = vi.fn();
 export const zoomIn = vi.fn();
+export const zoomOut = vi.fn();
 export const setStyle = vi.fn();
 export const queryRenderedFeatures = vi.fn((): object[] => []);
 export let handlers: Record<string, (event?: object) => void> = {};
@@ -164,7 +165,9 @@ export const fakeMapLibre = {
     zoomIn() {
       zoomIn();
     }
-    zoomOut() {}
+    zoomOut() {
+      zoomOut();
+    }
     setStyle(...args: unknown[]) {
       setStyle(...args);
     }
@@ -234,6 +237,7 @@ export const resetFakes = () => {
   jumpTo.mockClear();
   resetNorth.mockClear();
   zoomIn.mockClear();
+  zoomOut.mockClear();
   setStyle.mockClear();
   localStorage.clear();
   queryRenderedFeatures.mockReset();
