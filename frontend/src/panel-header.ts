@@ -107,7 +107,7 @@ class SpatialPanelHeader extends LitElement {
           .href=${BACK_FALLBACK}
           @click=${this._back}
         ></ha-icon-button>
-        <div class="main-title">Spaces</div>
+        <div class="main-title" role="heading" aria-level="1">Spaces</div>
         <ha-icon-button
           .path=${mdiHelpCircleOutline}
           .label=${"Help"}

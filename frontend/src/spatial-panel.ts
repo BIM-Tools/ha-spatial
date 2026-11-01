@@ -191,10 +191,14 @@ class SpatialPanel extends LitElement {
       bottom: 16px;
       left: 16px;
       display: flex;
+      box-sizing: border-box;
       width: fit-content;
-      max-width: 1352px;
+      max-width: min(1352px, calc(100% - 32px));
       margin-inline: auto;
       border-radius: 26px;
+    }
+    .strip > * {
+      min-width: 0;
     }
     .strip-bar {
       ${phoneBar}

@@ -84,7 +84,7 @@ test("the panel has a header with back and help, the card none", async () => {
   const { panel } = mountPanel();
   await vi.waitFor(() => expect(panel.shadowRoot?.querySelector("spatial-panel-header")).not.toBeNull());
   await settle(panel);
-  expect(panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!.textContent).toContain("Spaces");
+  expect(panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!.querySelector("[role=heading]")?.textContent).toBe("Spaces");
   expect(headerButton(panel, "Help")).toMatchObject({ href: "https://github.com/BIM-Tools/ha-spatial", target: "_blank" });
   const card = mountPanel(answer, {}, true).panel;
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalledTimes(2));
