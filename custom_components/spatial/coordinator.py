@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+import hashlib
+from typing import Any, TypedDict
 
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import floor_registry as fr
+from homeassistant.helpers.json import json_bytes_sorted
 
 from .const import (
     ADJACENCY_MIN_SHARED_M,
@@ -17,14 +19,35 @@ from .const import (
     JSONFG_CORE,
     JSONFG_TYPES_SCHEMAS,
     NET_INSET_M,
+    REV_LENGTH,
 )
 from .geometry import net_area_m2, polygon_contains, shared_edge_length_m
-from .store import Site, SpatialStore
+from .store import AreaSpatial, Site, SpatialStore, new_area
+
+
+class SiteView(TypedDict):
+    """The site as clients read it: the stored fields plus the derived centre and rev."""
+
+    lon: float
+    lat: float
+    bearing_deg: float | None
+    origin: list[float] | None
+    outline: dict[str, Any] | None
+    rev: str
 
 
 def _net_size(polygon: dict[str, Any]) -> float:
     """Return the net area in m² of a footprint, computed on every read."""
     return round(net_area_m2(polygon, NET_INSET_M), 2)
+
+
+def content_rev(entry: AreaSpatial | Site) -> str:
+    """Return a short hash of an entry, so a client can tell whether it changed since a read.
+
+    Derived from the content, never stored: equal content always has the same rev,
+    whoever wrote it, including restores and imports.
+    """
+    return hashlib.sha256(json_bytes_sorted(entry)).hexdigest()[:REV_LENGTH]
 
 
 class SpatialCoordinator:
@@ -71,40 +94,73 @@ class SpatialCoordinator:
         self.store.async_schedule_save()
         self.hass.bus.async_fire(EVENT_SPATIAL_UPDATED)
 
+    def area_rev(self, area_id: str) -> str | None:
+        """Return the rev of an area's entry, or None without a footprint."""
+        entry = self.store.areas.get(area_id)
+        return content_rev(entry) if entry is not None else None
+
+    def site_rev(self) -> str:
+        """Return the rev of the site."""
+        return content_rev(self.store.site)
+
+    def conflicts(
+        self, expected_area_revs: dict[str, str | None], expected_site_rev: str | None
+    ) -> list[str]:
+        """Return the area ids, and "site", whose rev differs from the expected one."""
+        changed = sorted(
+            area_id
+            for area_id, expected in expected_area_revs.items()
+            if self.area_rev(area_id) != expected
+        )
+        if expected_site_rev is not None and self.site_rev() != expected_site_rev:
+            changed.append("site")
+        return changed
+
     @callback
-    def async_set_area_geometries(
-        self, polygons: dict[str, dict[str, Any] | None]
+    def async_apply_change(
+        self, polygons: dict[str, dict[str, Any] | None], site_fields: dict[str, Any]
     ) -> dict[str, float]:
-        """Set or remove (None) footprints in one change; return the m² of those set."""
+        """Set or remove (None) footprints and set site fields in one change.
+
+        Return the m² of the footprints set. Other fields of an area's entry are kept.
+        """
         sizes: dict[str, float] = {}
         for area_id, polygon in polygons.items():
             if polygon is None:
                 self.store.areas.pop(area_id, None)
                 continue
             sizes[area_id] = _net_size(polygon)
-            self.store.areas[area_id] = {"polygon": polygon}
+            if (entry := self.store.areas.get(area_id)) is not None:
+                entry["polygon"] = polygon
+            else:
+                self.store.areas[area_id] = new_area(polygon)
+        for key in ("bearing_deg", "origin", "outline"):
+            if key in site_fields:
+                self.store.site[key] = site_fields[key]
         self._changed()
         return sizes
 
     @callback
-    def async_set_floor(
-        self, floor_id: str, elevation_m: float | None, height_m: float | None
-    ) -> None:
-        """Set the elevation and height of a floor."""
-        self.store.floors[floor_id] = {"elevation_m": elevation_m, "height_m": height_m}
+    def async_update_floor(self, floor_id: str, fields: dict[str, float | None]) -> None:
+        """Set the given fields of a floor (None clears one) and keep the others."""
+        floor = self.store.floors.setdefault(floor_id, {"elevation_m": None, "height_m": None})
+        for key in ("elevation_m", "height_m"):
+            if key in fields:
+                floor[key] = fields[key]
         self._changed()
 
-    def get_site(self) -> Site:
-        """Return the site: the centre of the bounding box, the bearing and the outline.
+    def get_site(self) -> SiteView:
+        """Return the site: the centre of the bounding box, the stored fields and the rev.
 
         Custom code. Computed on read, so it follows every edit. The box covers the
         footprints, else the outline, and is taken in lon/lat degrees, which is
         accurate enough at building scale but not across the antimeridian. Without
         either the centre is the home location.
         """
+        outline = self.store.site["outline"]
         rings = [data["polygon"]["coordinates"][0] for data in self.store.areas.values()]
-        if not rings and self.store.outline:
-            rings = [self.store.outline["coordinates"][0]]
+        if not rings and outline:
+            rings = [outline["coordinates"][0]]
         points = [position for ring in rings for position in ring]
         if not points:
             lon, lat = self.hass.config.longitude, self.hass.config.latitude
@@ -114,18 +170,11 @@ class SpatialCoordinator:
         return {
             "lon": lon,
             "lat": lat,
-            "bearing_deg": self.store.bearing_deg,
-            "outline": self.store.outline,
+            "bearing_deg": self.store.site["bearing_deg"],
+            "origin": self.store.site["origin"],
+            "outline": outline,
+            "rev": self.site_rev(),
         }
-
-    @callback
-    def async_update_site(self, fields: dict[str, Any]) -> None:
-        """Set the bearing and/or the outline of the site; None removes either."""
-        if "bearing_deg" in fields:
-            self.store.bearing_deg = fields["bearing_deg"]
-        if "outline" in fields:
-            self.store.outline = fields["outline"]
-        self._changed()
 
     def _floor_of(self, area_id: str) -> str | None:
         """Return the floor_id of an area."""
@@ -168,6 +217,7 @@ class SpatialCoordinator:
                         "area_m2": _net_size(data["polygon"]),
                         "base_m": base,
                         "top_m": top,
+                        "rev": content_rev(data),
                     },
                 }
             )

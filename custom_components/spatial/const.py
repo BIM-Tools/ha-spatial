@@ -10,12 +10,20 @@ STATIC_URL: Final = "/spatial_static"
 
 STORAGE_KEY: Final = DOMAIN
 STORAGE_VERSION: Final = 1
+# Raised for every additive change, with a step in the store's migration.
+STORAGE_MINOR_VERSION: Final = 2
 
 # Writes are delayed so a multi-step edit is saved once. Short enough to lose
 # little if the process is killed; Home Assistant flushes on a normal stop.
 SAVE_DELAY_S: Final = 2
 
 EVENT_SPATIAL_UPDATED: Final = "spatial_updated"
+
+# Websocket error code for a write based on data that changed since it was read.
+ERR_CONFLICT: Final = "conflict"
+
+# Hex characters of the sha256 that identify one version of a stored entry.
+REV_LENGTH: Final = 12
 
 # Floors without spatial data stack this many metres per level.
 DEFAULT_FLOOR_HEIGHT_M: Final = 3.0
