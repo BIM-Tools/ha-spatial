@@ -45,13 +45,16 @@ Change these only through an issue that names the reason.
 | --- | --- |
 | Coordinates | WGS84 GeoJSON, the same world as Home Assistant zones |
 | Measurement | In the integration, local tangent plane with exact WGS84 radii; never UTM, national grids, Mercator or screen space |
-| Footprint | One area has at most one `Polygon`; no MultiPolygon, its parts cannot carry identity |
-| Adjacency | Derived from shared edges on the same floor; interior walls on centrelines, exterior walls on a line 0.25 m inside the drawn facade; both derived, never stored |
+| Footprint | One area has at most one `Polygon`, inner rings (holes) allowed; no MultiPolygon, its parts cannot carry identity |
+| Rooms across floors | `floors_up` per area: the Home Assistant floor is the main and lowest floor; the room occupies the floors above it, contiguous |
+| Adjacency | Derived from shared edges, outer and inner rings, on every floor a room occupies; interior walls on centrelines, exterior walls on a line 0.25 m inside the drawn facade; both derived, never stored |
 | Area | `area_m2` is net: the drawn polygon shrunk by 50 mm on every side |
+| Outdoor, facade | `is_external` means an outdoor room (outside the outline, IFC `IsExternal`); `on_facade` is derived from touching the outline, with an optional override |
 | Building, sub-spaces | Home Assistant labels; no code |
-| Site anchor | One direction per installation; the centre follows all footprints, else the outline; aligns views only; stored geometry never moves with it |
+| Site anchor | One direction per installation; the centre follows all footprints, else the outline; aligns views only, so stored geometry never moves with it, except through the explicit, confirmed and undoable "Change alignment" (rotation reduced to a right angle, then snapped to the grid, in one write) |
+| Site grid | A grid origin set at Align; drawing snaps to a 10 cm grid on the site axis from it |
 | Dependencies | Pure Python in the integration; no shapely or other compiled packages |
-| Finding the building | OSM buildings in Home Assistant's map tiles set the axis only; the outline is drawn on the map |
+| Finding the building | OSM buildings in Home Assistant's map tiles set the axis only, and may act as an unstored snap guide while the outline is drawn on the map |
 | Frontend packages | Packages shared with Home Assistant's frontend use the exact version that frontend ships |
 | Domain | `spatial` |
 
