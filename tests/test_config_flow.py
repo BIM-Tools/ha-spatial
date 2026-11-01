@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.spatial.const import DOMAIN
+from custom_components.spatial.const import DOMAIN, PANEL_URL_PATH
 
 
 async def test_step_user_show_form(hass: HomeAssistant) -> None:
@@ -32,7 +32,16 @@ async def test_step_user_create_entry(hass: HomeAssistant) -> None:
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "Spatial"
+    assert result["description_placeholders"] == {"panel_url": f"/{PANEL_URL_PATH}"}
     assert len(mock_setup_entry.mock_calls) == 1
+
+
+async def test_no_options_form(hass: HomeAssistant) -> None:
+    """Spatial has nothing to set, so Configure opens the editor instead of a form."""
+    entry = MockConfigEntry(domain=DOMAIN, title="Spatial")
+    entry.add_to_hass(hass)
+
+    assert not entry.supports_options
 
 
 async def test_step_user_already_configured(hass: HomeAssistant) -> None:
