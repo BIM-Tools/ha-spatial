@@ -23,6 +23,8 @@ services:
       - ./custom_components:/config/custom_components:ro
     ports:
       - "8123:8123"
+      # debugpy, for "Attach to Home Assistant" in .vscode/launch.json.
+      - "5678:5678"
 
   # A fresh, throwaway Home Assistant for the e2e smoke test; it forgets everything on stop.
   homeassistant-e2e:
