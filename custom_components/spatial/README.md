@@ -99,7 +99,7 @@
   writer wins.
 - Errors: `not_found` (unknown area or floor), `invalid_format` (bad input), `conflict` (an
   expected rev no longer matches; the message lists the area ids and `site`), `unauthorized`.
-- Event `spatial_updated` fires after every change; non-admin users follow it through `spatial/subscribe`.
+- Event `spatial_updated` fires after every change, including every floor registry change (it can change the floors a room occupies); non-admin users follow it through `spatial/subscribe`.
 
 ### Panel
 

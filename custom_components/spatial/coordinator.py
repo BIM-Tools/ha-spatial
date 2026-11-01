@@ -60,6 +60,7 @@ class SpatialCoordinator:
         self.hass = hass
         self.store = SpatialStore(hass)
         self._unsubscribe: list[Any] = []
+        self._is_external_by_area: dict[str, tuple[str, str, bool]] = {}
         self.card_url = ""
 
     async def async_setup(self) -> None:
@@ -86,10 +87,15 @@ class SpatialCoordinator:
 
     @callback
     def _async_floor_updated(self, event: Event[fr.EventFloorRegistryUpdatedData]) -> None:
-        """Drop the dimensions of a removed floor."""
+        """Drop the dimensions of a removed floor; announce every floor change.
+
+        Any floor change can change the floors a room reaching up occupies.
+        """
         if event.data["action"] == "remove" and event.data["floor_id"] in self.store.floors:
             del self.store.floors[event.data["floor_id"]]
             self._changed()
+        else:
+            self.hass.bus.async_fire(EVENT_SPATIAL_UPDATED)
 
     def _changed(self) -> None:
         """Schedule a save and notify listeners."""
@@ -242,12 +248,22 @@ class SpatialCoordinator:
         """Return the floors an area occupies, with None standing for the site level."""
         return set(self._floor_ids(area_id, data)) or {None}
 
-    def _is_external(self, polygon: dict[str, Any]) -> bool:
-        """Return True if most of a footprint lies outside the outline; False without one."""
+    def _is_external(self, area_id: str, data: AreaSpatial, rev: str, site_rev: str) -> bool:
+        """Return True if most of a footprint lies outside the outline; False without one.
+
+        Kept per area until its rev or the site rev changes, as the common area
+        is the costliest part of a read.
+        """
+        cached = self._is_external_by_area.get(area_id)
+        if cached is not None and cached[:2] == (rev, site_rev):
+            return cached[2]
         outline = self.store.site["outline"]
-        if outline is None:
-            return False
-        return 2 * overlap_area_m2(polygon, outline) < net_area_m2(polygon, 0)
+        polygon = data["polygon"]
+        is_external = outline is not None and 2 * overlap_area_m2(polygon, outline) < net_area_m2(
+            polygon, 0
+        )
+        self._is_external_by_area[area_id] = (rev, site_rev, is_external)
+        return is_external
 
     def _on_facade(self, data: AreaSpatial) -> bool:
         """Return the override, else whether an edge of the footprint lies on the outline."""
@@ -264,9 +280,11 @@ class SpatialCoordinator:
         """Return the area footprints, all or those occupying a floor, as a FeatureCollection."""
         area_registry = ar.async_get(self.hass)
         floor_registry = fr.async_get(self.hass)
+        site_rev = self.site_rev()
         features = []
         for area_id, data in self.store.areas.items():
             floor_ids = self._floor_ids(area_id, data)
+            rev = content_rev(data)
             if floor_id and floor_id not in floor_ids:
                 continue
             area = area_registry.async_get_area(area_id)
@@ -292,8 +310,8 @@ class SpatialCoordinator:
                         "floor_ids": floor_ids,
                         "on_facade_override": data["on_facade_override"],
                         "on_facade": self._on_facade(data),
-                        "is_external": self._is_external(data["polygon"]),
-                        "rev": content_rev(data),
+                        "is_external": self._is_external(area_id, data, rev, site_rev),
+                        "rev": rev,
                     },
                 }
             )

@@ -373,3 +373,16 @@ async def test_on_facade_is_derived_unless_overridden(
     )
 
     assert (await _properties(client))["hall"]["on_facade"] is on_facade
+
+
+async def test_floor_changes_are_announced(hass: HomeAssistant) -> None:
+    """Test every floor change is announced, as it can change the floors rooms occupy."""
+    events = async_capture_events(hass, EVENT_SPATIAL_UPDATED)
+    floors = fr.async_get(hass)
+
+    floors.async_create("Roof", level=3)
+    floors.async_update("roof", level=4)
+    floors.async_delete("roof")
+    await hass.async_block_till_done()
+
+    assert len(events) == 3
