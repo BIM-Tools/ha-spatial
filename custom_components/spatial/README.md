@@ -8,10 +8,9 @@
 
 ## How to use
 
-1. Copy `custom_components/spatial/` into your Home Assistant `config/custom_components/`.
-2. Restart, then add **Spatial** under Settings > Devices & services (one instance).
-3. Add footprints, for now with `tools/import_geojson.py` (no editor yet).
-4. Show the rooms on a dashboard: add a card with `type: custom:spatial-map-card`, best in a
+1. Install and add **Spatial** as in the root [README](../../README.md#install) (one instance).
+2. Add footprints, for now with `tools/import_geojson.py` (no editor yet).
+3. Show the rooms on a dashboard: add a card with `type: custom:spatial-map-card`, best in a
    view of type Panel so the map fills it. Everyone who can see the dashboard sees the map.
    The card has one option, in YAML:
 
