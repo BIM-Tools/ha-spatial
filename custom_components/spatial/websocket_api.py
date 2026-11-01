@@ -156,15 +156,15 @@ def ws_update_floor(
 def ws_site(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Return the site centre, bearing and outline."""
+    """Return the site centre, bearing (null until the first Align) and outline."""
     connection.send_result(msg["id"], _coordinator(hass).get_site())
 
 
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "spatial/site/update",
-        vol.Optional("bearing_deg"): vol.All(
-            vol.Coerce(float), vol.Range(min=0, max=360, max_included=False)
+        vol.Optional("bearing_deg"): vol.Any(
+            None, vol.All(vol.Coerce(float), vol.Range(min=0, max=360, max_included=False))
         ),
         vol.Optional("outline"): vol.Any(None, validate_polygon),
     }
@@ -174,7 +174,7 @@ def ws_site(
 def ws_update_site(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Set the bearing (clockwise from north) and/or the outline (null removes it)."""
+    """Set the bearing (clockwise from north) and/or the outline; null removes either."""
     fields: dict[str, Any] = {key: msg[key] for key in ("bearing_deg", "outline") if key in msg}
     if not fields:
         connection.send_error(

@@ -120,7 +120,7 @@ class SpatialCoordinator:
 
     @callback
     def async_update_site(self, fields: dict[str, Any]) -> None:
-        """Set the bearing and/or the outline (None removes it) of the site."""
+        """Set the bearing and/or the outline of the site; None removes either."""
         if "bearing_deg" in fields:
             self.store.bearing_deg = fields["bearing_deg"]
         if "outline" in fields:
