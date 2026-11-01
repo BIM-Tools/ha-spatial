@@ -403,10 +403,7 @@ class SpatialPanel extends LitElement {
     try {
       const style = this._mapVisible
         ? await loadStyle(darkMode)
-        : plainStyle(
-            getComputedStyle(this).getPropertyValue("--primary-background-color").trim() ||
-              (darkMode ? "#111111" : "#fafafa"),
-          );
+        : plainStyle(this._groundColour());
       if (key !== this._pendingStyleKey) return undefined;
       this._styleKey = key;
       return style;
@@ -597,6 +594,13 @@ class SpatialPanel extends LitElement {
     this._applyFloor();
   }
 
+  private _groundColour(): string {
+    return (
+      getComputedStyle(this).getPropertyValue("--primary-background-color").trim() ||
+      (this.hass!.themes.darkMode ? "#111111" : "#fafafa")
+    );
+  }
+
   private _readPaint(): MapPaint {
     return readMapPaint(this, this.hass!.themes.darkMode);
   }
@@ -605,7 +609,10 @@ class SpatialPanel extends LitElement {
   // Home Assistant may set the theme's variables after handing over `hass`, so they are read a frame later.
   private _repaint() {
     requestAnimationFrame(() => {
-      if (this._map?.getLayer("areas-2d") && this.hass) repaint(this._map, this._readPaint());
+      if (!this._map?.getLayer("areas-2d") || !this.hass) return;
+      repaint(this._map, this._readPaint());
+      // Without the map the ground is the page colour, which a theme in the same mode changes too.
+      if (this._map.getLayer("ground")) this._map.setPaintProperty("ground", "background-color", this._groundColour());
     });
   }
 

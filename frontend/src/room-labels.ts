@@ -1,5 +1,6 @@
 // Names the rooms on the plan with their Home Assistant icon and name, sized to the room as it appears on screen.
 
+import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
 import type { Feature, Polygon } from "geojson";
 import { css } from "lit";
 import { Marker, type Map as MapLibreMap } from "maplibre-gl";
@@ -13,39 +14,56 @@ export type LabelStep = "size" | "name" | "icon" | "none";
 const FALLBACK_ICON = "mdi:home-outline";
 // Building label offset from the outline's top-left corner, in pixels.
 const BUILDING_INSET: Point = [10, 8];
+// The space each step needs around the label's centre, in pixels, largest first.
+const STEP_SPACE: [LabelStep, number, number][] = [
+  ["size", 90, 62],
+  ["name", 72, 42],
+  ["icon", 22, 22],
+];
 
-/** The step that fits a label space of this many pixels; `withSize` false leaves out the m². */
-export const labelStep = (widthPx: number, heightPx: number, withSize: boolean): LabelStep => {
-  if (widthPx > 90 && heightPx > 62) return withSize ? "size" : "name";
-  if (widthPx > 72 && heightPx > 42) return "name";
-  if (widthPx >= 22 && heightPx >= 22) return "icon";
+/**
+ * The largest step whose space, centred on `at`, has all four corners inside the rings;
+ * `withSize` false leaves out the m². A concave notch between two corners is not seen.
+ */
+export const labelStep = (rings: Point[][], at: Point, withSize: boolean): LabelStep => {
+  const room: Polygon = { type: "Polygon", coordinates: rings };
+  const inside = ([x, y]: Point) => booleanPointInPolygon([x, y], room);
+  for (const [step, width, height] of STEP_SPACE) {
+    const [halfWidth, halfHeight] = [width / 2, height / 2];
+    const corners: Point[] = [
+      [at[0] - halfWidth, at[1] - halfHeight],
+      [at[0] + halfWidth, at[1] - halfHeight],
+      [at[0] + halfWidth, at[1] + halfHeight],
+      [at[0] - halfWidth, at[1] + halfHeight],
+    ];
+    if (corners.every(inside)) return step === "size" && !withSize ? "name" : step;
+  }
   return "none";
 };
 
-// Custom: the distance from `at` to the nearest crossing with the rings along one axis, on either side.
-const halfChord = (rings: Point[][], at: Point, axis: 0 | 1): number => {
-  const across = 1 - axis;
+// Custom: the distance from `at` to the nearest crossing with the rings along the x axis, on either side.
+const halfWidthAt = (rings: Point[][], at: Point): number => {
   let nearest = Infinity;
   for (const ring of rings) {
     for (let index = 0; index < ring.length - 1; index++) {
       const [from, to] = [ring[index], ring[index + 1]];
-      if (from[across] === to[across] || (at[across] - from[across]) * (at[across] - to[across]) > 0) continue;
-      const crossing = from[axis] + ((at[across] - from[across]) * (to[axis] - from[axis])) / (to[across] - from[across]);
-      nearest = Math.min(nearest, Math.abs(crossing - at[axis]));
+      if (from[1] === to[1] || (at[1] - from[1]) * (at[1] - to[1]) > 0) continue;
+      const crossing = from[0] + ((at[1] - from[1]) * (to[0] - from[0])) / (to[1] - from[1]);
+      nearest = Math.min(nearest, Math.abs(crossing - at[0]));
     }
   }
   return nearest;
 };
 
 /**
- * Where a label goes in a polygon given in screen pixels, and the width and height centred
- * there that stay inside it. The point is the pole of inaccessibility, never the centroid,
- * so an L-shaped room gets its label in its widest part.
+ * Where a label goes in a polygon given in screen pixels, and the width across the room
+ * there, which bounds the name. The point is the pole of inaccessibility, never the
+ * centroid, so an L-shaped room gets its label in its widest part.
  */
-export const labelSpace = (rings: Point[][]): { at: Point; width: number; height: number } => {
-  const at = polylabel(rings, 1) as Point;
-  const point: Point = [at[0], at[1]];
-  return { at: point, width: 2 * halfChord(rings, point, 0), height: 2 * halfChord(rings, point, 1) };
+export const labelSpace = (rings: Point[][]): { at: Point; width: number } => {
+  const pole = polylabel(rings, 1);
+  const at: Point = [pole[0], pole[1]];
+  return { at, width: 2 * halfWidthAt(rings, at) };
 };
 
 export interface AreaInfo {
@@ -169,7 +187,7 @@ export class RoomLabels {
       const areaId = String(room.properties?.area_id ?? room.id);
       const rings = room.geometry.coordinates.map((ring) => ring.map((position) => this._toScreen(position)));
       const space = labelSpace(rings);
-      const step = labelStep(space.width, space.height, this._withSize);
+      const step = labelStep(rings, space.at, this._withSize);
       if (step === "none") continue;
       kept.add(areaId);
       const label = this._labels.get(areaId) ?? this._newLabel(areaId);
@@ -212,6 +230,9 @@ export class RoomLabels {
     { step, name, icon, size, chip, width }: { step: LabelStep; name: string; icon: string; size: string; chip: boolean; width: number },
   ) {
     element.dataset.step = step;
+    // Named at every step, also when only the icon shows.
+    element.setAttribute("role", "img");
+    element.setAttribute("aria-label", size ? `${name}, ${size}` : name);
     element.style.setProperty("--label-width", `${Math.max(0, Math.floor(width) - 8)}px`);
     const iconElement = document.createElement("ha-icon");
     iconElement.setAttribute("icon", icon);

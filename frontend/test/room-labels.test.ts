@@ -6,7 +6,7 @@ import { fakeMapLibre, liveMarkers, resetFakes, unprojectPixel } from "./panel-h
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
 
-import { RoomLabels, labelSpace } from "../src/room-labels";
+import { RoomLabels, labelSpace, labelStep } from "../src/room-labels";
 
 afterEach(resetFakes);
 
@@ -78,6 +78,7 @@ test("the card's labels have no m²", () => {
 
 test("an icon-only room names itself in a chip while pointed at", () => {
   const labels = mountLabels([pixelRoom("wc", [400, 0], [430, 30])], true, AREAS);
+  expect(labelOf("wc")?.getAttribute("aria-label")).toBe("WC");
   labels.point("wc");
   expect(shown("wc")?.chip).toBe("WC");
   labels.point(undefined);
@@ -106,8 +107,27 @@ test("an L-shaped room's label sits in its widest part, not on its centroid", ()
       [0, 0],
     ],
   ];
-  const { at, width, height } = labelSpace(rings);
+  const { at, width } = labelSpace(rings);
   expect(at[1]).toBeCloseTo(40, -1);
-  expect(height).toBeCloseTo(80, -1);
   expect(width).toBeGreaterThanOrEqual(78);
+  expect(labelStep(rings, at, true)).toBe("size");
+});
+
+test("a room turned on screen gets only the step whose space fits inside it", () => {
+  // A 100 px square turned 45 degrees: its full width and height at the centre, but not its corners.
+  const diamond: [number, number][][] = [
+    [
+      [0, 50],
+      [50, 0],
+      [100, 50],
+      [50, 100],
+      [0, 50],
+    ],
+  ];
+  expect(labelStep(diamond, [50, 50], true)).toBe("icon");
+});
+
+test("a label is named with its m² for screen readers", () => {
+  mountLabels([pixelRoom("living", [0, 0], [200, 120])], true, AREAS);
+  expect(labelOf("living")?.getAttribute("aria-label")).toBe("Living room, 12.3 m²");
 });

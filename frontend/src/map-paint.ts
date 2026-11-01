@@ -4,11 +4,12 @@ import type { Map as MapLibreMap } from "maplibre-gl";
 
 type Rgba = [number, number, number, number];
 
-/*
+/*!
  * parseColor and computeColor are ported from home-assistant/frontend
  * src/common/map/map-theme-colors.ts, release 20260930.3:
  * https://github.com/home-assistant/frontend/blob/20260930.3/src/common/map/map-theme-colors.ts
  * Copyright Home Assistant contributors, Apache License 2.0.
+ * Changed: parseColor also rejects an alpha it cannot read, such as a percentage.
  */
 
 const HEX = /^#([0-9a-f]{3,8})$/i;
@@ -34,7 +35,7 @@ const parseColor = (value: string): Rgba | undefined => {
       .split(/[,\s/]+/)
       .filter(Boolean)
       .map(Number);
-    if (parts.length < 3 || parts.slice(0, 3).some(Number.isNaN)) {
+    if (parts.length < 3 || parts.slice(0, 4).some(Number.isNaN)) {
       return undefined;
     }
     return [parts[0], parts[1], parts[2], parts[3] ?? 1];
@@ -94,7 +95,10 @@ export interface MapPaint {
 const rgba = ([r, g, b, a]: Rgba, opacity = 1) => `rgba(${r},${g},${b},${Math.round(a * opacity * 1000) / 1000})`;
 
 const mix = (first: Rgba, second: Rgba, firstShare: number): Rgba =>
-  first.map((channel, index) => Math.round(channel * firstShare + second[index] * (1 - firstShare))) as Rgba;
+  first.map((channel, index) => {
+    const blended = channel * firstShare + second[index] * (1 - firstShare);
+    return index < 3 ? Math.round(blended) : blended;
+  }) as Rgba;
 
 /** Reads the theme as it applies to `element`; `dark` picks the opacities and the defaults. */
 export const readMapPaint = (element: Element, dark: boolean): MapPaint => {

@@ -47,6 +47,9 @@ jobs:
           polylabel frontend/node_modules/polylabel/LICENSE
           tinyqueue frontend/node_modules/tinyqueue/LICENSE
           LIST
+          # src/map-paint.ts ports code from Home Assistant's frontend; keep the tag equal to its source link.
+          curl -fsSL https://raw.githubusercontent.com/home-assistant/frontend/20260930.3/LICENSE.md \
+            -o "$out/LICENSE-home-assistant-frontend.txt"
 
       # The tag is the version, so manifest.json in the repository is not bumped by hand.
       - run: |
