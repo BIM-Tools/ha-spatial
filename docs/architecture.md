@@ -48,7 +48,7 @@ flowchart LR
 | --- | --- | --- | --- |
 | Area | `area_id` | `polygon` (GeoJSON Polygon, WGS84), `floors_up`, `on_facade_override` | `area_m2` (net), `floor_ids`, `base_m`, `top_m`, `on_facade`, `is_external`, `rev`; name, floor and level from the registries |
 | Floor | `floor_id` | `elevation_m`, `height_m` (both optional) | Without them, 3 m per level |
-| Site | one per installation | `bearing_deg` (null until the first Align), `origin` (grid origin or null), `outline` (Polygon or null) | Centre: the footprints' bounding box, else the outline, else the home location; `rev` |
+| Site | one per installation | `bearing_deg` (null until the first Align), `origin` (grid origin; null until the first write, which stores a default), `outline` (Polygon or null) | Centre: the footprints' bounding box, else the outline, else the home location; the site frame (origin, bearing, WGS84 radii) all values are read in; `rev` |
 
 - Every area entry and the site carry a `rev`, a hash of their content; writes may send the rev
   they expect and are refused with `conflict` when it changed.
@@ -64,13 +64,13 @@ the ones the code applies today.
 | Rule | Value |
 | --- | --- |
 | Coordinates | WGS84 GeoJSON, the same world as Home Assistant zones |
-| Measurement | In the integration, local tangent plane with exact WGS84 radii; never from the map projection |
+| Measurement | In the integration, in one site frame (the local tangent plane at the origin, along the bearing, exact WGS84 radii), on a lattice of a quarter drawing grid step (2.5 cm, 1 in for US customary); stored coordinates stay as written; never from the map projection |
 | Footprint | One area has at most one `Polygon`, holes allowed; no MultiPolygon |
-| Drawing convention | Rooms are drawn to wall centrelines, so neighbours share edges; the outline is the facade |
+| Drawing convention | Rooms are drawn on wall axes, so neighbours share edges; the outline is the exterior wall axis and indoor rooms never extend beyond it |
 | Rooms across floors | The Home Assistant floor is a room's lowest; `floors_up` adds the floors above it |
-| Adjacency | Derived from shared edges, outer and inner rings, on every floor both rooms occupy; never stored |
-| Area | `area_m2` is net: the drawn polygon shrunk by 50 mm on every side |
-| Outdoor, facade | `is_external`: more than half the room outside the outline; `on_facade`: an edge on the outline, with an optional override |
+| Adjacency | Shared wall axes, outer and inner rings, compared exactly on the lattice over at least 0.3 m, on every floor both rooms occupy; never stored |
+| Area | `area_m2` is net: the polygon inset by half walls, 15 cm (3 in) along the outline and 5 cm (2 in) elsewhere |
+| Outdoor, facade | `is_external`: the room lies outside the outline; `on_facade`: it shares at least 0.3 m of the outline, with an optional override |
 | Building, sub-spaces | Home Assistant labels; no code |
 | Site anchor | One direction and one optional outline per installation; aligns views only, stored geometry never moves with it |
 | Finding the building | OSM buildings in Home Assistant's map tiles set the direction only |

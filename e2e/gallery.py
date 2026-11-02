@@ -468,7 +468,7 @@ def draw_box_mid_drag(shot: Shot) -> None:
     draw_active(shot)
     shot.activate_pill("Building")
     left, top, right, bottom = shot.floor_screen_box("Ground floor")
-    # Outside the drawn outline, which lies around the rooms: a press inside it would move it.
+    # Outside the outline, which runs along the outer rooms: a press inside it would move it.
     shot.start_drag((left - 40, top - 40), ((left + right) / 2, (top + bottom) / 2))
 
 
