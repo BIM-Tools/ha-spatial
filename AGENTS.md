@@ -204,5 +204,5 @@ What is and is not checked automatically:
   Assistant registers `/spatial_static` as a single file and the panel 404s until a restart.
 - `manifest.json`'s `version` in git is not the released one; the release workflow writes the
   tag into the zip.
-- HACS does not install a repository whose only release is a GitHub pre-release; publish
-  releases as full releases.
+- HACS offers the newest full release; with only a pre-release its default Download is the
+  latest commit, which has no `spatial.zip` and fails. Publish releases as full releases.
