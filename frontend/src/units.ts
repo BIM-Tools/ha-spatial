@@ -31,13 +31,24 @@ const numberFormatToLocale = (localeOptions: HassUnits["locale"]): string | stri
 };
 
 // The `none` format is en-US without grouping, as in formatNumberToParts of the same file.
-const formatNumber = (value: number, hass: HassUnits, fractionDigits: number): string => {
+const numberFormat = (hass: HassUnits, fractionDigits: number): Intl.NumberFormat => {
   const none = hass.locale.number_format === "none";
   return new Intl.NumberFormat(none ? "en-US" : numberFormatToLocale(hass.locale), {
     minimumFractionDigits: fractionDigits,
     maximumFractionDigits: fractionDigits,
     ...(none && { useGrouping: false }),
-  }).format(value);
+  });
+};
+
+const formatNumber = (value: number, hass: HassUnits, fractionDigits: number): string =>
+  numberFormat(hass, fractionDigits).format(value);
+
+// The user's digits and decimal mark as ASCII digits and a dot, so a length shown in any number format reads back.
+const asciiDigits = (text: string, hass: HassUnits): string => {
+  const parts = numberFormat(hass, 1).formatToParts(1234567890.1);
+  const digits = parts.filter(({ type }) => type === "integer" || type === "fraction").map(({ value }) => value).join("");
+  const decimal = parts.find(({ type }) => type === "decimal")?.value;
+  return [...text].map((char) => (char === decimal ? "." : ("12345678901"[digits.indexOf(char)] ?? char))).join("");
 };
 
 /** Metres with two decimals, or feet and inches to the nearest inch. */
@@ -54,7 +65,7 @@ export const formatArea = (squareMetres: number, hass: HassUnits): string =>
     ? `${formatNumber(squareMetres / SQUARE_METRES_PER_SQUARE_FOOT, hass, 0)} ft²`
     : `${formatNumber(squareMetres, hass, 1)} m²`;
 
-const NUMBER = String.raw`(\d+(?:[.,]\d+)?)`;
+const NUMBER = String.raw`(\d*[.,]?\d+)`;
 const METRIC_LENGTH = new RegExp(String.raw`^${NUMBER}\s*m?$`);
 // 12' 6", 12'6 or 12 6.
 const FEET_AND_INCHES = new RegExp(String.raw`^${NUMBER}\s*(?:'\s*|\s+)${NUMBER}\s*"?$`);
@@ -63,11 +74,12 @@ const FEET_OR_INCHES = new RegExp(String.raw`^${NUMBER}\s*(['"]?)$`);
 const numberOf = (text: string): number => Number(text.replace(",", "."));
 
 /**
- * A typed length in metres, or undefined when it is not one. Metric takes metres with a comma or
- * dot decimal; US customary takes feet and inches, inches with `"`, or feet with `'` or no mark.
+ * A typed length in metres, or undefined when it is not one. Metric takes metres with a comma, a dot
+ * or the user's own decimal mark; US customary takes feet and inches, inches with `"`, or feet with
+ * `'` or no mark. Thousands separators are not read: a comma is a decimal mark.
  */
 export function parseLength(text: string, hass: HassUnits): number | undefined {
-  const typed = text.trim();
+  const typed = asciiDigits(text, hass).trim();
   if (!isUsCustomary(hass)) {
     const metric = METRIC_LENGTH.exec(typed);
     return metric ? numberOf(metric[1]) : undefined;

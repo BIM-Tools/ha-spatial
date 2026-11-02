@@ -69,6 +69,16 @@ test.each(["", "abc", "4.2.5", "-3", `12' 6'`, `1' 2' 3"`, "12 ft", "m"])("%j re
   expect(parseLength(text, US)).toBeUndefined();
 });
 
+test.each([".5", ",5", "0.5 m"])("metric %j reads as 0.5 m", (text) => {
+  expect(parseLength(text, METRIC)).toBeCloseTo(0.5, 9);
+});
+
+test("a length in Persian digits and decimal mark reads back", () => {
+  const persian = hassWith("km", "language", "fa");
+  expect(formatLength(4.25, persian)).toBe("۴٫۲۵ m");
+  expect(parseLength("۴٫۲۵ m", persian)).toBeCloseTo(4.25, 9);
+});
+
 test("metric does not read feet and inches", () => {
   expect(parseLength(`12' 6"`, METRIC)).toBeUndefined();
   expect(parseLength("12 6", METRIC)).toBeUndefined();
@@ -78,7 +88,9 @@ test("a shown length reads back within half an inch, or half a centimetre", () =
   for (let metres = 0.2; metres < 30; metres += 0.137) {
     expect(Math.abs(parseLength(formatLength(metres, US), US)! - metres)).toBeLessThanOrEqual(INCH_M / 2 + FLOAT_SLACK);
     expect(Math.abs(parseLength(formatLength(metres, METRIC), METRIC)! - metres)).toBeLessThanOrEqual(0.005 + FLOAT_SLACK);
-    const dutch = hassWith("km", "language", "nl");
-    expect(Math.abs(parseLength(formatLength(metres, dutch), dutch)! - metres)).toBeLessThanOrEqual(0.005 + FLOAT_SLACK);
+    for (const [numberFormat, language] of [["language", "nl"], ["language", "fa"], ["quote_decimal", "en"], ["space_comma", "en"]]) {
+      const local = hassWith("km", numberFormat, language);
+      expect(Math.abs(parseLength(formatLength(metres, local), local)! - metres)).toBeLessThanOrEqual(0.005 + FLOAT_SLACK);
+    }
   }
 });
