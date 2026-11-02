@@ -102,16 +102,23 @@ async def import_file(path: str, url: str, token: str) -> None:
                 footprints[areas[key]] = feature["geometry"]
             names[areas[key]] = name
 
-        # A file may only set floors or the site; the batch command needs at least one area.
-        if footprints:
-            result = await client.call("spatial/area/update_geometries", areas=footprints)
+        # The site goes in the same change, as footprints need its origin and bearing.
+        # Older files also carry lon and lat; the centre is derived now.
+        site_block = collection.get("site") or {}
+        site = {
+            key: site_block[key]
+            for key in ("bearing_deg", "origin", "outline")
+            if key in site_block
+        }
+        # A file may only set floors; the batch command needs areas or a site.
+        if footprints or site:
+            result = await client.call(
+                "spatial/area/update_geometries",
+                areas=footprints,
+                **({"site": site} if site else {}),
+            )
             for area_id, area_m2 in result["area_m2"].items():
                 print(f"{names[area_id]}: {area_m2} m²")
-
-        # Older files also carry lon and lat; the centre is derived now.
-        site = collection.get("site") or {}
-        if "bearing_deg" in site:
-            await client.call("spatial/site/update", bearing_deg=site["bearing_deg"])
 
 
 def main() -> None:

@@ -11,12 +11,14 @@ from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
 from custom_components.spatial.const import DOMAIN, EVENT_SPATIAL_UPDATED
 
-from .common import lonlat, rect
+from .common import lonlat, rect, set_frame
 
 
 @pytest.fixture(autouse=True)
-async def setup_integration(hass: HomeAssistant) -> MockConfigEntry:
-    """Set up Spatial with one floor and two areas."""
+async def setup_integration(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> MockConfigEntry:
+    """Set up Spatial with one floor and two areas, aligned to the test frame."""
     ground = fr.async_get(hass).async_create("Ground floor", level=0)
     areas = ar.async_get(hass)
     areas.async_create("Kitchen", floor_id=ground.floor_id)
@@ -25,6 +27,7 @@ async def setup_integration(hass: HomeAssistant) -> MockConfigEntry:
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+    await set_frame(hass, hass_ws_client)
     return entry
 
 
@@ -37,9 +40,14 @@ async def _call(client: Any, **command: Any) -> dict[str, Any]:
 async def _reload_with(
     hass: HomeAssistant, hass_storage: dict[str, Any], entry: MockConfigEntry, stored: Any
 ) -> None:
-    """Reload the entry with the given file content in `.storage/spatial`."""
+    """Reload the entry with the given file content in `.storage/spatial`.
+
+    Unloads first, as unloading writes pending changes over the file.
+    """
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
     hass_storage[DOMAIN] = stored
-    assert await hass.config_entries.async_reload(entry.entry_id)
+    assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
 
@@ -62,7 +70,7 @@ async def test_release_1_1_data_is_migrated(
     hass_storage: dict[str, Any],
     setup_integration: MockConfigEntry,
 ) -> None:
-    """Test 1.1 data with legacy fields and missing keys is saved complete as 1.2."""
+    """Test 1.1 data with legacy fields and missing keys is saved complete as 1.3."""
     await _reload_with(
         hass,
         hass_storage,
@@ -79,9 +87,9 @@ async def test_release_1_1_data_is_migrated(
     )
 
     stored = hass_storage[DOMAIN]
-    assert (stored["version"], stored["minor_version"]) == (1, 2)
+    assert (stored["version"], stored["minor_version"]) == (1, 3)
     assert stored["data"] == {
-        "site": {"bearing_deg": 0.0, "origin": None, "outline": None},
+        "site": {"bearing_deg": 0.0, "origin": [5.0, 52.0], "outline": None},
         "floors": {"ground_floor": {"elevation_m": None, "height_m": 2.6}},
         "areas": {
             "kitchen": {"polygon": rect(0, 0, 4, 3), "floors_up": 0, "on_facade_override": None}
@@ -102,13 +110,17 @@ async def test_release_1_1_data_without_content_is_migrated(
     setup_integration: MockConfigEntry,
     data: dict[str, Any],
 ) -> None:
-    """Test a 1.1 file without areas, floors or site loads as an unaligned, empty plan."""
+    """Test a 1.1 file without areas, floors or site loads as an unaligned plan, origin at home."""
     await _reload_with(
         hass, hass_storage, setup_integration, {"version": 1, "key": DOMAIN, "data": data}
     )
 
     assert hass_storage[DOMAIN]["data"] == {
-        "site": {"bearing_deg": None, "origin": None, "outline": None},
+        "site": {
+            "bearing_deg": None,
+            "origin": [hass.config.longitude, hass.config.latitude],
+            "outline": None,
+        },
         "floors": {},
         "areas": {},
         "onboarding": {"home_pin": None},
@@ -116,7 +128,60 @@ async def test_release_1_1_data_without_content_is_migrated(
     client = await hass_ws_client(hass)
     site = (await _call(client, type="spatial/site"))["result"]
     assert site["bearing_deg"] is None
-    assert site["origin"] is None
+    assert site["origin"] == [hass.config.longitude, hass.config.latitude]
+
+
+@pytest.mark.parametrize(
+    ("bearing_deg", "outline", "areas", "origin"),
+    [
+        (0.0, rect(-1, -1, 10, 10), {"kitchen": rect(0, 0, 4, 3)}, lonlat(-1, -1)),
+        (0.0, None, {"kitchen": rect(0, 0, 4, 3)}, lonlat(0, 0)),
+        (None, None, {"kitchen": rect(0, 0, 4, 3)}, lonlat(0, 0)),
+        (0.0, None, {}, None),
+    ],
+    ids=["outline_corner", "footprint_corner", "unaligned", "home"],
+)
+async def test_release_1_2_site_gets_an_origin(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    hass_storage: dict[str, Any],
+    setup_integration: MockConfigEntry,
+    bearing_deg: float | None,
+    outline: dict[str, Any] | None,
+    areas: dict[str, dict[str, Any]],
+    origin: list[float] | None,
+) -> None:
+    """Test a 1.2 site without an origin gets one, so its plans are measured again."""
+    await _reload_with(
+        hass,
+        hass_storage,
+        setup_integration,
+        {
+            "version": 1,
+            "minor_version": 2,
+            "key": DOMAIN,
+            "data": {
+                "site": {"bearing_deg": bearing_deg, "origin": None, "outline": outline},
+                "floors": {},
+                "areas": {
+                    area_id: {"polygon": polygon, "floors_up": 0, "on_facade_override": None}
+                    for area_id, polygon in areas.items()
+                },
+                "onboarding": {"home_pin": None},
+            },
+        },
+    )
+
+    client = await hass_ws_client(hass)
+    site = (await _call(client, type="spatial/site"))["result"]
+    assert site["origin"] == (origin or [hass.config.longitude, hass.config.latitude])
+    assert site["bearing_deg"] == bearing_deg
+    features = (await _call(client, type="spatial/geojson"))["result"]["features"]
+    assert [f["properties"]["area_m2"] for f in features] == [11.31] * len(areas)
+    assert hass_storage[DOMAIN]["data"]["areas"] == {
+        area_id: {"polygon": polygon, "floors_up": 0, "on_facade_override": None}
+        for area_id, polygon in areas.items()
+    }
 
 
 async def test_new_writes_are_saved_complete(
@@ -135,9 +200,9 @@ async def test_new_writes_are_saved_complete(
     await hass.async_block_till_done()
 
     stored = hass_storage[DOMAIN]
-    assert stored["minor_version"] == 2
+    assert stored["minor_version"] == 3
     assert stored["data"] == {
-        "site": {"bearing_deg": None, "origin": None, "outline": None},
+        "site": {"bearing_deg": 0.0, "origin": [5.0, 52.0], "outline": None},
         "floors": {},
         "areas": {
             "kitchen": {"polygon": rect(0, 0, 4, 3), "floors_up": 0, "on_facade_override": None}
@@ -191,7 +256,7 @@ async def test_write_with_matching_revs_returns_new_revs(
         client,
         type="spatial/area/update_geometries",
         areas={"kitchen": None, "hallway": rect(4, 0, 6, 3)},
-        site={"bearing_deg": 20.0},
+        site={"bearing_deg": 90.0},
         expected_rev={"kitchen": area_revs["kitchen"], "hallway": None},
         expected_site_rev=site_rev,
     )
@@ -270,7 +335,7 @@ async def test_site_only_write(hass: HomeAssistant, hass_ws_client: WebSocketGen
     """Test a write with only a site change sets origin, outline and bearing, once."""
     client = await hass_ws_client(hass)
     events = async_capture_events(hass, EVENT_SPATIAL_UPDATED)
-    origin = lonlat(1, 2)
+    origin = lonlat(0, 0)
 
     msg = await _call(
         client,

@@ -366,6 +366,21 @@ test.each([false, true])("the stored outline is drawn on start and after updates
   expect(sources.outline.data).toEqual(EMPTY);
 });
 
+test("in Align a save Spatial refuses turns the map back and shows its reason, without Retry", async () => {
+  const refusal = { code: "outside_outline", message: "Beyond the building outline: kitchen" };
+  const { panel } = mountPanel(async (message) => {
+    if (message.type === "spatial/site/update") throw refusal;
+    return answer(message);
+  });
+  queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
+  vi.spyOn(console, "error").mockImplementationOnce(() => {});
+  await startAligning(panel);
+  click();
+  await vi.waitFor(() => expect(toastMessages()).toEqual([refusal.message]));
+  expect(toasts[0].action).toBeUndefined();
+  expect(easeTo).toHaveBeenLastCalledWith({ bearing: 270 });
+});
+
 test("in Align a failed save turns the map back and offers Retry, which saves the same bearing again", async () => {
   let fail = true;
   const { panel, connection } = mountPanel(async (message) => {

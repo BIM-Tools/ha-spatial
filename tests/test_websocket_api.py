@@ -26,7 +26,7 @@ from custom_components.spatial.const import (
     SAVE_DELAY_S,
 )
 
-from .common import lonlat, rect
+from .common import lonlat, rect, set_frame
 
 WRITE_COMMANDS: list[dict[str, Any]] = [
     {"type": "spatial/area/update_geometries", "areas": {"kitchen": rect(0, 0, 4, 3)}},
@@ -35,8 +35,10 @@ WRITE_COMMANDS: list[dict[str, Any]] = [
 
 
 @pytest.fixture(autouse=True)
-async def setup_integration(hass: HomeAssistant) -> MockConfigEntry:
-    """Set up Spatial with two floors and three areas."""
+async def setup_integration(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> MockConfigEntry:
+    """Set up Spatial with two floors and three areas, aligned to the test frame."""
     floors = fr.async_get(hass)
     ground = floors.async_create("Ground floor", level=0)
     first = floors.async_create("First floor", level=1)
@@ -49,6 +51,7 @@ async def setup_integration(hass: HomeAssistant) -> MockConfigEntry:
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+    await set_frame(hass, hass_ws_client)
     return entry
 
 
@@ -166,7 +169,7 @@ async def test_query_point_prefers_smallest_area(
 async def test_adjacent_areas_from_shared_edges(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator
 ) -> None:
-    """Test adjacency is derived from shared centreline edges on the same floor."""
+    """Test adjacency is derived from shared wall axes on the same floor."""
     client = await hass_ws_client(hass)
     await _set_geometry(client, "kitchen", rect(0, 0, 4, 3))
     await _set_geometry(client, "hallway", rect(4, 0, 6, 3))
@@ -303,6 +306,10 @@ async def test_unload_after_the_delayed_save_does_not_write_again(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator, setup_integration: MockConfigEntry
 ) -> None:
     """Test a save that already happened is not repeated on unload."""
+    # Let the frame's own delayed save happen first: a second save within the
+    # delay moves the timer out, which a faked time change cannot follow.
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=SAVE_DELAY_S + 1))
+    await hass.async_block_till_done()
     client = await hass_ws_client(hass)
     await _set_geometry(client, "kitchen", rect(0, 0, 4, 3))
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=SAVE_DELAY_S + 1))

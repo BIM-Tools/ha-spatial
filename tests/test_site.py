@@ -15,7 +15,7 @@ from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
 from custom_components.spatial.const import DOMAIN, EVENT_SPATIAL_UPDATED
 
-from .common import lonlat, rect
+from .common import FRAME, lonlat, rect, set_frame
 
 
 @pytest.fixture(autouse=True)
@@ -58,6 +58,7 @@ async def test_site_centre_is_the_middle_of_all_footprints(
 ) -> None:
     """Test the centre is the middle of the combined bounds of all footprints."""
     client = await hass_ws_client(hass)
+    await set_frame(hass, hass_ws_client)
     areas = {"kitchen": rect(0, 0, 4, 3), "garden": rect(10, -6, 20, 0)}
     msg = await _call(client, type="spatial/area/update_geometries", areas=areas)
     assert msg["success"], msg
@@ -66,7 +67,6 @@ async def test_site_centre_is_the_middle_of_all_footprints(
     lon, lat = lonlat(10, -1.5)  # x from 0 to 20, y from -6 to 3
     assert msg["result"]["lon"] == pytest.approx(lon, abs=1e-9)
     assert msg["result"]["lat"] == pytest.approx(lat, abs=1e-9)
-    assert msg["result"]["bearing_deg"] is None
 
 
 async def test_site_centre_follows_footprint_edits(
@@ -74,6 +74,7 @@ async def test_site_centre_follows_footprint_edits(
 ) -> None:
     """Test the centre moves when a footprint changes or is removed."""
     client = await hass_ws_client(hass)
+    await set_frame(hass, hass_ws_client)
     await _call(client, type="spatial/area/update_geometries", areas={"kitchen": rect(0, 0, 4, 3)})
     msg = await _call(client, type="spatial/site")
     assert msg["result"]["lon"] == pytest.approx(lonlat(2, 0)[0], abs=1e-9)
@@ -93,7 +94,7 @@ async def test_site_centre_follows_footprint_edits(
 async def test_update_site_persists_bearing(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator, setup_integration: MockConfigEntry
 ) -> None:
-    """Test the bearing can be set and survives a reload."""
+    """Test the bearing can be set and survives a reload; without footprints the origin is home."""
     client = await hass_ws_client(hass)
     msg = await _call(client, type="spatial/site/update", bearing_deg=12.5)
     assert msg["success"], msg
@@ -106,7 +107,7 @@ async def test_update_site_persists_bearing(
         "lon": hass.config.longitude,
         "lat": hass.config.latitude,
         "bearing_deg": 12.5,
-        "origin": None,
+        "origin": [hass.config.longitude, hass.config.latitude],
         "outline": None,
         "rev": ANY,
     }
@@ -161,7 +162,10 @@ async def test_legacy_stored_site_loads(
     legacy_site: dict[str, float | None] | None,
     bearing_deg: float | None,
 ) -> None:
-    """Test stored data loads: no bearing means not aligned, a stored 0 stays a direction."""
+    """Test stored data loads: no bearing means not aligned, a stored 0 stays a direction.
+
+    Every site gets an origin, here the home location as there is nothing drawn.
+    """
     hass_storage[DOMAIN] = {
         "version": 1,
         "key": DOMAIN,
@@ -176,19 +180,19 @@ async def test_legacy_stored_site_loads(
         "lon": hass.config.longitude,
         "lat": hass.config.latitude,
         "bearing_deg": bearing_deg,
-        "origin": None,
+        "origin": [hass.config.longitude, hass.config.latitude],
         "outline": None,
         "rev": ANY,
     }
 
 
-async def test_legacy_stored_area_size_is_recomputed(
+async def test_legacy_footprint_is_measured_from_its_own_corner(
     hass: HomeAssistant,
     hass_ws_client: WebSocketGenerator,
     hass_storage: dict[str, Any],
     setup_integration: MockConfigEntry,
 ) -> None:
-    """Test a footprint stored with an old gross area reports the net area."""
+    """Test a footprint stored before origins existed is measured from its first corner."""
     hass_storage[DOMAIN] = {
         "version": 1,
         "key": DOMAIN,
@@ -204,16 +208,18 @@ async def test_legacy_stored_area_size_is_recomputed(
     client = await hass_ws_client(hass)
     msg = await _call(client, type="spatial/geojson")
     [feature] = msg["result"]["features"]
-    assert feature["properties"]["area_m2"] == pytest.approx(11.31, rel=0.001)
+    assert feature["geometry"] == rect(0, 0, 4, 3)
+    assert feature["properties"]["area_m2"] == 11.31
+    assert (await _call(client, type="spatial/site"))["result"]["origin"] == lonlat(0, 0)
 
 
 async def test_site_outline_round_trip(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator, setup_integration: MockConfigEntry
 ) -> None:
-    """Test the outline and bearing are stored together and survive a reload."""
+    """Test the outline, origin and bearing are stored together and survive a reload."""
     client = await hass_ws_client(hass)
     outline = rect(0, 0, 10, 8)
-    msg = await _call(client, type="spatial/site/update", bearing_deg=30.0, outline=outline)
+    msg = await _call(client, type="spatial/site/update", **FRAME, outline=outline)
     assert msg["success"], msg
 
     assert await hass.config_entries.async_reload(setup_integration.entry_id)
@@ -221,7 +227,7 @@ async def test_site_outline_round_trip(
 
     msg = await _call(client, type="spatial/site")
     assert msg["result"]["outline"] == outline
-    assert msg["result"]["bearing_deg"] == 30.0
+    assert msg["result"]["bearing_deg"] == 0.0
 
 
 async def test_site_centre_uses_outline_without_footprints(
@@ -229,6 +235,7 @@ async def test_site_centre_uses_outline_without_footprints(
 ) -> None:
     """Test the centre is the middle of the outline's bounds when there are no footprints."""
     client = await hass_ws_client(hass)
+    await set_frame(hass, hass_ws_client)
     await _call(client, type="spatial/site/update", outline=rect(0, 0, 10, 8))
     msg = await _call(client, type="spatial/site")
     lon, lat = lonlat(5, 4)
@@ -241,6 +248,7 @@ async def test_site_centre_prefers_footprints(
 ) -> None:
     """Test footprints decide the centre when there is also an outline."""
     client = await hass_ws_client(hass)
+    await set_frame(hass, hass_ws_client)
     await _call(client, type="spatial/site/update", outline=rect(0, 0, 10, 8))
     await _call(client, type="spatial/area/update_geometries", areas={"kitchen": rect(0, 0, 4, 3)})
     msg = await _call(client, type="spatial/site")
@@ -280,6 +288,7 @@ async def test_site_bearing_cleared_with_null(
 ) -> None:
     """Test null removes the bearing and leaves the outline alone."""
     client = await hass_ws_client(hass)
+    await set_frame(hass, hass_ws_client)
     outline = rect(0, 0, 10, 8)
     await _call(client, type="spatial/site/update", bearing_deg=30.0, outline=outline)
     msg = await _call(client, type="spatial/site/update", bearing_deg=None)
@@ -294,6 +303,7 @@ async def test_site_outline_cleared_with_null(
 ) -> None:
     """Test null removes the outline and leaves the bearing alone."""
     client = await hass_ws_client(hass)
+    await set_frame(hass, hass_ws_client)
     await _call(client, type="spatial/site/update", bearing_deg=30.0, outline=rect(0, 0, 10, 8))
     msg = await _call(client, type="spatial/site/update", outline=None)
     assert msg["success"], msg

@@ -779,13 +779,18 @@ class SpatialPanel extends LitElement {
     this._saveBearing(newBearing, this._bearing);
   }
 
-  // A failed save turns the view back; Retry turns it to the picked wall again and saves once more.
+  // A failed save turns the view back. A refusal shows Spatial's reason, as trying again would not
+  // help; otherwise Retry turns the view to the picked wall again and saves once more.
   private _saveBearing(newBearing: number, previousBearing: number | null) {
     this._bearing = newBearing;
     this.hass!.connection.sendMessagePromise({ type: "spatial/site/update", bearing_deg: newBearing }).catch((err) => {
       console.error(err);
       this._bearing = previousBearing;
       this._map?.easeTo({ bearing: mapBearing(this._axisDeg) });
+      if (typeof err?.code === "string" && typeof err.message === "string") {
+        this._toast({ message: err.message });
+        return;
+      }
       const retry = () => {
         this._map?.easeTo({ bearing: mapBearing(newBearing) });
         this._saveBearing(newBearing, previousBearing);

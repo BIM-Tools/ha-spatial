@@ -3,28 +3,42 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Any, TypedDict
+from typing import Any, NamedTuple, TypedDict
 
+from homeassistant.components.websocket_api import ERR_INVALID_FORMAT
+from homeassistant.const import EVENT_CORE_CONFIG_UPDATE
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import floor_registry as fr
 from homeassistant.helpers.json import json_bytes_sorted
+from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
 from .const import (
-    ADJACENCY_MIN_SHARED_M,
-    ADJACENCY_TOLERANCE_M,
     BOT_SPACE,
     DEFAULT_FLOOR_HEIGHT_M,
+    ERR_OUTSIDE_OUTLINE,
     EVENT_SPATIAL_UPDATED,
     JSONFG_CORE,
     JSONFG_TYPES_SCHEMAS,
-    NET_INSET_M,
+    METRIC_GRID,
+    MIN_SHARED_EDGE_M,
     REV_LENGTH,
     ROOM_PROPERTY_NAMES,
     SITE_FIELD_NAMES,
+    US_CUSTOMARY_GRID,
+    UnitGrid,
 )
-from .geometry import net_area_m2, overlap_area_m2, polygon_contains, shared_edge_length_m
-from .store import AreaSpatial, Site, SpatialStore, new_area
+from .geometry import (
+    OutlineRelation,
+    Ring,
+    SiteFrame,
+    contains,
+    net_area,
+    outline_relation,
+    shared_edge_length,
+    validate_lattice_polygon,
+)
+from .store import AreaSpatial, Site, SpatialStore, default_origin, new_area
 
 
 class SiteView(TypedDict):
@@ -38,9 +52,22 @@ class SiteView(TypedDict):
     rev: str
 
 
-def _net_size(polygon: dict[str, Any]) -> float:
-    """Return the net area in m² of a footprint, computed on every read."""
-    return round(net_area_m2(polygon, NET_INSET_M), 2)
+class _SiteGeometry(NamedTuple):
+    """The frame of a site, the grid of the unit system in use and the outline on the lattice."""
+
+    frame: SiteFrame
+    grid: UnitGrid
+    outline: list[Ring] | None
+
+
+class _Footprint(NamedTuple):
+    """A footprint read on the lattice and every fact derived from it."""
+
+    corners: list[Ring]
+    geometry: dict[str, Any]
+    net_m2: float
+    facade_m: float
+    relation: OutlineRelation | None
 
 
 def content_rev(entry: AreaSpatial | Site) -> str:
@@ -52,6 +79,29 @@ def content_rev(entry: AreaSpatial | Site) -> str:
     return hashlib.sha256(json_bytes_sorted(entry)).hexdigest()[:REV_LENGTH]
 
 
+def _measure(
+    polygon: dict[str, Any], on_facade_override: bool | None, site: _SiteGeometry
+) -> _Footprint:
+    """Return a footprint snapped to the lattice with its net area, facade length and relation.
+
+    Pieces on the outline lose half an exterior wall, unless the room is marked
+    as not on the facade.
+    """
+    grid, outline = site.grid, site.outline
+    corners = site.frame.snap(polygon)
+    exterior_inset = (
+        grid.interior_inset_units if on_facade_override is False else grid.exterior_inset_units
+    )
+    unit_m = float(grid.lattice_unit_m)
+    return _Footprint(
+        corners,
+        site.frame.to_polygon(corners),
+        net_area(corners, outline, grid.interior_inset_units, exterior_inset) * unit_m * unit_m,
+        shared_edge_length(corners, outline) * unit_m if outline else 0.0,
+        outline_relation(corners, outline) if outline else None,
+    )
+
+
 class SpatialCoordinator:
     """Keeps area footprints and floor dimensions in sync with the registries."""
 
@@ -60,15 +110,18 @@ class SpatialCoordinator:
         self.hass = hass
         self.store = SpatialStore(hass)
         self._unsubscribe: list[Any] = []
-        self._is_external_by_area: dict[str, tuple[str, str, bool]] = {}
+        # Footprints as read, until the next change of the data or the core config.
+        self._footprints: dict[str, _Footprint] = {}
         self.card_url = ""
 
     async def async_setup(self) -> None:
-        """Load stored data and follow registry removals."""
+        """Load stored data and follow registry removals and core config changes."""
         await self.store.async_load()
+        self._footprints.clear()
         self._unsubscribe = [
             self.hass.bus.async_listen(ar.EVENT_AREA_REGISTRY_UPDATED, self._async_area_updated),
             self.hass.bus.async_listen(fr.EVENT_FLOOR_REGISTRY_UPDATED, self._async_floor_updated),
+            self.hass.bus.async_listen(EVENT_CORE_CONFIG_UPDATE, self._async_core_config_updated),
         ]
 
     async def async_teardown(self) -> None:
@@ -97,8 +150,15 @@ class SpatialCoordinator:
         else:
             self.hass.bus.async_fire(EVENT_SPATIAL_UPDATED)
 
+    @callback
+    def _async_core_config_updated(self, event: Event) -> None:
+        """Read every footprint again: the unit system sets the lattice, home the default origin."""
+        self._footprints.clear()
+        self.hass.bus.async_fire(EVENT_SPATIAL_UPDATED)
+
     def _changed(self) -> None:
         """Schedule a save and notify listeners."""
+        self._footprints.clear()
         self.store.async_schedule_save()
         self.hass.bus.async_fire(EVENT_SPATIAL_UPDATED)
 
@@ -124,6 +184,95 @@ class SpatialCoordinator:
             changed.append("site")
         return changed
 
+    def _site_after(self, site_fields: dict[str, Any]) -> Site:
+        """Return the site with the given fields set.
+
+        The first write to a site without an origin, unless it sets one, also
+        stores the default origin, so the lattice stays put while rooms are added.
+        """
+        site = self.store.site.copy()
+        for key in SITE_FIELD_NAMES:
+            if key in site_fields:
+                site[key] = site_fields[key]
+        if site["origin"] is None and "origin" not in site_fields:
+            site["origin"] = default_origin(self.hass, site, self.store.areas)
+        return site
+
+    def _site_geometry(self, site: Site) -> _SiteGeometry:
+        """Return the frame of a site, with its outline on the lattice.
+
+        Every site has a frame: a site without an origin uses the default one, and
+        one without a bearing, before the first Align, faces north. The lattice is a
+        quarter of the drawing grid of the unit system in use.
+        """
+        grid = US_CUSTOMARY_GRID if self.hass.config.units is US_CUSTOMARY_SYSTEM else METRIC_GRID
+        frame = SiteFrame(
+            site["origin"] or default_origin(self.hass, site, self.store.areas),
+            site["bearing_deg"] or 0.0,
+            grid.lattice_unit_m,
+        )
+        outline = frame.snap(site["outline"]) if site["outline"] else None
+        return _SiteGeometry(frame, grid, outline)
+
+    def change_problem(
+        self,
+        polygons: dict[str, dict[str, Any] | None],
+        site_fields: dict[str, Any],
+        room_properties: dict[str, dict[str, Any]],
+    ) -> tuple[str, str] | None:
+        """Return the error code and message that reject a change, or None if it can be applied.
+
+        Footprints and an outline are checked on the lattice as they will be read.
+        Indoor rooms may not extend beyond the outline: the rooms written, or all
+        rooms when the outline or the frame changes (both move what the lattice
+        reads), must lie inside it or outside it. Rooms written must keep a net area.
+        """
+        written = {area_id: p for area_id, p in polygons.items() if p is not None}
+        new_outline = site_fields.get("outline")
+        site_after = self._site_after(site_fields)
+        site = self._site_geometry(site_after)
+        to_validate = [(area_id, site.frame.snap(polygon)) for area_id, polygon in written.items()]
+        if site.outline is not None and new_outline is not None:
+            to_validate.append(("outline", site.outline))
+        for name, corners in to_validate:
+            try:
+                validate_lattice_polygon(corners)
+            except ValueError as err:
+                return ERR_INVALID_FORMAT, f"{err} ({name})"
+
+        rooms = {area_id: entry["polygon"] for area_id, entry in self.store.areas.items()}
+        for area_id, polygon in polygons.items():
+            if polygon is None:
+                rooms.pop(area_id, None)
+            else:
+                rooms[area_id] = polygon
+        frame_changed = any(
+            site_after[key] != self.store.site[key] for key in ("origin", "bearing_deg")
+        )
+        checked = list(rooms) if new_outline is not None or frame_changed else list(written)
+        footprints = {
+            area_id: _measure(rooms[area_id], self._override_after(area_id, room_properties), site)
+            for area_id in checked
+        }
+        if beyond := sorted(
+            area_id for area_id, footprint in footprints.items() if footprint.relation == "crossing"
+        ):
+            return ERR_OUTSIDE_OUTLINE, f"Beyond the building outline: {', '.join(beyond)}"
+        if empty := sorted(area_id for area_id in written if footprints[area_id].net_m2 <= 0):
+            return ERR_INVALID_FORMAT, f"No net area: {', '.join(empty)}"
+        return None
+
+    def _override_after(
+        self, area_id: str, room_properties: dict[str, dict[str, Any]]
+    ) -> bool | None:
+        """Return the on_facade_override an area will have after a change."""
+        fields = room_properties.get(area_id, {})
+        if "on_facade_override" in fields:
+            override: bool | None = fields["on_facade_override"]
+            return override
+        entry = self.store.areas.get(area_id)
+        return entry["on_facade_override"] if entry else None
+
     @callback
     def async_apply_change(
         self,
@@ -133,16 +282,14 @@ class SpatialCoordinator:
     ) -> dict[str, float]:
         """Set or remove (None) footprints, room properties and site fields in one change.
 
-        Return the m² of the footprints set. Fields not given are kept. Room
+        Return the net m² of the footprints set. Fields not given are kept. Room
         properties apply to areas that have a footprint after the polygons are set.
         """
-        sizes: dict[str, float] = {}
+        self.store.site.update(self._site_after(site_fields))
         for area_id, polygon in polygons.items():
             if polygon is None:
                 self.store.areas.pop(area_id, None)
-                continue
-            sizes[area_id] = _net_size(polygon)
-            if (entry := self.store.areas.get(area_id)) is not None:
+            elif (entry := self.store.areas.get(area_id)) is not None:
                 entry["polygon"] = polygon
             else:
                 self.store.areas[area_id] = new_area(polygon)
@@ -151,11 +298,12 @@ class SpatialCoordinator:
             for name in ROOM_PROPERTY_NAMES:
                 if name in fields:
                     entry[name] = fields[name]
-        for key in SITE_FIELD_NAMES:
-            if key in site_fields:
-                self.store.site[key] = site_fields[key]
         self._changed()
-        return sizes
+        return {
+            area_id: self._area_m2(area_id)
+            for area_id, polygon in polygons.items()
+            if polygon is not None
+        }
 
     @callback
     def async_update_floor(self, floor_id: str, fields: dict[str, float | None]) -> None:
@@ -166,16 +314,32 @@ class SpatialCoordinator:
                 floor[key] = fields[key]
         self._changed()
 
+    def _footprint(self, area_id: str) -> _Footprint:
+        """Return an area's footprint on the lattice, measured once until the next change."""
+        if (footprint := self._footprints.get(area_id)) is None:
+            data = self.store.areas[area_id]
+            site = self._site_geometry(self.store.site)
+            footprint = _measure(data["polygon"], data["on_facade_override"], site)
+            self._footprints[area_id] = footprint
+        return footprint
+
+    def _area_m2(self, area_id: str) -> float:
+        """Return an area's net m² to two decimals."""
+        return round(self._footprint(area_id).net_m2, 2)
+
     def get_site(self) -> SiteView:
         """Return the site: the centre of the bounding box, the stored fields and the rev.
 
         Custom code. Computed on read, so it follows every edit. The box covers the
-        footprints, else the outline, and is taken in lon/lat degrees, which is
-        accurate enough at building scale but not across the antimeridian. Without
-        either the centre is the home location.
+        footprints, else the outline, as read, and is taken in lon/lat degrees,
+        which is accurate enough at building scale but not across the antimeridian.
+        Without either the centre is the home location.
         """
-        outline = self.store.site["outline"]
-        rings = [data["polygon"]["coordinates"][0] for data in self.store.areas.values()]
+        site = self._site_geometry(self.store.site)
+        outline = site.frame.to_polygon(site.outline) if site.outline else None
+        rings = [
+            self._footprint(area_id).geometry["coordinates"][0] for area_id in self.store.areas
+        ]
         if not rings and outline:
             rings = [outline["coordinates"][0]]
         points = [position for ring in rings for position in ring]
@@ -248,43 +412,23 @@ class SpatialCoordinator:
         """Return the floors an area occupies, with None standing for the site level."""
         return set(self._floor_ids(area_id, data)) or {None}
 
-    def _is_external(self, area_id: str, data: AreaSpatial, rev: str, site_rev: str) -> bool:
-        """Return True if most of a footprint lies outside the outline; False without one.
+    def _on_facade(self, area_id: str) -> bool:
+        """Return the override, else whether the footprint shares enough of the outline."""
+        if (override := self.store.areas[area_id]["on_facade_override"]) is not None:
+            return override
+        return self._footprint(area_id).facade_m >= MIN_SHARED_EDGE_M
 
-        Kept per area until its rev or the site rev changes, as the common area
-        is the costliest part of a read.
-        """
-        cached = self._is_external_by_area.get(area_id)
-        if cached is not None and cached[:2] == (rev, site_rev):
-            return cached[2]
-        outline = self.store.site["outline"]
-        polygon = data["polygon"]
-        is_external = outline is not None and 2 * overlap_area_m2(polygon, outline) < net_area_m2(
-            polygon, 0
-        )
-        self._is_external_by_area[area_id] = (rev, site_rev, is_external)
-        return is_external
-
-    def _on_facade(self, data: AreaSpatial) -> bool:
-        """Return the override, else whether an edge of the footprint lies on the outline."""
-        if data["on_facade_override"] is not None:
-            return data["on_facade_override"]
-        outline = self.store.site["outline"]
-        return (
-            outline is not None
-            and shared_edge_length_m(data["polygon"], outline, ADJACENCY_TOLERANCE_M)
-            >= ADJACENCY_MIN_SHARED_M
-        )
+    def _is_external(self, area_id: str) -> bool:
+        """Return True if the footprint lies outside the outline; False without one."""
+        return self._footprint(area_id).relation == "outside"
 
     def get_geojson(self, floor_id: str | None = None) -> dict[str, Any]:
         """Return the area footprints, all or those occupying a floor, as a FeatureCollection."""
         area_registry = ar.async_get(self.hass)
         floor_registry = fr.async_get(self.hass)
-        site_rev = self.site_rev()
         features = []
         for area_id, data in self.store.areas.items():
             floor_ids = self._floor_ids(area_id, data)
-            rev = content_rev(data)
             if floor_id and floor_id not in floor_ids:
                 continue
             area = area_registry.async_get_area(area_id)
@@ -297,21 +441,21 @@ class SpatialCoordinator:
                     "type": "Feature",
                     "id": area_id,
                     "featureType": BOT_SPACE,
-                    "geometry": data["polygon"],
+                    "geometry": self._footprint(area_id).geometry,
                     "properties": {
                         "area_id": area_id,
                         "name": area.name if area else area_id,
                         "floor_id": area_floor_id,
                         "level": floor.level if floor else None,
-                        "area_m2": _net_size(data["polygon"]),
+                        "area_m2": self._area_m2(area_id),
                         "base_m": base,
                         "top_m": top,
                         "floors_up": data["floors_up"],
                         "floor_ids": floor_ids,
                         "on_facade_override": data["on_facade_override"],
-                        "on_facade": self._on_facade(data),
-                        "is_external": self._is_external(area_id, data, rev, site_rev),
-                        "rev": rev,
+                        "on_facade": self._on_facade(area_id),
+                        "is_external": self._is_external(area_id),
+                        "rev": content_rev(data),
                     },
                 }
             )
@@ -323,27 +467,30 @@ class SpatialCoordinator:
 
     def query_point(self, lon: float, lat: float, floor_id: str | None = None) -> str | None:
         """Return the smallest area containing the point, optionally among those on one floor."""
+        point = self._site_geometry(self.store.site).frame.to_lattice_units(lon, lat)
         matches = [
-            (_net_size(data["polygon"]), area_id)
+            (footprint.net_m2, area_id)
             for area_id, data in self.store.areas.items()
             if (floor_id is None or floor_id in self._floor_ids(area_id, data))
-            and polygon_contains(data["polygon"], lon, lat)
+            and contains((footprint := self._footprint(area_id)).corners, point)
         ]
         return min(matches)[1] if matches else None
 
     def adjacent_areas(self, area_id: str) -> list[str]:
-        """Return the areas sharing a wall centreline with an area on a floor both occupy.
+        """Return the areas sharing a wall axis with an area on a floor both occupy.
 
         Site-level areas, without a floor, are adjacent only to each other.
         """
         if (data := self.store.areas.get(area_id)) is None:
             return []
         levels = self._levels(area_id, data)
+        corners = self._footprint(area_id).corners
+        unit_m = float(self._site_geometry(self.store.site).grid.lattice_unit_m)
         return sorted(
             other_id
             for other_id, other in self.store.areas.items()
             if other_id != area_id
             and not levels.isdisjoint(self._levels(other_id, other))
-            and shared_edge_length_m(data["polygon"], other["polygon"], ADJACENCY_TOLERANCE_M)
-            >= ADJACENCY_MIN_SHARED_M
+            and shared_edge_length(corners, self._footprint(other_id).corners) * unit_m
+            >= MIN_SHARED_EDGE_M
         )

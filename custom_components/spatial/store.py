@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Literal, TypedDict
 
 from homeassistant.core import HomeAssistant, callback
@@ -55,6 +56,22 @@ class SpatialData(TypedDict):
     onboarding: Onboarding
 
 
+def default_origin(
+    hass: HomeAssistant, site: Mapping[str, Any], areas: Mapping[str, Any]
+) -> list[float]:
+    """Return the origin for a site that has none yet.
+
+    The first corner of the outline, else of the first footprint, else Home
+    Assistant's home location: a point at or near the plan, so the lattice is read
+    near where it is drawn. Only the frame is set; no stored geometry moves.
+    """
+    if site["outline"]:
+        return list(site["outline"]["coordinates"][0][0][:2])
+    for area in areas.values():
+        return list(area["polygon"]["coordinates"][0][0][:2])
+    return [hass.config.longitude, hass.config.latitude]
+
+
 def new_area(polygon: dict[str, Any]) -> AreaSpatial:
     """Return the entry of an area that gets its first footprint."""
     return {"polygon": polygon, "floors_up": 0, "on_facade_override": None}
@@ -92,6 +109,12 @@ class _VersionedStore(Store[SpatialData]):
                 for floor_id, floor in (data.get("floors") or {}).items()
             }
             data["onboarding"] = {"home_pin": None}
+        if old_major_version == 1 and old_minor_version < 3:
+            # 1.3 reads footprints in a frame from the site origin, so a site
+            # without one gets the default.
+            site = data["site"]
+            if site["origin"] is None:
+                data["site"] = {**site, "origin": default_origin(self.hass, site, data["areas"])}
         return data
 
 
