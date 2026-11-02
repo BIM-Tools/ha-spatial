@@ -36,7 +36,14 @@ from .geometry import (
     shared_edge_length,
     validate_lattice_polygon,
 )
-from .store import AreaSpatial, Site, SpatialStore, lattice_of_unit_system, new_area
+from .store import (
+    AreaSpatial,
+    Site,
+    SpatialStore,
+    default_origin,
+    lattice_of_unit_system,
+    new_area,
+)
 
 
 class SiteView(TypedDict):
@@ -187,11 +194,21 @@ class SpatialCoordinator:
         return changed
 
     def _site_after(self, site_fields: dict[str, Any]) -> Site:
-        """Return the site with the given fields set; the first origin also fixes the lattice."""
+        """Return the site with the given fields set.
+
+        A bearing set without an origin, on a site without one, brings the default
+        origin, so the site can be drawn on; the first origin fixes the lattice.
+        """
         site = self.store.site.copy()
         for key in SITE_FIELD_NAMES:
             if key in site_fields:
                 site[key] = site_fields[key]
+        if (
+            site_fields.get("bearing_deg") is not None
+            and "origin" not in site_fields
+            and site["origin"] is None
+        ):
+            site["origin"] = default_origin(self.hass, site, self.store.areas)
         if site["origin"] is not None and site["lattice"] is None:
             site["lattice"] = lattice_of_unit_system(self.hass)
         return site

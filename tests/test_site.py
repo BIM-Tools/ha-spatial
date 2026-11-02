@@ -95,7 +95,7 @@ async def test_site_centre_follows_footprint_edits(
 async def test_update_site_persists_bearing(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator, setup_integration: MockConfigEntry
 ) -> None:
-    """Test the bearing can be set and survives a reload."""
+    """Test the bearing can be set and survives a reload; without footprints the origin is home."""
     client = await hass_ws_client(hass)
     msg = await _call(client, type="spatial/site/update", bearing_deg=12.5)
     assert msg["success"], msg
@@ -108,8 +108,8 @@ async def test_update_site_persists_bearing(
         "lon": hass.config.longitude,
         "lat": hass.config.latitude,
         "bearing_deg": 12.5,
-        "origin": None,
-        "lattice": None,
+        "origin": [hass.config.longitude, hass.config.latitude],
+        "lattice": "metric",
         "outline": None,
         "rev": ANY,
     }
@@ -164,7 +164,10 @@ async def test_legacy_stored_site_loads(
     legacy_site: dict[str, float | None] | None,
     bearing_deg: float | None,
 ) -> None:
-    """Test stored data loads: no bearing means not aligned, a stored 0 stays a direction."""
+    """Test stored data loads: no bearing means not aligned, a stored 0 stays a direction.
+
+    An aligned site gets an origin, here the home location as there is nothing drawn.
+    """
     hass_storage[DOMAIN] = {
         "version": 1,
         "key": DOMAIN,
@@ -179,8 +182,8 @@ async def test_legacy_stored_site_loads(
         "lon": hass.config.longitude,
         "lat": hass.config.latitude,
         "bearing_deg": bearing_deg,
-        "origin": None,
-        "lattice": None,
+        "origin": None if bearing_deg is None else [hass.config.longitude, hass.config.latitude],
+        "lattice": None if bearing_deg is None else "metric",
         "outline": None,
         "rev": ANY,
     }

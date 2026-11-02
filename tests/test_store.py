@@ -89,7 +89,7 @@ async def test_release_1_1_data_is_migrated(
     stored = hass_storage[DOMAIN]
     assert (stored["version"], stored["minor_version"]) == (1, 3)
     assert stored["data"] == {
-        "site": {"bearing_deg": 0.0, "origin": None, "lattice": None, "outline": None},
+        "site": {"bearing_deg": 0.0, "origin": [5.0, 52.0], "lattice": "metric", "outline": None},
         "floors": {"ground_floor": {"elevation_m": None, "height_m": 2.6}},
         "areas": {
             "kitchen": {"polygon": rect(0, 0, 4, 3), "floors_up": 0, "on_facade_override": None}
@@ -146,7 +146,7 @@ async def test_release_1_2_origin_gets_the_lattice_of_the_unit_system(
 ) -> None:
     """Test a 1.2 origin gets the lattice of the unit system in use; no origin, no lattice."""
     await hass.config.async_update(unit_system=unit_system)
-    site = {"bearing_deg": 10.0, "origin": origin, "outline": None}
+    site = {"bearing_deg": 10.0 if origin else None, "origin": origin, "outline": None}
     await _reload_with(
         hass,
         hass_storage,
@@ -162,6 +162,57 @@ async def test_release_1_2_origin_gets_the_lattice_of_the_unit_system(
     stored = hass_storage[DOMAIN]
     assert stored["minor_version"] == 3
     assert stored["data"]["site"] == {**site, "lattice": lattice}
+
+
+@pytest.mark.parametrize(
+    ("outline", "areas", "origin"),
+    [
+        (rect(-1, -1, 10, 10), {"kitchen": rect(0, 0, 4, 3)}, lonlat(-1, -1)),
+        (None, {"kitchen": rect(0, 0, 4, 3)}, lonlat(0, 0)),
+        (None, {}, None),
+    ],
+    ids=["outline_corner", "footprint_corner", "home"],
+)
+async def test_release_1_2_aligned_site_gets_an_origin(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    hass_storage: dict[str, Any],
+    setup_integration: MockConfigEntry,
+    outline: dict[str, Any] | None,
+    areas: dict[str, dict[str, Any]],
+    origin: list[float] | None,
+) -> None:
+    """Test an aligned 1.2 site without an origin gets one, so its plans are measured again."""
+    await _reload_with(
+        hass,
+        hass_storage,
+        setup_integration,
+        {
+            "version": 1,
+            "minor_version": 2,
+            "key": DOMAIN,
+            "data": {
+                "site": {"bearing_deg": 0.0, "origin": None, "outline": outline},
+                "floors": {},
+                "areas": {
+                    area_id: {"polygon": polygon, "floors_up": 0, "on_facade_override": None}
+                    for area_id, polygon in areas.items()
+                },
+                "onboarding": {"home_pin": None},
+            },
+        },
+    )
+
+    client = await hass_ws_client(hass)
+    site = (await _call(client, type="spatial/site"))["result"]
+    assert site["origin"] == (origin or [hass.config.longitude, hass.config.latitude])
+    assert site["lattice"] == "metric"
+    features = (await _call(client, type="spatial/geojson"))["result"]["features"]
+    assert [f["properties"]["area_m2"] for f in features] == [11.31] * len(areas)
+    assert hass_storage[DOMAIN]["data"]["areas"] == {
+        area_id: {"polygon": polygon, "floors_up": 0, "on_facade_override": None}
+        for area_id, polygon in areas.items()
+    }
 
 
 async def test_new_writes_are_saved_complete(

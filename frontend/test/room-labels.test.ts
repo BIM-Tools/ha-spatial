@@ -11,7 +11,7 @@ import { RoomLabels, labelSpace, labelStep } from "../src/room-labels";
 afterEach(resetFakes);
 
 // A room as a box in screen pixels, from the top-left to the bottom-right corner.
-const pixelRoom = (areaId: string, [x1, y1]: [number, number], [x2, y2]: [number, number], areaM2 = 12.34): Feature<Polygon> => ({
+const pixelRoom = (areaId: string, [x1, y1]: [number, number], [x2, y2]: [number, number], areaM2: number | null = 12.34): Feature<Polygon> => ({
   type: "Feature",
   id: areaId,
   geometry: {
@@ -69,6 +69,12 @@ test("a room shows icon, name and m², then icon and name, then the icon, then n
 test("an area without an icon shows Home Assistant's home icon", () => {
   mountLabels([pixelRoom("living", [0, 0], [200, 120])], true, { living: { name: "Living room", icon: null } });
   expect(shown("living")?.icon).toBe("mdi:home-outline");
+});
+
+test("a room without an area, before the site has an origin, shows no m²", () => {
+  mountLabels([pixelRoom("living", [0, 0], [200, 120], null)], true, AREAS);
+  expect(shown("living")).toEqual({ icon: "mdi:sofa", name: "Living room", size: undefined, chip: undefined });
+  expect(labelOf("living")?.getAttribute("aria-label")).toBe("Living room");
 });
 
 test("the card's labels have no m²", () => {

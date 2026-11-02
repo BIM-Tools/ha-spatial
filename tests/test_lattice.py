@@ -59,10 +59,9 @@ def polygon(*corners: tuple[float, float]) -> dict[str, Any]:
     [
         {"areas": {"kitchen": rect(0, 0, 4, 3)}},
         {"site": {"outline": OUTLINE}},
-        {"site": {"bearing_deg": 0.0, "outline": OUTLINE}},
         {"site": {"origin": FRAME["origin"], "outline": OUTLINE}},
     ],
-    ids=["room", "outline", "bearing_only", "origin_only"],
+    ids=["room", "outline", "origin_only"],
 )
 async def test_drawing_needs_the_site_frame(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator, command: dict[str, Any]
@@ -79,6 +78,23 @@ async def test_drawing_needs_the_site_frame(
         "message": "Set the site origin and bearing before drawing",
     }
     assert events == []
+
+
+async def test_bearing_brings_an_origin_unless_one_is_given(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test a bearing on a site without an origin brings one: the outline's first corner."""
+    client = await hass_ws_client(hass)
+    outline = rect(2, 3, 10, 10)
+
+    msg = await _write(client, site={"bearing_deg": 0.0, "outline": outline})
+    assert msg["success"], msg
+    site = (await _call(client, type="spatial/site"))["result"]
+    assert (site["origin"], site["lattice"]) == (lonlat(2, 3), "metric")
+
+    await _call(client, type="spatial/site/update", origin=None)
+    await _call(client, type="spatial/site/update", bearing_deg=10.0, origin=None)
+    assert (await _call(client, type="spatial/site"))["result"]["origin"] is None
 
 
 async def test_frame_and_rooms_in_one_write(
