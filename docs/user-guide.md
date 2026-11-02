@@ -33,8 +33,9 @@ opens on **All**, north up, centred on your home location.
 
 2. **Draw the building.** Press **Draw**. The strip at the bottom starts with **Building**,
    highlighted while there is no outline. Draw the facade as the map shows it: press and drag
-   from one corner to the opposite one, or click one corner and then the other. Add boxes
-   against it for an L or other shape.
+   from one corner to the opposite one, or click one corner and then the other. After the first
+   box the next area is highlighted; for an L or other shape, choose **Building** again and add
+   boxes against the outline.
 3. **Draw the rooms.** After an area's first shape, the next area of the floor without one is
    highlighted, and the line at the top says "Draw Kitchen" with how far the floor is, for
    example "3 of 5". Draw each room to the wall centrelines, so neighbours share their edges.
@@ -101,6 +102,8 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
   phone). While drawing, the box shows its side lengths and area.
 - **Join:** a box that touches the active space's shape joins it, so an L-shaped room is two
   boxes. A box apart from it is refused with the toast "A room is one shape: draw against it".
+  After a space's first shape the next one is highlighted, so choose the space again before
+  adding a box to it.
 - **Move:** a drag that starts inside the active shape moves it; a click there still sets a
   corner.
 - **Pan:** hold Space and drag. **Escape** cancels a box. **Delete** removes the active shape.
