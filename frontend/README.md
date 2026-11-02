@@ -61,8 +61,8 @@ On a dashboard, add a card with `type: custom:spatial-map-card`, best in a panel
 | Sync versions with Home Assistant | `python tools/sync_frontend_versions.py` (`--check` only compares) |
 
 The build output is not in git. Run a build or the `frontend` service before opening the panel
-locally. On a published GitHub release, `.github/workflows/release.yml` builds it, adds the
-licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and splaytree-ts), polylabel (with tinyqueue) and @mdi/js code and uploads `spatial.zip`, which HACS installs.
+locally. On a pushed `v*` tag, `.github/workflows/release.yml` builds it, adds the
+licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and splaytree-ts), polylabel (with tinyqueue) and @mdi/js code and creates the release with `spatial.zip`, which HACS installs.
 
 ## Architecture
 

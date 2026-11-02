@@ -1,9 +1,10 @@
-# HACS installs the zip attached to a published release (hacs.json: zip_release); this builds it.
+# HACS installs the zip of the newest release without checking that it exists, so a tag push
+# builds the zip first and only then creates the release with it.
 name: Release
 
 on:
-  release:
-    types: [published]
+  push:
+    tags: ['v*']
 
 permissions:
   contents: write
@@ -12,7 +13,9 @@ jobs:
   zip:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      # v6.0.2 and newer keep the annotated tag; older versions replace it with a lightweight
+      # one, and --notes-from-tag would then publish the commit message as release notes.
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-node@v5
         with:
@@ -58,6 +61,6 @@ jobs:
           zip -r ../../spatial.zip .
         working-directory: custom_components/spatial
 
-      - run: gh release upload "$GITHUB_REF_NAME" spatial.zip
+      - run: gh release create "$GITHUB_REF_NAME" spatial.zip --verify-tag --title "$GITHUB_REF_NAME" --notes-from-tag
         env:
           GH_TOKEN: ${{ github.token }}
