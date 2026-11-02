@@ -7,15 +7,8 @@ from typing import Any, Literal, TypedDict
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.storage import Store
-from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
-from .const import (
-    SAVE_DELAY_S,
-    STORAGE_KEY,
-    STORAGE_MINOR_VERSION,
-    STORAGE_VERSION,
-    LatticeName,
-)
+from .const import SAVE_DELAY_S, STORAGE_KEY, STORAGE_MINOR_VERSION, STORAGE_VERSION
 
 
 class AreaSpatial(TypedDict):
@@ -34,11 +27,10 @@ class FloorSpatial(TypedDict):
 
 
 class Site(TypedDict):
-    """Orientation, grid origin, lattice and building outline shared by all views and editors."""
+    """Orientation, grid origin and building outline shared by all views and editors."""
 
     bearing_deg: float | None
     origin: list[float] | None
-    lattice: LatticeName | None
     outline: dict[str, Any] | None
 
 
@@ -64,18 +56,13 @@ class SpatialData(TypedDict):
     onboarding: Onboarding
 
 
-def lattice_of_unit_system(hass: HomeAssistant) -> LatticeName:
-    """Return the lattice of Home Assistant's unit system now."""
-    return "us" if hass.config.units is US_CUSTOMARY_SYSTEM else "metric"
-
-
 def default_origin(
     hass: HomeAssistant, site: Mapping[str, Any], areas: Mapping[str, Any]
 ) -> list[float]:
-    """Return the origin for a site that has a bearing but no origin yet.
+    """Return the origin for a site that has none yet.
 
     The first corner of the outline, else of the first footprint, else Home
-    Assistant's home location: a point at the building, so the lattice is read
+    Assistant's home location: a point at or near the plan, so the lattice is read
     near where it is drawn. Only the frame is set; no stored geometry moves.
     """
     if site["outline"]:
@@ -123,18 +110,11 @@ class _VersionedStore(Store[SpatialData]):
             }
             data["onboarding"] = {"home_pin": None}
         if old_major_version == 1 and old_minor_version < 3:
-            # 1.3 reads footprints in a frame from the origin and bearing: an aligned
-            # site without an origin gets one, and every origin the lattice of the
-            # unit system in use now.
+            # 1.3 reads footprints in a frame from the site origin, so a site
+            # without one gets the default.
             site = data["site"]
-            origin = site["origin"]
-            if origin is None and site["bearing_deg"] is not None:
-                origin = default_origin(self.hass, site, data["areas"])
-            data["site"] = {
-                **site,
-                "origin": origin,
-                "lattice": lattice_of_unit_system(self.hass) if origin else None,
-            }
+            if site["origin"] is None:
+                data["site"] = {**site, "origin": default_origin(self.hass, site, data["areas"])}
         return data
 
 
@@ -152,12 +132,7 @@ class SpatialStore:
         )
         self.areas: dict[str, AreaSpatial] = {}
         self.floors: dict[str, FloorSpatial] = {}
-        self.site: Site = {
-            "bearing_deg": None,
-            "origin": None,
-            "lattice": None,
-            "outline": None,
-        }
+        self.site: Site = {"bearing_deg": None, "origin": None, "outline": None}
         self.onboarding: Onboarding = {"home_pin": None}
         self._dirty = False
 

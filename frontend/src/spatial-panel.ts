@@ -43,8 +43,6 @@ interface Site {
   lat: number;
   // Null until the first Align.
   bearing_deg: number | null;
-  // Null until the first Align, which sets it.
-  origin?: [number, number] | null;
   outline: Polygon | null;
 }
 
@@ -269,7 +267,6 @@ class SpatialPanel extends LitElement {
   private _unsubscribe?: () => void;
   private _areas: FeatureCollection = EMPTY;
   private _outline: Polygon | FeatureCollection = EMPTY;
-  private _hasOrigin = false;
   private _labels?: RoomLabels;
   // Only the admin panel edits; the card stays read-only.
   private _editor?: RoomEditor;
@@ -506,7 +503,6 @@ class SpatialPanel extends LitElement {
       this._floors = floorsByLevel(this._areas);
       this._map?.getSource<GeoJSONSource>("areas")?.setData(this._areas);
       this._outline = (await site).outline ?? EMPTY;
-      this._hasOrigin = Boolean((await site).origin);
       this._map?.getSource<GeoJSONSource>("outline")?.setData(this._outline);
       this._showLabels();
       return site;
@@ -776,23 +772,18 @@ class SpatialPanel extends LitElement {
       this._toast({ message: "No building here" });
       return;
     }
-    const at: Position = [event.lngLat.lng, event.lngLat.lat];
-    const newBearing = wallBearingAt(building, at);
-    // The lattice is read from the origin, so the first Align puts it at the start of the picked wall.
-    const [wallStart] = wallAt(building, at);
-    const origin: [number, number] | undefined = this._hasOrigin ? undefined : [wallStart[0], wallStart[1]];
+    const newBearing = wallBearingAt(building, [event.lngLat.lng, event.lngLat.lat]);
     // The picked wall lies low in the view with the building above it, its outside facing the viewer.
     const wallBelowCentre = (this._map?.getContainer().clientHeight ?? 0) * WALL_OFFSET_SHARE;
     this._map?.easeTo({ bearing: mapBearing(newBearing), center: event.lngLat, offset: [0, wallBelowCentre] });
-    this._saveBearing(newBearing, this._bearing, origin);
+    this._saveBearing(newBearing, this._bearing);
   }
 
   // A failed save turns the view back. A refusal shows Spatial's reason, as trying again would not
   // help; otherwise Retry turns the view to the picked wall again and saves once more.
-  private _saveBearing(newBearing: number, previousBearing: number | null, origin?: [number, number]) {
+  private _saveBearing(newBearing: number, previousBearing: number | null) {
     this._bearing = newBearing;
-    const update = { type: "spatial/site/update", bearing_deg: newBearing, ...(origin && { origin }) };
-    this.hass!.connection.sendMessagePromise(update).catch((err) => {
+    this.hass!.connection.sendMessagePromise({ type: "spatial/site/update", bearing_deg: newBearing }).catch((err) => {
       console.error(err);
       this._bearing = previousBearing;
       this._map?.easeTo({ bearing: mapBearing(this._axisDeg) });
@@ -802,7 +793,7 @@ class SpatialPanel extends LitElement {
       }
       const retry = () => {
         this._map?.easeTo({ bearing: mapBearing(newBearing) });
-        this._saveBearing(newBearing, previousBearing, origin);
+        this._saveBearing(newBearing, previousBearing);
       };
       this._toast({ message: "Could not save", action: { text: "Retry", action: retry }, duration: -1, dismissable: true });
     });

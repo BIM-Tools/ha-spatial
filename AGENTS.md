@@ -53,11 +53,11 @@ Change these only through an issue that names the reason.
 | Address search | The backend may call OpenStreetMap Nominatim, only on an explicit search, with an identifying user agent and its rate limit; country geocoders and authoritative outlines stay outside the integration |
 | Home location | When the chosen building lies more than 25 m from Home Assistant's home, onboarding asks once whether to move the home there, and remembers the answer; a move changes latitude and longitude only, through core config, and can be undone |
 | Units | Display follows Home Assistant's unit system; storage stays metric WGS84 |
-| Area | `area_m2` is net: the axial polygon inset by half walls, 5 cm (2 in) interior and 15 cm (3 in) along the outline |
+| Area | `area_m2` is net: the axial polygon inset by half walls, half a grid step (5 cm, 2 in) interior and 15 cm (3 in) along the outline |
 | Outdoor, facade | The outline is the exterior wall axis and a hard limit: an indoor room never extends beyond it; `is_external` means a room outside it (IFC `IsExternal`); `on_facade` is derived from sharing the outline, with an optional override |
 | Building, sub-spaces | Home Assistant labels; no code |
 | Site anchor | One direction per installation; the centre follows all footprints, else the outline; aligns views only, so stored geometry never moves with it, except through the explicit, confirmed and undoable "Change alignment" (rotation reduced to a right angle, then snapped to the grid, in one write) |
-| Site grid | Stored as written in WGS84, read on a 1 cm (1 in) lattice in the site frame, fixed with the first origin (the start of the wall picked at Align, else a default); drawing snaps to 10 cm (4 in) |
+| Site grid | Stored as written in WGS84, read on a lattice of a quarter drawing grid step (2.5 cm or 1 in, from Home Assistant's unit system) in the frame of the site origin and bearing; drawing snaps to 10 cm (4 in) |
 | Dependencies | Pure Python in the integration; no shapely or other compiled packages |
 | Finding the building | OSM buildings in Home Assistant's map tiles set the axis only, and may act as an unstored snap guide while the outline is drawn on the map |
 | Frontend packages | Packages shared with Home Assistant's frontend use the exact version that frontend ships |

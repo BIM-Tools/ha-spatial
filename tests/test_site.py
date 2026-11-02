@@ -48,7 +48,6 @@ async def test_site_defaults_to_home_location(
         "lat": hass.config.latitude,
         "bearing_deg": None,
         "origin": None,
-        "lattice": None,
         "outline": None,
         "rev": ANY,
     }
@@ -109,7 +108,6 @@ async def test_update_site_persists_bearing(
         "lat": hass.config.latitude,
         "bearing_deg": 12.5,
         "origin": [hass.config.longitude, hass.config.latitude],
-        "lattice": "metric",
         "outline": None,
         "rev": ANY,
     }
@@ -166,7 +164,7 @@ async def test_legacy_stored_site_loads(
 ) -> None:
     """Test stored data loads: no bearing means not aligned, a stored 0 stays a direction.
 
-    An aligned site gets an origin, here the home location as there is nothing drawn.
+    Every site gets an origin, here the home location as there is nothing drawn.
     """
     hass_storage[DOMAIN] = {
         "version": 1,
@@ -182,20 +180,19 @@ async def test_legacy_stored_site_loads(
         "lon": hass.config.longitude,
         "lat": hass.config.latitude,
         "bearing_deg": bearing_deg,
-        "origin": None if bearing_deg is None else [hass.config.longitude, hass.config.latitude],
-        "lattice": None if bearing_deg is None else "metric",
+        "origin": [hass.config.longitude, hass.config.latitude],
         "outline": None,
         "rev": ANY,
     }
 
 
-async def test_legacy_footprint_without_a_frame_reads_as_stored(
+async def test_legacy_footprint_is_measured_from_its_own_corner(
     hass: HomeAssistant,
     hass_ws_client: WebSocketGenerator,
     hass_storage: dict[str, Any],
     setup_integration: MockConfigEntry,
 ) -> None:
-    """Test a footprint stored before origins existed reads as stored, without measurements."""
+    """Test a footprint stored before origins existed is measured from its first corner."""
     hass_storage[DOMAIN] = {
         "version": 1,
         "key": DOMAIN,
@@ -212,14 +209,8 @@ async def test_legacy_footprint_without_a_frame_reads_as_stored(
     msg = await _call(client, type="spatial/geojson")
     [feature] = msg["result"]["features"]
     assert feature["geometry"] == rect(0, 0, 4, 3)
-    assert feature["properties"]["area_m2"] is None
-    assert feature["properties"]["on_facade"] is False
-    assert feature["properties"]["is_external"] is False
-    lon, lat = lonlat(1, 1)
-    msg = await _call(client, type="spatial/query_point", lon=lon, lat=lat)
-    assert msg["result"] == {"area_id": None}
-    msg = await _call(client, type="spatial/area/adjacent", area_id="kitchen")
-    assert msg["result"] == {"area_ids": []}
+    assert feature["properties"]["area_m2"] == 11.31
+    assert (await _call(client, type="spatial/site"))["result"]["origin"] == lonlat(0, 0)
 
 
 async def test_site_outline_round_trip(

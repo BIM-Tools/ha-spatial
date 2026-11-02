@@ -8,7 +8,7 @@ from fractions import Fraction
 import pytest
 from homeassistant.util.location import vincenty
 
-from custom_components.spatial.const import LATTICES, LatticeSize
+from custom_components.spatial.const import METRIC_GRID, US_CUSTOMARY_GRID, UnitGrid
 from custom_components.spatial.geometry import (
     Ring,
     SiteFrame,
@@ -23,8 +23,8 @@ from custom_components.spatial.geometry import (
 
 from .common import lonlat, rect
 
-METRIC = LATTICES["metric"]
-US = LATTICES["us"]
+METRIC = METRIC_GRID
+US = US_CUSTOMARY_GRID
 
 
 def ring(*corners: tuple[float, float]) -> Ring:
@@ -56,11 +56,11 @@ def circle(corner_count: int) -> Ring:
 
 
 @pytest.mark.parametrize("lat", [0.1, 38.0, 52.09, 64.0, 78.2])
-@pytest.mark.parametrize("lattice", LATTICES.values(), ids=LATTICES.keys())
-def test_snapping_is_idempotent_through_json(lat: float, lattice: LatticeSize) -> None:
+@pytest.mark.parametrize("grid", [METRIC, US], ids=["metric", "us"])
+def test_snapping_is_idempotent_through_json(lat: float, grid: UnitGrid) -> None:
     """Test a snapped position snaps to the same lattice point, bit for bit, after JSON."""
-    frame = SiteFrame([5.12, lat], 71.5, lattice.unit_m)
-    rng = random.Random(f"{lat}-{lattice.unit_m}")
+    frame = SiteFrame([5.12, lat], 71.5, grid.lattice_unit_m)
+    rng = random.Random(f"{lat}-{grid.lattice_unit_m}")
     for _ in range(2000):
         position = [5.12 + rng.uniform(-5e-4, 5e-4), lat + rng.uniform(-5e-4, 5e-4)]
         polygon = {"type": "Polygon", "coordinates": [[position] * 4]}
@@ -76,9 +76,9 @@ def test_frame_lengths_match_geodesic(lat: float, bearing_deg: float) -> None:
 
     Vincenty is rounded to whole millimetres, which limits the tolerance.
     """
-    frame = SiteFrame([5.0, lat], bearing_deg, METRIC.unit_m)
+    frame = SiteFrame([5.0, lat], bearing_deg, METRIC.lattice_unit_m)
     start = frame.to_wgs84((0, 0))
-    for end in (frame.to_wgs84((2000, 0)), frame.to_wgs84((0, -2000))):
+    for end in (frame.to_wgs84((800, 0)), frame.to_wgs84((0, -800))):
         length_km = vincenty((start[1], start[0]), (end[1], end[0]))
         assert length_km is not None
         assert length_km * 1000 == pytest.approx(20, abs=0.0015)
@@ -86,7 +86,7 @@ def test_frame_lengths_match_geodesic(lat: float, bearing_deg: float) -> None:
 
 def test_frame_runs_along_the_bearing() -> None:
     """Test x runs along the bearing and y to its left: due east and due north at 90 degrees."""
-    frame = SiteFrame([5.0, 52.0], 90.0, METRIC.unit_m)
+    frame = SiteFrame([5.0, 52.0], 90.0, METRIC.lattice_unit_m)
     east, north = frame.to_wgs84((1000, 0)), frame.to_wgs84((0, 1000))
     assert east[1] == pytest.approx(52.0, abs=1e-12)
     assert east[0] > 5.0
@@ -94,15 +94,15 @@ def test_frame_runs_along_the_bearing() -> None:
     assert north[1] > 52.0
 
 
-def test_snap_reads_whole_centimetres_back_unchanged() -> None:
-    """Test a rectangle drawn in whole centimetres along the frame reads back bit for bit."""
-    frame = SiteFrame(lonlat(0, 0), 0.0, METRIC.unit_m)
-    assert frame.to_polygon(frame.snap(rect(0, 0, 4.07, 3.5))) == rect(0, 0, 4.07, 3.5)
+def test_snap_reads_whole_lattice_units_back_unchanged() -> None:
+    """Test a rectangle drawn in whole 2.5 cm units along the frame reads back bit for bit."""
+    frame = SiteFrame(lonlat(0, 0), 0.0, METRIC.lattice_unit_m)
+    assert frame.to_polygon(frame.snap(rect(0, 0, 4.075, 3.5))) == rect(0, 0, 4.075, 3.5)
 
 
 def test_snap_drops_corners_that_meet() -> None:
     """Test corners closer than half a unit become one, so a tiny edge disappears."""
-    frame = SiteFrame(lonlat(0, 0), 0.0, US.unit_m)
+    frame = SiteFrame(lonlat(0, 0), 0.0, US.lattice_unit_m)
     polygon = {
         "type": "Polygon",
         "coordinates": [
@@ -329,7 +329,7 @@ def test_validate_polygon_rejects(polygon: dict) -> None:
 )
 def test_validate_lattice_polygon_accepts(polygon: list[Ring]) -> None:
     """Test valid polygons with holes, and rings touching in single points, are accepted."""
-    validate_lattice_polygon(polygon, METRIC.grid_units)
+    validate_lattice_polygon(polygon)
 
 
 @pytest.mark.parametrize(
@@ -384,7 +384,6 @@ def test_validate_lattice_polygon_accepts(polygon: list[Ring]) -> None:
             "Holes must not split the area",
         ),
         ([circle(501)], "A polygon may have at most 500 corners"),
-        ([ring((0, 0), (0.09, 0), (0.09, 1), (0, 1))], "An edge is shorter than the drawing grid"),
         ([ring((0, 0), (4, 0), (0, 3.9))], "A corner must be between 45 and 315 degrees"),
         (
             [ring((0, 0), (10, 0), (10, 10), (6, 10), (5, 2), (4, 10), (0, 10))],
@@ -407,7 +406,6 @@ def test_validate_lattice_polygon_accepts(polygon: list[Ring]) -> None:
         "hole_touches_outline_twice",
         "touching_holes_bridge_outline",
         "too_many_corners",
-        "edge_below_the_grid",
         "spike",
         "reflex_spike",
     ],
@@ -415,7 +413,7 @@ def test_validate_lattice_polygon_accepts(polygon: list[Ring]) -> None:
 def test_validate_lattice_polygon_rejects(polygon: list[Ring], message: str) -> None:
     """Test each kind of invalid ring is rejected with its own message."""
     with pytest.raises(ValueError, match=f"^{message}$"):
-        validate_lattice_polygon(polygon, METRIC.grid_units)
+        validate_lattice_polygon(polygon)
 
 
 @pytest.mark.parametrize(
@@ -445,7 +443,9 @@ def test_segments_intersect(
     assert _segments_intersect(p1, p2, p3, p4) is meet
 
 
-def test_lattice_units_are_exact_fractions() -> None:
-    """Test the lattice units are exactly 1 cm and 1 in, so whole units read back exactly."""
-    assert METRIC.unit_m == Fraction(1, 100)
-    assert US.unit_m * 10000 == 254
+def test_lattice_and_half_walls_follow_the_grid() -> None:
+    """Test the lattice is a quarter grid step and the half walls whole units of it."""
+    assert METRIC.lattice_unit_m == Fraction(1, 40)
+    assert US.lattice_unit_m * 10000 == 254
+    assert (METRIC.interior_inset_units, METRIC.exterior_inset_units) == (2, 6)
+    assert (US.interior_inset_units, US.exterior_inset_units) == (2, 3)

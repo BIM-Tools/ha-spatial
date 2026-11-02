@@ -1,7 +1,7 @@
 """Keeps the integration's names and tuning values in one place."""
 
 from fractions import Fraction
-from typing import Final, Literal, NamedTuple
+from typing import Final, NamedTuple
 
 DOMAIN: Final = "spatial"
 
@@ -28,8 +28,7 @@ ERR_OUTSIDE_OUTLINE: Final = "outside_outline"
 # Hex characters of the sha256 that identify one version of a stored entry.
 REV_LENGTH: Final = 12
 
-# The site fields a write command may set; the centre is derived, never written,
-# and the lattice is set with the first origin.
+# The site fields a write command may set; the centre is derived, never written.
 SITE_FIELD_NAMES: Final = ("bearing_deg", "origin", "outline")
 
 # The stored room properties a write command may set; the others are derived.
@@ -42,25 +41,38 @@ DEFAULT_FLOOR_HEIGHT_M: Final = 3.0
 # coincide over at least this length.
 MIN_SHARED_EDGE_M: Final = 0.3
 
-type LatticeName = Literal["metric", "us"]
+# Footprints are read on a lattice of a quarter drawing grid step, fine enough
+# for the walls and coarse enough that corners line up on screen.
+LATTICE_UNITS_PER_STEP: Final = 4
 
 
-class LatticeSize(NamedTuple):
-    """One lattice: its unit and the drawing grid and half walls in whole units."""
+class UnitGrid(NamedTuple):
+    """The drawing grid of one unit system, with the half walls as fractions of a step."""
 
-    unit_m: Fraction
-    grid_units: int
-    interior_inset_units: int
-    exterior_inset_units: int
+    step_m: Fraction
+    interior_half_wall: Fraction
+    exterior_half_wall: Fraction
+
+    @property
+    def lattice_unit_m(self) -> Fraction:
+        """Return the size of one lattice unit in metres."""
+        return self.step_m / LATTICE_UNITS_PER_STEP
+
+    @property
+    def interior_inset_units(self) -> int:
+        """Return the inset of a room along an interior wall axis, in lattice units."""
+        return int(self.interior_half_wall * LATTICE_UNITS_PER_STEP)
+
+    @property
+    def exterior_inset_units(self) -> int:
+        """Return the inset of a room along the outline, in lattice units."""
+        return int(self.exterior_half_wall * LATTICE_UNITS_PER_STEP)
 
 
-# Every point is read on the lattice of the unit system in use when the origin
-# was first set; walls lie on the axes, so a room loses half of a 100 mm (4 in)
-# partition and half of a 300 mm (6 in) exterior wall.
-LATTICES: Final[dict[LatticeName, LatticeSize]] = {
-    "metric": LatticeSize(Fraction(1, 100), 10, 5, 15),
-    "us": LatticeSize(Fraction(254, 10000), 4, 2, 3),
-}
+# Walls lie on the axes, so a room loses half of a 100 mm (4 in) partition and
+# half of a 300 mm (6 in) exterior wall: 5 cm and 15 cm, or 2 in and 3 in.
+METRIC_GRID: Final = UnitGrid(Fraction(1, 10), Fraction(1, 2), Fraction(3, 2))
+US_CUSTOMARY_GRID: Final = UnitGrid(Fraction(254, 2500), Fraction(1, 2), Fraction(3, 4))
 
 # JSON-FG (OGC) conformance classes and the feature type of an area footprint.
 JSONFG_CORE: Final = "http://www.opengis.net/spec/json-fg-1/1.0/conf/core"

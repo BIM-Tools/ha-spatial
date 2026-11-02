@@ -267,7 +267,7 @@ test("the panel has an Align button, the card does not", async () => {
   expect(alignButton(card)).toBeUndefined();
 });
 
-test("in Align a click on a building saves the bearing of the wall nearest to it, with its start as the first origin, and ends the mode", async () => {
+test("in Align a click on a building saves only the bearing of the wall nearest to it, and ends the mode", async () => {
   const { panel, connection } = mountPanel();
   // The buildings layer is one MultiPolygon per tile.
   const tile = { type: "MultiPolygon", coordinates: [SHED.coordinates, HOUSE.coordinates] };
@@ -279,9 +279,8 @@ test("in Align a click on a building saves the bearing of the wall nearest to it
   await vi.waitFor(() => expect(guideText(panel)).toBe("Click the wall your rooms follow"));
   click();
   expect(queryRenderedFeatures).toHaveBeenLastCalledWith({ x: 1, y: 2 }, { layers: ["building-3d"] });
-  const [saved] = updates(connection) as unknown as [{ bearing_deg: number; origin: number[] }];
-  expect(Object.keys(saved)).toEqual(["type", "bearing_deg", "origin"]);
-  expect(saved.origin).toEqual([5.0002, 52]);
+  const [saved] = updates(connection) as unknown as [{ bearing_deg: number }];
+  expect(Object.keys(saved)).toEqual(["type", "bearing_deg"]);
   // The counter-clockwise ring runs north along the east wall.
   expect(saved.bearing_deg).toBeCloseTo(0, 1);
   click();
@@ -365,17 +364,6 @@ test.each([false, true])("the stored outline is drawn on start and after updates
   const [[onUpdate]] = connection.subscribeMessage.mock.calls as unknown as [[() => Promise<void>]];
   await onUpdate();
   expect(sources.outline.data).toEqual(EMPTY);
-});
-
-test("in Align a site with an origin keeps it: only the bearing is saved", async () => {
-  const { panel, connection } = mountPanel(async (message) =>
-    message.type === "spatial/site" ? { lon: 5, lat: 52, bearing_deg: 0, origin: [5, 52], outline: null } : answer(message),
-  );
-  queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
-  await startAligning(panel);
-  click();
-  await vi.waitFor(() => expect(updates(connection)).toHaveLength(1));
-  expect(Object.keys(updates(connection)[0])).toEqual(["type", "bearing_deg"]);
 });
 
 test("in Align a save Spatial refuses turns the map back and shows its reason, without Retry", async () => {

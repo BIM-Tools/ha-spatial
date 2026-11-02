@@ -12,7 +12,7 @@ ORIGIN_LAT = 52.0
 _M_PER_DEG_LON, _M_PER_DEG_LAT = metres_per_degree(ORIGIN_LAT)
 
 # The site frame at the origin, facing north. Its lattice runs along the axes of
-# rect(), so rectangles in whole centimetres read back exactly as written.
+# rect(), so rectangles in whole lattice units read back exactly as written.
 FRAME = {"origin": [ORIGIN_LON, ORIGIN_LAT], "bearing_deg": 0.0}
 
 

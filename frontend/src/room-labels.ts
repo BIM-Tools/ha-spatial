@@ -194,9 +194,7 @@ export class RoomLabels {
       const area = this._areas[areaId];
       const name = area?.name ?? String(room.properties?.name ?? areaId);
       const icon = area?.icon || FALLBACK_ICON;
-      // Spatial has no area for a room before the site has an origin; the label then leaves it out.
-      const areaM2 = room.properties?.area_m2;
-      const size = step === "size" && typeof areaM2 === "number" ? `${areaM2.toFixed(1)} m²` : "";
+      const size = step === "size" ? `${Number(room.properties?.area_m2).toFixed(1)} m²` : "";
       const chip = step === "icon" && areaId === this._pointed;
       const shown = JSON.stringify([step, name, icon, size, chip, Math.floor(space.width)]);
       if (shown !== label.shown) {

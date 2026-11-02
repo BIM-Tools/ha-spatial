@@ -9,7 +9,7 @@ from homeassistant.helpers import floor_registry as fr
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_capture_events
 from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
-from custom_components.spatial.const import DOMAIN, EVENT_SPATIAL_UPDATED, LATTICES
+from custom_components.spatial.const import DOMAIN, EVENT_SPATIAL_UPDATED, METRIC_GRID
 from custom_components.spatial.geometry import SiteFrame
 
 from .common import FRAME, lonlat, rect
@@ -19,7 +19,7 @@ OUTLINE = rect(0, 0, 10, 10)
 
 @pytest.fixture(autouse=True)
 async def setup_integration(hass: HomeAssistant) -> MockConfigEntry:
-    """Set up Spatial with one floor and three areas, without a site frame."""
+    """Set up Spatial with one floor and three areas, on a fresh site."""
     ground = fr.async_get(hass).async_create("Ground floor", level=0)
     areas = ar.async_get(hass)
     areas.async_create("Kitchen", floor_id=ground.floor_id)
@@ -54,47 +54,69 @@ def polygon(*corners: tuple[float, float]) -> dict[str, Any]:
     return {"type": "Polygon", "coordinates": [[lonlat(x, y) for x, y in (*corners, corners[0])]]}
 
 
-@pytest.mark.parametrize(
-    "command",
-    [
-        {"areas": {"kitchen": rect(0, 0, 4, 3)}},
-        {"site": {"outline": OUTLINE}},
-        {"site": {"origin": FRAME["origin"], "outline": OUTLINE}},
-    ],
-    ids=["room", "outline", "origin_only"],
-)
-async def test_drawing_needs_the_site_frame(
-    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, command: dict[str, Any]
-) -> None:
-    """Test footprints and outlines are refused until the origin and bearing are set."""
-    client = await hass_ws_client(hass)
-    events = async_capture_events(hass, EVENT_SPATIAL_UPDATED)
-
-    msg = await _write(client, **command)
-    await hass.async_block_till_done()
-
-    assert msg["error"] == {
-        "code": "invalid_format",
-        "message": "Set the site origin and bearing before drawing",
-    }
-    assert events == []
-
-
-async def test_bearing_brings_an_origin_unless_one_is_given(
+async def test_a_fresh_site_can_be_drawn_on_before_align(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator
 ) -> None:
-    """Test a bearing on a site without an origin brings one: the outline's first corner."""
+    """Test the first room on a fresh site stores the home location as origin, still unaligned."""
+    await hass.config.async_update(longitude=lonlat(-3, -2)[0], latitude=lonlat(-3, -2)[1])
     client = await hass_ws_client(hass)
-    outline = rect(2, 3, 10, 10)
 
-    msg = await _write(client, site={"bearing_deg": 0.0, "outline": outline})
-    assert msg["success"], msg
+    msg = await _write(client, areas={"kitchen": rect(0, 0, 4, 3)})
+
+    assert msg["result"]["area_m2"] == {"kitchen": 11.31}
     site = (await _call(client, type="spatial/site"))["result"]
-    assert (site["origin"], site["lattice"]) == (lonlat(2, 3), "metric")
+    assert (site["origin"], site["bearing_deg"]) == (
+        [hass.config.longitude, hass.config.latitude],
+        None,
+    )
 
-    await _call(client, type="spatial/site/update", origin=None)
-    await _call(client, type="spatial/site/update", bearing_deg=10.0, origin=None)
+
+async def test_first_write_puts_the_origin_on_the_outline(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test a first write with an outline takes the outline's first corner as origin."""
+    client = await hass_ws_client(hass)
+    msg = await _write(client, site={"bearing_deg": 10.0, "outline": rect(2, 3, 10, 10)})
+    assert msg["success"], msg
+    assert (await _call(client, type="spatial/site"))["result"]["origin"] == lonlat(2, 3)
+
+
+async def test_cleared_origin_reads_on_the_default_one(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test a site whose origin was cleared still measures and finds its rooms."""
+    client = await hass_ws_client(hass)
+    await _write(client, site=FRAME, areas={"kitchen": rect(0, 0, 4, 3)})
+
+    assert (await _call(client, type="spatial/site/update", origin=None))["success"]
+
     assert (await _call(client, type="spatial/site"))["result"]["origin"] is None
+    assert (await _features(client))["kitchen"]["properties"]["area_m2"] == 11.31
+    lon, lat = lonlat(1, 1)
+    msg = await _call(client, type="spatial/query_point", lon=lon, lat=lat)
+    assert msg["result"] == {"area_id": "kitchen"}
+
+
+async def test_unit_switch_reads_on_the_new_grid(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test a unit switch is announced and measures on the lattice of the new grid.
+
+    By hand: 3.048 m x 2.4384 m is 120 in x 96 in, less 2 in on every side; on
+    the 2.5 cm lattice it reads 3.05 m x 2.45 m, less 5 cm on every side.
+    """
+    client = await hass_ws_client(hass)
+    await hass.config.async_update(unit_system="us_customary")
+    msg = await _write(client, site=FRAME, areas={"kitchen": rect(0, 0, 3.048, 2.4384)})
+    inch_m = 0.0254
+    assert msg["result"]["area_m2"] == {"kitchen": round(116 * inch_m * 92 * inch_m, 2)}
+    events = async_capture_events(hass, EVENT_SPATIAL_UPDATED)
+
+    await hass.config.async_update(unit_system="metric")
+    await hass.async_block_till_done()
+
+    assert events
+    assert (await _features(client))["kitchen"]["properties"]["area_m2"] == round(2.95 * 2.35, 2)
 
 
 async def test_frame_and_rooms_in_one_write(
@@ -108,37 +130,6 @@ async def test_frame_and_rooms_in_one_write(
     assert msg["success"], msg
     # A corner room: 15 cm off the two facade edges, 5 cm off the others.
     assert msg["result"]["area_m2"] == {"kitchen": pytest.approx(4.8 * 3.8)}
-
-
-async def test_lattice_is_fixed_by_the_first_origin(
-    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
-) -> None:
-    """Test the lattice follows the unit system at the first origin, and no later switch."""
-    client = await hass_ws_client(hass)
-    await hass.config.async_update(unit_system="us_customary")
-    assert (await _call(client, type="spatial/site/update", **FRAME))["success"]
-
-    await hass.config.async_update(unit_system="metric")
-    await _call(client, type="spatial/site/update", origin=None)
-    await _call(client, type="spatial/site/update", origin=lonlat(1, 1))
-
-    site = (await _call(client, type="spatial/site"))["result"]
-    assert site["lattice"] == "us"
-
-
-async def test_inch_lattice_measures_in_inches(
-    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
-) -> None:
-    """Test a 10 ft x 8 ft room on the inch lattice loses 2 in on every interior side."""
-    client = await hass_ws_client(hass)
-    await hass.config.async_update(unit_system="us_customary")
-    await _write(client, site=FRAME)
-
-    msg = await _write(client, areas={"kitchen": rect(0, 0, 3.048, 2.4384)})
-
-    inch_m = 0.0254
-    expected_m2 = (120 - 4) * inch_m * (96 - 4) * inch_m
-    assert msg["result"]["area_m2"] == {"kitchen": round(expected_m2, 2)}
 
 
 async def test_reads_are_on_the_lattice_and_storage_keeps_the_written_coordinates(
@@ -155,7 +146,7 @@ async def test_reads_are_on_the_lattice_and_storage_keeps_the_written_coordinate
     assert (await _write(client, site={**site, "outline": outline}))["success"]
     assert (await _write(client, areas={"kitchen": written}))["success"]
 
-    frame = SiteFrame(site["origin"], site["bearing_deg"], LATTICES["metric"].unit_m)
+    frame = SiteFrame(site["origin"], site["bearing_deg"], METRIC_GRID.lattice_unit_m)
     read = (await _features(client))["kitchen"]["geometry"]
     assert read != written
     assert frame.to_polygon(frame.snap(read)) == read
@@ -191,13 +182,12 @@ async def test_bearing_change_reads_the_same_data_on_the_new_lattice(
     [
         (polygon((0, 0), (4, 0), (0, 3.9)), "A corner must be between 45 and 315 degrees"),
         (polygon((0, 0), (0.003, 0), (0, 0.003)), "A ring needs at least three corners"),
-        (rect(0, 0, 0.09, 1), "An edge is shorter than the drawing grid"),
         (
             polygon((0, 0), (4, 0), (4, 3), (2.004, 0.003), (0, 3)),
             "A ring crosses itself",
         ),
     ],
-    ids=["spike", "collapsed", "short_edge", "touches_itself_once_snapped"],
+    ids=["spike", "collapsed", "touches_itself_once_snapped"],
 )
 async def test_footprints_are_checked_as_snapped(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator, room: dict[str, Any], message: str
@@ -216,10 +206,10 @@ async def test_bad_outline_is_named(
 ) -> None:
     """Test an outline that fails on the lattice names the outline."""
     client = await hass_ws_client(hass)
-    msg = await _write(client, site={**FRAME, "outline": rect(0, 0, 10, 0.05)})
+    msg = await _write(client, site={**FRAME, "outline": polygon((0, 0), (10, 0), (0, 9.9))})
     assert msg["error"] == {
         "code": "invalid_format",
-        "message": "An edge is shorter than the drawing grid (outline)",
+        "message": "A corner must be between 45 and 315 degrees (outline)",
     }
 
 
@@ -242,7 +232,7 @@ async def test_room_without_net_area_is_refused(
         (rect(12, 12, 14, 14), True),
         (rect(8, 0, 14, 3), False),
         (rect(-1, -1, 11, 11), False),
-        (rect(0, 0, 10.01, 3), False),
+        (rect(0, 0, 10.025, 3), False),
     ],
     ids=[
         "inside",
@@ -304,7 +294,7 @@ async def test_outline_may_not_cut_a_room(
         (rect(4, 0, 6, 3), True),
         (rect(4, 2.5, 6, 6), True),
         (rect(4, 2.75, 6, 6), False),
-        (rect(4.01, 0, 6, 3), False),
+        (rect(4.025, 0, 6, 3), False),
     ],
     ids=["whole_wall", "half_a_metre", "a_quarter_metre", "one_unit_apart"],
 )

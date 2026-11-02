@@ -99,7 +99,7 @@ def _apply_unless_changed(
     room_properties: dict[str, dict[str, Any]],
     expected_area_revs: dict[str, str | None],
     expected_site_rev: str | None,
-) -> dict[str, float | None] | None:
+) -> dict[str, float] | None:
     """Apply one change and return the m² set, or send an error and return None.
 
     A conflict is reported before a problem with the geometry, as the client

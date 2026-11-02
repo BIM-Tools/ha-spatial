@@ -80,8 +80,8 @@ class SiteFrame:
 
     def to_wgs84(self, point: Point) -> list[float]:
         """Return [lon, lat] of a lattice point."""
-        # Multiplying by the exact fraction rounds once, so whole centimetres or
-        # inches become the nearest double of their decimal value in metres.
+        # Multiplying by the exact fraction rounds once, so whole lattice units
+        # become the nearest double of their decimal value in metres.
         along = float(point[0] * self.unit_m)
         across = float(point[1] * self.unit_m)
         east = along * self._sin - across * self._cos
@@ -363,12 +363,11 @@ def validate_rings(ring_corners: list[Ring]) -> None:
         raise ValueError("Holes must not split the area")
 
 
-def validate_lattice_polygon(ring_corners: list[Ring], grid_units: int) -> None:
+def validate_lattice_polygon(ring_corners: list[Ring]) -> None:
     """Raise ValueError unless a snapped polygon is valid and can be built.
 
-    Custom. On top of validate_rings: every edge is at least one drawing grid
-    step long, and every corner has an interior angle from 45 to 315 degrees, so
-    there are no spikes. Both are compared in whole numbers: the turn at a corner
+    Custom. On top of validate_rings: every corner has an interior angle from 45
+    to 315 degrees, so there are no spikes, compared in whole numbers: the turn at a corner
     is beyond 135 degrees exactly when the dot product u.w of its edges is negative
     and 2 (u.w)² > |u|² |w|².
     """
@@ -379,8 +378,6 @@ def validate_lattice_polygon(ring_corners: list[Ring], grid_units: int) -> None:
         ):
             ux, uy = corner[0] - previous[0], corner[1] - previous[1]
             wx, wy = following[0] - corner[0], following[1] - corner[1]
-            if ux * ux + uy * uy < grid_units * grid_units:
-                raise ValueError("An edge is shorter than the drawing grid")
             dot = ux * wx + uy * wy
             if dot < 0 and 2 * dot * dot > (ux * ux + uy * uy) * (wx * wx + wy * wy):
                 raise ValueError("A corner must be between 45 and 315 degrees")
