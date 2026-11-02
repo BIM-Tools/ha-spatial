@@ -20,10 +20,7 @@ into that zip and are not in git, so copying the source folder gives no editor.
 
 1. In HACS, open the three-dot menu > Custom repositories and add
    `https://github.com/BIM-Tools/ha-spatial` with type Integration.
-2. Download Spatial (Home Assistant 2026.10.0 or newer). The first releases are
-   pre-releases: pick one under "Need a different version?". To be offered later
-   pre-releases as updates, enable and turn on the repository's pre-release switch entity
-   (HACS creates it disabled).
+2. Download Spatial (Home Assistant 2026.10.0 or newer).
 3. Restart Home Assistant, then Settings > Devices & services > Add integration > Spatial.
 
 Without HACS: download `spatial.zip` from the
