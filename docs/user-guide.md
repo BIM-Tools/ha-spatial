@@ -40,7 +40,7 @@ opens on **All**, north up, centred on your home location.
    example "3 of 5". Draw each room to the wall centrelines, so neighbours share their edges.
    Use **New area** for a room that is not in Home Assistant yet.
 
-   ![Draw on the ground floor: the strip with Building first, the outline active with its corners](images/draw.png)
+   ![Draw on the ground floor: the guide line "Draw Utility" and the dashed Utility pill highlighted](images/draw.png)
 
 4. **Next floor.** Press the next floor button and draw its rooms; the outline shows on every
    floor as a guide.
