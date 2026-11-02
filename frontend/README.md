@@ -12,8 +12,9 @@ The map panel and the dashboard card. Source here, built into `custom_components
 
 ## How to use
 
-Open Settings > Devices & services > Spatial > Configure. The map fills the page under a header with
-Back and Help (a short sheet of the symbols and keys, with a link to this documentation); the floors
+Open Settings > Devices & services > Spatial > Configure, or **Open Spaces** right after adding Spatial;
+there is no sidebar entry. The map fills the page under a header with
+Back (always to the integration page) and Help (a short sheet of the symbols and keys, with a link to this documentation); the floors
 float top left, the tools top right, the map controls bottom right.
 **All** stacks the floors in 3D and disables the tools; a floor button shows that floor as a plan
 with room outlines. One tool is always active, **Adjust** by default.

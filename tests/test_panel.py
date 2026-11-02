@@ -1,14 +1,16 @@
 """Proves the panel and the card are registered and versioned for the browser."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL
 from homeassistant.core import HomeAssistant
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import MockConfigEntry, MockUser
+from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
 import custom_components.spatial
-from custom_components.spatial.const import DOMAIN, STATIC_URL
+from custom_components.spatial.const import DOMAIN, PANEL_URL_PATH, STATIC_URL
 
 
 async def setup_entry(hass: HomeAssistant) -> MockConfigEntry:
@@ -20,14 +22,42 @@ async def setup_entry(hass: HomeAssistant) -> MockConfigEntry:
     return entry
 
 
-async def test_panel_registered_for_admins(hass: HomeAssistant) -> None:
-    """The panel is registered for admins, without a sidebar entry."""
+async def panels_for_user(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> dict[str, Any]:
+    """Return the panels Home Assistant's frontend gets for the current user."""
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id({"type": "get_panels"})
+    msg = await client.receive_json()
+    assert msg["success"], msg
+    panels: dict[str, Any] = msg["result"]
+    return panels
+
+
+async def test_panel_for_admins_outside_the_sidebar(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Configure opens the panel, which has no sidebar entry.
+
+    Home Assistant's sidebar lists only panels with a title.
+    """
     await setup_entry(hass)
 
-    panel = hass.data["frontend_panels"]["spatial"]
-    assert panel.config_panel_domain == DOMAIN
-    assert panel.require_admin
-    assert panel.sidebar_title is None
+    panel = (await panels_for_user(hass, hass_ws_client))[PANEL_URL_PATH]
+    assert panel["require_admin"]
+    assert panel["title"] is None
+    assert panel["icon"] is None
+    assert panel["config_panel_domain"] == DOMAIN
+
+
+async def test_panel_hidden_from_non_admins(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, hass_admin_user: MockUser
+) -> None:
+    """A user without admin rights does not get the panel."""
+    await setup_entry(hass)
+    hass_admin_user.groups = []
+
+    assert PANEL_URL_PATH not in await panels_for_user(hass, hass_ws_client)
 
 
 async def test_panel_removed_on_unload_and_back_on_setup(hass: HomeAssistant) -> None:

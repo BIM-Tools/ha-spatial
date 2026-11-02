@@ -13,30 +13,8 @@ const KEYS: [key: string, does: string][] = [
   ["Delete", "Remove the active shape"],
 ];
 
-// The integration's page, where the panel is opened from.
-const BACK_FALLBACK = "/config/integrations/integration/spatial";
-
-/**
- * Port of canGoBack and the fallback branch of goBack and performNavigation in home-assistant/frontend
- * src/common/navigate.ts, release 20260930.3:
- * https://github.com/home-assistant/frontend/blob/20260930.3/src/common/navigate.ts
- * Copyright Home Assistant contributors, Apache License 2.0.
- *
- * Home Assistant's navigate() stamps `from` on every entry it pushes, so an entry without it was
- * not reached inside the app (deep link, login redirect, fresh tab) and back would leave it.
- * Dialog handling and unsaved-changes guards are left out: the panel opens neither.
- */
-const goBack = (fallbackPath: string) => {
-  if (history.state?.from !== undefined) {
-    history.back();
-    return;
-  }
-  // A replaced entry keeps its predecessor, so it keeps `from`.
-  const { root, from } = history.state ?? {};
-  const data = root ? { root: true } : undefined;
-  history.replaceState(from === undefined ? (data ?? null) : { ...data, from }, "", fallbackPath);
-  window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: true } }));
-};
+// The integration's page, whose Configure opens the editor.
+const INTEGRATION_PAGE = "/config/integrations/integration/spatial";
 
 class SpatialPanelHeader extends LitElement {
   static properties = {
@@ -209,8 +187,8 @@ class SpatialPanelHeader extends LitElement {
       <div class="toolbar-content">
         <ha-icon-button
           .path=${document.dir === "rtl" ? mdiArrowRight : mdiArrowLeft}
-          .label=${"Back"}
-          .href=${BACK_FALLBACK}
+          .label=${"Back to Spatial"}
+          .href=${INTEGRATION_PAGE}
           @click=${this._back}
         ></ha-icon-button>
         <div class="main-title" role="heading" aria-level="1">Spaces</div>
@@ -271,7 +249,9 @@ class SpatialPanelHeader extends LitElement {
   private _back(event: MouseEvent) {
     if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
-    goBack(BACK_FALLBACK);
+    history.pushState(null, "", INTEGRATION_PAGE);
+    // Home Assistant's router listens for this event rather than for pushState.
+    window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
   }
 }
 

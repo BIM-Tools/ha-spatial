@@ -9,7 +9,7 @@
 ## How to use
 
 1. Install and add **Spatial** as in the root [README](../../README.md#install) (one instance).
-2. Draw footprints in the panel (Spatial > Configure, Draw; see Panel below), or import them
+2. Draw footprints in the panel (Spatial > Configure, or Open Spaces after adding it; see Panel below), or import them
    with `tools/import_geojson.py`.
 3. Show the rooms on a dashboard: add a card with `type: custom:spatial-map-card`, best in a
    view of type Panel so the map fills it. Everyone who can see the dashboard sees the map.
@@ -103,9 +103,9 @@
 
 ### Panel
 
-Settings > Devices & services > Spatial > Configure opens the admin-only Spatial panel.
+The admin-only Spatial panel at `/spatial` has no sidebar entry and Spatial has no options. Admins open it with **Open Spaces** on the success step after adding Spatial, or later with Settings > Devices & services > Spatial > **Configure**; a link in the card's full-screen view follows later.
 
-- A Home Assistant subpage header, "Spaces", with Back and a Help link to the documentation; the map fills the rest and the controls float on it.
+- A Home Assistant subpage header, "Spaces", with Back (always to the integration page) and a Help link to the documentation; the map fills the rest and the controls float on it.
 - Home Assistant's own map: its shipped light or dark style, following the theme, with tiles from the `map_tiles` proxy.
 - Centred on the site, rotated so the site direction (the picked wall) is horizontal; north up before any Align.
 - "All" stacks the floors in 3D; a button per floor (named as in Home Assistant, ordered by level) shows that floor as a flat plan with room outlines; "No floor" shows areas without one.
@@ -135,8 +135,8 @@ Settings > Devices & services > Spatial > Configure opens the admin-only Spatial
 
 | File | Responsibility |
 | --- | --- |
-| `__init__.py` | Setup, `runtime_data`, websocket registration, admin-only `spatial` panel and the card module (bundles in `frontend/`, served at `/spatial_static`) |
-| `config_flow.py` | Single-instance config flow |
+| `__init__.py` | Setup, `runtime_data`, websocket registration, admin-only `spatial` panel behind Configure, without a sidebar entry, and the card module (bundles in `frontend/`, served at `/spatial_static`) |
+| `config_flow.py` | Single-instance config flow, with a link to the editor on its success step |
 | `coordinator.py` | Data access, registry sync, queries |
 | `store.py` | Persistence and migration of data saved by older releases |
 | `geometry.py` | All geometry: validation, m², point in polygon, shared edges, common area of two polygons |
