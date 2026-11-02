@@ -173,8 +173,8 @@ What is and is not checked automatically:
   the mouse in the panel of a fresh Home Assistant, and nothing else of the panel.
 - On a pushed `v*` tag: `Release` builds the panel and `spatial.zip` (the integration with the
   bundle and licences, version taken from the tag), then creates the release with the zip and
-  the tag message as notes. The zip build ran for v0.1.0 and was checked; the tag trigger is
-  untested until the next release, check that release then.
+  the tag message as notes. The release-event version ran for v0.1.0 and its zip was checked;
+  the tag-push version is untested until the next release, check that release then.
 - `main` is protected by a ruleset: pull request required, review threads resolved, squash
   merge only, checks `test`, `hassfest`, `ruff`, `agents-file` and `hacs` required and up to
   date with `main`, no force pushes or deletion. Copilot reviews every pull request.
