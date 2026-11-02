@@ -46,18 +46,20 @@
 | --- | --- | --- | --- |
 | Area footprint | `area_id` | `polygon` (GeoJSON, WGS84), `floors_up` (floors the room reaches above its own, 0), `on_facade_override` (null, true or false); `area_m2`, `floor_ids`, `on_facade` and `is_external` are computed on read | Area registry |
 | Floor | `floor_id` | `elevation_m`, `height_m` (both optional) | Floor registry |
-| Site | - | `bearing_deg` (null until the first Align), `origin` (`[lon, lat]` of the grid, or null), `outline` (the drawn facade, GeoJSON Polygon or null); the centre is derived, not stored | This integration |
+| Site | - | `bearing_deg` (null until the first Align), `origin` (`[lon, lat]` of the grid, or null), `lattice` (`metric` or `us`, set with the first origin), `outline` (the exterior wall axis, GeoJSON Polygon or null); the centre is derived, not stored | This integration |
 | Onboarding | - | `home_pin` (null) | This integration |
 
-- Stored in `.storage/spatial` as version 1.2, written atomically 2 seconds after the last change, and on unload and shutdown.
-- Data saved by an older release is migrated on load: every key is present afterwards, and a stored `area_m2` and the site's `lon` and `lat` are dropped. An older release drops the newer fields on its first save.
+- Stored in `.storage/spatial` as version 1.3, written atomically 2 seconds after the last change, and on unload and shutdown.
+- Data saved by an older release is migrated on load: every key is present afterwards, and a stored `area_m2` and the site's `lon` and `lat` are dropped. An origin saved before 1.3 gets the lattice of the unit system in use at the upgrade. An older release drops the newer fields on its first save.
 - `home_pin` keeps its default; no command sets it yet.
 - Each area entry and the site have a `rev`: the first 12 hex characters of the sha256 of the entry as sorted JSON. Derived, never stored; it changes exactly when the content changes, whoever changed it.
 - Names, levels and floor assignment are read from Home Assistant's registries, never copied.
 - Deleting an area or floor in Home Assistant deletes its spatial data.
 - Floors without data stack 3 m per level.
 - Site centre: the middle of the bounding box of all footprints, computed on every read; else the building outline, else the home location. The bearing is null until the first Align.
-- Site origin: the grid origin; the 10 cm drawing grid runs along the site bearing from it. Set at Align and never moved automatically; the centre may move, the origin does not.
+- Site origin: the grid origin; the 10 cm (4 in) drawing grid runs along the site bearing from it. Set at Align and never moved automatically; the centre may move, the origin does not.
+- Site frame and lattice: the origin, the bearing and the WGS84 radii at the origin's latitude give one plane per site. Coordinates are stored exactly as written; every read snaps them to the lattice in that plane (1 cm, or 1 in when Home Assistant used US customary units when the origin was first set; a later unit switch keeps it), and every derived value is computed from those lattice points. Reads return the snapped coordinates, which snap to themselves again. A new bearing or origin moves no stored data, only the lattice it is read on.
+- Without an origin and bearing, footprints read as stored, with `area_m2` null, `on_facade` only from its override, not outdoor, without adjacency and never found by `spatial/query_point`.
 
 ### Websocket API
 
@@ -66,7 +68,7 @@
 | `spatial/geojson` | no | `floor_id`? (the areas occupying that floor) | FeatureCollection of footprints, JSON-FG conformant (`conformsTo`), each feature with `featureType` `https://w3id.org/bot#Space` |
 | `spatial/query_point` | no | `lon`, `lat`, `floor_id`? (among the areas occupying that floor) | `{area_id}` (smallest match, or null) |
 | `spatial/area/adjacent` | no | `area_id` | `{area_ids}` |
-| `spatial/site` | no | - | `{lon, lat, bearing_deg, origin, outline, rev}` (`bearing_deg` null until the first Align; centre derived from the footprints, else the outline, else the home location) |
+| `spatial/site` | no | - | `{lon, lat, bearing_deg, origin, lattice, outline, rev}` (the outline on the lattice; `bearing_deg` null until the first Align; centre derived from the footprints, else the outline, else the home location) |
 | `spatial/subscribe` | no | - | An empty event message on every change, until `unsubscribe_events` |
 | `spatial/area/update_geometries` | yes | `areas`?: `{area_id: polygon or null}` (null removes); `properties`?: `{area_id: {floors_up?, on_facade_override?}}` (for areas with a footprint after the change; omitted ones are kept); `site`?: `{bearing_deg?, origin?, outline?}` (null removes one); `expected_rev`?: `{area_id: rev or null}` (null: expect no footprint); `expected_site_rev`?; areas, properties and/or site | `{area_m2: {area_id: m²}, rev: {area_id: rev or null}, site_rev}` (`rev` of every area in areas or properties) |
 | `spatial/floor/update` | yes | `floor_id`, `elevation_m`?, `height_m`? (null clears one; omitted ones are kept) | - |
@@ -78,13 +80,13 @@
   | --- | --- |
   | `area_id`, `name` | The area, named as in Home Assistant |
   | `floor_id`, `level` | Its Home Assistant floor, the lowest one it occupies (null for a site-level area) |
-  | `area_m2` | Net area |
+  | `area_m2` | Net area in m², or null without a site frame |
   | `base_m`, `top_m` | Bottom of its floor and top of the highest floor it occupies (ready for MapLibre `fill-extrusion`) |
   | `floors_up` | Stored: floors it reaches above its own |
   | `floor_ids` | Derived: the floors it occupies, lowest first (empty without a floor) |
   | `on_facade_override` | Stored: null, or the value that replaces the derived `on_facade` |
-  | `on_facade` | Derived: an edge lies on the outline (within 0.05 m over at least 0.3 m), unless overridden |
-  | `is_external` | Derived: an outdoor room (IFC `Pset_SpaceCommon.IsExternal`): more than half of its area lies outside the outline; false without an outline |
+  | `on_facade` | Derived: the room shares at least 0.3 m of the outline, unless overridden |
+  | `is_external` | Derived: an outdoor room (IFC `Pset_SpaceCommon.IsExternal`): it lies outside the outline, touching allowed; false without an outline |
   | `rev` | The rev of its entry |
 
 - `spatial/site/update` and the `site` part of `spatial/area/update_geometries` accept the same fields and check `expected_rev` the same way as `expected_site_rev`.
@@ -97,7 +99,7 @@
   and announced with one event, or not at all. With expected revs it writes only if every one
   still matches, so an undo never overwrites a change made elsewhere; without them the last
   writer wins.
-- Errors: `not_found` (unknown area or floor), `invalid_format` (bad input), `conflict` (an
+- Errors: `not_found` (unknown area or floor), `invalid_format` (bad input, a footprint or outline before the origin and bearing are set, a polygon that fails on the lattice, or a room without net area; the message names the area or `outline`), `outside_outline` (an indoor room would extend beyond the outline: a written room, or any room when the outline changes, lies across it; the message lists the area ids), `conflict` (an
   expected rev no longer matches; the message lists the area ids and `site`), `unauthorized`.
 - Event `spatial_updated` fires after every change, including every floor registry change (it can change the floors a room occupies); non-admin users follow it through `spatial/subscribe`.
 
@@ -123,12 +125,12 @@ The admin-only Spatial panel at `/spatial` has no sidebar entry and Spatial has 
 
 | Rule | Value |
 | --- | --- |
-| Polygon | RFC 7946 `Polygon`, closed rings, at least 4 positions; holes (inner rings) allowed, never a MultiPolygon. Rejected with `invalid_format`; footprints and outlines name the reason: "A ring needs at least three corners", "A polygon may have at most 500 corners", "A ring crosses itself", "Rings must not cross or share an edge", "A hole must lie inside the outline", "A hole must not lie inside another hole", "Holes must not split the area". Rings may touch in single points that leave the area in one piece; tests are exact in degrees |
-| Adjacency | On every floor both rooms occupy (site-level rooms only with each other), edges of outer and inner rings within 0.05 m over at least 0.3 m, so a room filling a hole is adjacent to the room around it |
+| Polygon | RFC 7946 `Polygon`, closed rings, at least 4 positions; holes (inner rings) allowed, never a MultiPolygon. Checked on the lattice as it will be read, rejected with `invalid_format` and the reason: "A ring needs at least three corners" (also when corners snap together), "A polygon may have at most 500 corners", "A ring crosses itself", "Rings must not cross or share an edge", "A hole must lie inside the outline", "A hole must not lie inside another hole", "Holes must not split the area", "An edge is shorter than the drawing grid", "A corner must be between 45 and 315 degrees". Rings may touch in single points that leave the area in one piece |
+| Adjacency | On every floor both rooms occupy (site-level rooms only with each other), wall axes of outer and inner rings coinciding exactly on the lattice over at least 0.3 m, so a room filling a hole is adjacent to the room around it |
 | Rooms across floors | A room occupies its Home Assistant floor and the `floors_up` floors with the next higher levels (floors on one level ordered by `floor_id`); a floor deleted later shortens `floor_ids`, `floors_up` stays as stored |
-| Outdoor | `is_external` compares the room's common area with the outline (exact for any polygons, holes included) with half its gross area; exactly half counts as indoor |
-| Area | `area_m2` is the net area: local tangent plane with exact WGS84 radii, holes subtracted, shrunk by 50 mm on every side (exact for right angles) |
-| Point in polygon | PNPOLY; a point in a hole is outside the room; a point exactly on an edge may fall either way |
+| Outline | The exterior wall axis. A room lies inside it or outside it, touching allowed; tested exactly on the lattice (edges crossing, outline edges running through the room, then the side of one piece of the room's boundary) |
+| Area | `area_m2` is the net area: the lattice polygon, holes subtracted, with each edge piece moved in by half a wall: 15 cm (3 in) where it lies on the outline, unless `on_facade_override` is false, 5 cm (2 in) elsewhere. Exact for right angles; a diagonal corner between unequal insets is approximated |
+| Point in polygon | PNPOLY on the lattice; a point in a hole is outside the room; a point exactly on an edge may fall either way |
 | Overlaps | `query_point` returns the smallest containing area |
 
 ### Modules
@@ -139,5 +141,5 @@ The admin-only Spatial panel at `/spatial` has no sidebar entry and Spatial has 
 | `config_flow.py` | Single-instance config flow, with a link to the editor on its success step |
 | `coordinator.py` | Data access, registry sync, queries |
 | `store.py` | Persistence and migration of data saved by older releases |
-| `geometry.py` | All geometry: validation, m², point in polygon, shared edges, common area of two polygons |
+| `geometry.py` | All geometry: the site frame and lattice, validation, net area, point in polygon, shared edges, the room's relation to the outline |
 | `websocket_api.py` | Websocket commands and validation |

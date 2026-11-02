@@ -11,15 +11,17 @@ from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
 from custom_components.spatial.const import DOMAIN, EVENT_SPATIAL_UPDATED
 
-from .common import lonlat, rect
+from .common import lonlat, rect, set_frame
 
 OUTLINE = rect(0, 0, 10, 10)
 ROOM_PROPERTY_KEYS = ("floors_up", "floor_ids", "on_facade_override", "on_facade", "is_external")
 
 
 @pytest.fixture(autouse=True)
-async def setup_integration(hass: HomeAssistant) -> MockConfigEntry:
-    """Set up Spatial with three floors, created out of level order, and five areas."""
+async def setup_integration(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> MockConfigEntry:
+    """Set up Spatial with three floors out of level order and five areas, on the test frame."""
     floors = fr.async_get(hass)
     ground = floors.async_create("Ground floor", level=0)
     second = floors.async_create("Second floor", level=2)
@@ -35,6 +37,7 @@ async def setup_integration(hass: HomeAssistant) -> MockConfigEntry:
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+    await set_frame(hass, hass_ws_client)
     return entry
 
 
@@ -312,22 +315,22 @@ async def test_floor_ids_shrink_when_a_floor_above_is_deleted(
 @pytest.mark.parametrize(
     ("room", "outline", "is_external"),
     [
-        (rect(8, 0, 14, 3), OUTLINE, True),
-        (rect(6, 0, 11, 3), OUTLINE, False),
-        (rect(5, 0, 14.9, 3), OUTLINE, False),
+        (rect(12, 0, 14, 3), OUTLINE, True),
         (rect(10, 0, 14, 3), OUTLINE, True),
+        (rect(6, 0, 10, 3), OUTLINE, False),
+        (rect(0, 0, 10, 10), OUTLINE, False),
         (rect(8, 0, 14, 3), None, False),
     ],
-    ids=["mostly_outside", "mostly_inside", "just_more_inside", "against_the_facade", "no_outline"],
+    ids=["outside", "against_the_facade", "inside_on_the_facade", "is_the_outline", "no_outline"],
 )
-async def test_is_external_follows_where_most_of_the_room_lies(
+async def test_is_external_means_outside_the_outline(
     hass: HomeAssistant,
     hass_ws_client: WebSocketGenerator,
     room: dict[str, Any],
     outline: dict[str, Any] | None,
     is_external: bool,
 ) -> None:
-    """Test a room is outdoor when most of its area lies outside the building outline."""
+    """Test a room is outdoor when it lies outside the building outline, touching or not."""
     client = await hass_ws_client(hass)
     await _write(client, areas={"garden": room}, site={"outline": outline})
 

@@ -6,8 +6,15 @@ from typing import Any, Literal, TypedDict
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.storage import Store
+from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
-from .const import SAVE_DELAY_S, STORAGE_KEY, STORAGE_MINOR_VERSION, STORAGE_VERSION
+from .const import (
+    SAVE_DELAY_S,
+    STORAGE_KEY,
+    STORAGE_MINOR_VERSION,
+    STORAGE_VERSION,
+    LatticeName,
+)
 
 
 class AreaSpatial(TypedDict):
@@ -26,10 +33,11 @@ class FloorSpatial(TypedDict):
 
 
 class Site(TypedDict):
-    """Orientation, grid origin and building outline shared by all views and editors."""
+    """Orientation, grid origin, lattice and building outline shared by all views and editors."""
 
     bearing_deg: float | None
     origin: list[float] | None
+    lattice: LatticeName | None
     outline: dict[str, Any] | None
 
 
@@ -53,6 +61,11 @@ class SpatialData(TypedDict):
     floors: dict[str, FloorSpatial]
     areas: dict[str, AreaSpatial]
     onboarding: Onboarding
+
+
+def lattice_of_unit_system(hass: HomeAssistant) -> LatticeName:
+    """Return the lattice of Home Assistant's unit system now."""
+    return "us" if hass.config.units is US_CUSTOMARY_SYSTEM else "metric"
 
 
 def new_area(polygon: dict[str, Any]) -> AreaSpatial:
@@ -92,6 +105,14 @@ class _VersionedStore(Store[SpatialData]):
                 for floor_id, floor in (data.get("floors") or {}).items()
             }
             data["onboarding"] = {"home_pin": None}
+        if old_major_version == 1 and old_minor_version < 3:
+            # 1.3 keeps the lattice an origin was set on; older origins get the
+            # one of the unit system in use now.
+            site = data["site"]
+            data["site"] = {
+                **site,
+                "lattice": lattice_of_unit_system(self.hass) if site["origin"] else None,
+            }
         return data
 
 
@@ -109,7 +130,12 @@ class SpatialStore:
         )
         self.areas: dict[str, AreaSpatial] = {}
         self.floors: dict[str, FloorSpatial] = {}
-        self.site: Site = {"bearing_deg": None, "origin": None, "outline": None}
+        self.site: Site = {
+            "bearing_deg": None,
+            "origin": None,
+            "lattice": None,
+            "outline": None,
+        }
         self.onboarding: Onboarding = {"home_pin": None}
         self._dirty = False
 

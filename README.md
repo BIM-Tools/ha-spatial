@@ -54,10 +54,10 @@ Without HACS: download `spatial.zip` from the
 | --- | --- |
 | Coordinates | WGS84 GeoJSON, the same world as Home Assistant zones |
 | Footprint | One area has at most one `Polygon` (holes allowed, no MultiPolygon) |
-| Drawing convention | Rooms are drawn to wall centrelines, so neighbours share edges |
+| Drawing convention | Rooms are drawn on wall axes, so neighbours share edges; the building outline is the exterior wall axis |
 | Adjacency | Derived from shared edges on the same floor, never stored |
-| Measurements | Computed by the integration in metres, never from the map projection |
-| Area | `area_m2` is net: the drawn polygon shrunk by 50 mm on every side |
+| Measurements | Computed by the integration in metres on a 1 cm (1 in) lattice in the site frame, never from the map projection |
+| Area | `area_m2` is net: the drawn polygon inset by half walls, 5 cm inside and 15 cm along the outline |
 | Building, sub-spaces | Home Assistant labels |
 | Site anchor | One bearing and optional building outline per installation; the centre follows the footprints, else the outline; aligns views only |
 | Finding the building | OSM buildings in Home Assistant's map tiles set the axis only; the outline is drawn on the map |

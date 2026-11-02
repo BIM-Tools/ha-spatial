@@ -99,14 +99,18 @@ def _apply_unless_changed(
     room_properties: dict[str, dict[str, Any]],
     expected_area_revs: dict[str, str | None],
     expected_site_rev: str | None,
-) -> dict[str, float] | None:
-    """Apply one change and return the m² set, or send a conflict error and return None.
+) -> dict[str, float | None] | None:
+    """Apply one change and return the m² set, or send an error and return None.
 
-    Without expected revs the last writer wins.
+    A conflict is reported before a problem with the geometry, as the client
+    worked on old data. Without expected revs the last writer wins.
     """
     coordinator = _coordinator(hass)
     if changed := coordinator.conflicts(expected_area_revs, expected_site_rev):
         connection.send_error(msg_id, ERR_CONFLICT, f"Changed meanwhile: {', '.join(changed)}")
+        return None
+    if problem := coordinator.change_problem(polygons, site_fields, room_properties):
+        connection.send_error(msg_id, *problem)
         return None
     return coordinator.async_apply_change(polygons, site_fields, room_properties)
 
