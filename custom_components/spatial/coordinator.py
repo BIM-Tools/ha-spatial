@@ -206,20 +206,22 @@ class SpatialCoordinator:
 
         Footprints and an outline need the site frame, and are checked on the
         lattice as they will be read. Indoor rooms may not extend beyond the
-        outline: the rooms written, or all rooms when the outline changes, must lie
-        inside it or outside it. Rooms written must keep a net area.
+        outline: the rooms written, or all rooms when the outline or the frame
+        changes (both move what the lattice reads), must lie inside it or outside
+        it. Rooms written must keep a net area.
         """
         written = {area_id: p for area_id, p in polygons.items() if p is not None}
         new_outline = site_fields.get("outline")
-        site = _site_geometry(self._site_after(site_fields))
+        site_after = self._site_after(site_fields)
+        site = _site_geometry(site_after)
         if site is None:
             if written or new_outline is not None:
                 return ERR_INVALID_FORMAT, "Set the site origin and bearing before drawing"
             return None
-        snapped = {area_id: site.frame.snap(polygon) for area_id, polygon in written.items()}
+        to_validate = [(area_id, site.frame.snap(polygon)) for area_id, polygon in written.items()]
         if site.outline is not None and new_outline is not None:
-            snapped["outline"] = site.outline
-        for name, corners in snapped.items():
+            to_validate.append(("outline", site.outline))
+        for name, corners in to_validate:
             try:
                 validate_lattice_polygon(corners, site.lattice.grid_units)
             except ValueError as err:
@@ -231,7 +233,10 @@ class SpatialCoordinator:
                 rooms.pop(area_id, None)
             else:
                 rooms[area_id] = polygon
-        checked = list(rooms) if new_outline is not None else list(written)
+        frame_changed = any(
+            site_after[key] != self.store.site[key] for key in ("origin", "bearing_deg", "lattice")
+        )
+        checked = list(rooms) if new_outline is not None or frame_changed else list(written)
         footprints = {
             area_id: _measure(rooms[area_id], self._override_after(area_id, room_properties), site)
             for area_id in checked

@@ -134,6 +134,7 @@ def test_snap_drops_corners_that_meet() -> None:
         ),
         ([ring((0, 0), (0, 4), (5, 4), (5, 0))], box(-10, 0, 10, 10), 490 * 380),
         (box(0, 0, 10, 0.05), None, 0),
+        (box(0, 0, 0.2, 0.2), box(0, 0, 0.2, 0.2), 0),
     ],
     ids=[
         "interior_only",
@@ -146,6 +147,7 @@ def test_snap_drops_corners_that_meet() -> None:
         "l_shape",
         "clockwise",
         "thinner_than_two_walls",
+        "used_up_by_its_walls",
     ],
 )
 def test_net_area_of_rooms_shrunk_by_hand(

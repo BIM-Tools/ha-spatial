@@ -481,7 +481,10 @@ def net_area(
     edges u and w meeting there. Edges are split at outline corners lying on them;
     a piece lying on the outline is inset by exterior_inset, every other piece by
     interior_inset. Holes grow the same way, as their rings run with the interior
-    on the left. The result is clamped between zero and the gross area.
+    on the left. The result is clamped between zero and the gross area, and is zero
+    when every edge of the outer ring is used up by the corners at its ends (each
+    corner shortens an edge by the other inset times tan(theta / 2)): there the
+    formula would multiply two negative widths into a positive area.
 
     Exact for right angles and for diagonal corners between equal insets. Known
     limits: at a diagonal corner between unequal insets the corner term is an
@@ -494,7 +497,7 @@ def net_area(
     twice_gross = 0.0
     removed = 0.0
     corner_terms = 0.0
-    for corners in _interior_on_the_left(room):
+    for index, corners in enumerate(_interior_on_the_left(room)):
         twice_gross += _twice_signed_area(corners)
         pieces = [
             (
@@ -508,14 +511,25 @@ def net_area(
             for edge in pairwise([*corners, corners[0]])
             for piece in _edge_pieces(edge, outline_corners)
         ]
-        for ((start, end), inset), ((_, following), next_inset) in pairwise([*pieces, pieces[0]]):
+        lengths = [math.hypot(end[0] - start[0], end[1] - start[1]) for (start, end), _ in pieces]
+        shortened = [0.0] * len(pieces)
+        for k, (((start, end), inset), ((_, following), next_inset)) in enumerate(
+            pairwise([*pieces, pieces[0]])
+        ):
             ux, uy = end[0] - start[0], end[1] - start[1]
             wx, wy = following[0] - end[0], following[1] - end[1]
-            removed += inset * math.hypot(ux, uy)
+            removed += inset * lengths[k]
             denominator = math.sqrt((ux * ux + uy * uy) * (wx * wx + wy * wy)) + ux * wx + uy * wy
             # Zero only where a ring folds straight back, which validation rejects.
             if denominator > 0:
-                corner_terms += inset * next_inset * (ux * wy - uy * wx) / denominator
+                tan_half_turn = (ux * wy - uy * wx) / denominator
+                corner_terms += inset * next_inset * tan_half_turn
+                shortened[k] += next_inset * tan_half_turn
+                shortened[(k + 1) % len(pieces)] += inset * tan_half_turn
+        if index == 0 and all(
+            length <= used for length, used in zip(lengths, shortened, strict=True)
+        ):
+            return 0.0
     gross = twice_gross / 2
     return min(max(gross - removed + corner_terms, 0.0), gross)
 

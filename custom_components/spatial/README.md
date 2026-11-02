@@ -99,7 +99,7 @@
   and announced with one event, or not at all. With expected revs it writes only if every one
   still matches, so an undo never overwrites a change made elsewhere; without them the last
   writer wins.
-- Errors: `not_found` (unknown area or floor), `invalid_format` (bad input, a footprint or outline before the origin and bearing are set, a polygon that fails on the lattice, or a room without net area; the message names the area or `outline`), `outside_outline` (an indoor room would extend beyond the outline: a written room, or any room when the outline changes, lies across it; the message lists the area ids), `conflict` (an
+- Errors: `not_found` (unknown area or floor), `invalid_format` (bad input, a footprint or outline before the origin and bearing are set, a polygon that fails on the lattice, or a room without net area; the message names the area or `outline`), `outside_outline` (an indoor room would extend beyond the outline: a written room, or any room when the outline, origin or bearing changes, lies across it; the message lists the area ids), `conflict` (an
   expected rev no longer matches; the message lists the area ids and `site`), `unauthorized`.
 - Event `spatial_updated` fires after every change, including every floor registry change (it can change the floors a room occupies); non-admin users follow it through `spatial/subscribe`.
 

@@ -335,3 +335,45 @@ async def test_facade_insets_follow_the_outline(
     properties = (await _features(client))["garden"]["properties"]
     assert properties["area_m2"] == pytest.approx(area_m2, abs=0.005)
     assert properties["on_facade"] is on_facade
+
+
+@pytest.mark.parametrize(
+    ("bearing_deg", "accepted"),
+    [(45.0, True), (33.0, False)],
+    ids=["still_inside", "corner_read_beyond_the_outline"],
+)
+async def test_new_bearing_keeps_rooms_within_the_outline(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, bearing_deg: float, accepted: bool
+) -> None:
+    """Test a new bearing is refused when a room corner on an outline edge would read beyond it."""
+    client = await hass_ws_client(hass)
+    await _write(client, site={**FRAME, "outline": OUTLINE}, areas={"kitchen": rect(0, 0, 5, 4)})
+
+    msg = await _call(client, type="spatial/site/update", bearing_deg=bearing_deg)
+
+    if accepted:
+        assert msg["success"], msg
+    else:
+        assert msg["error"] == {
+            "code": "outside_outline",
+            "message": "Beyond the building outline: kitchen",
+        }
+
+
+async def test_area_named_outline_is_checked_too(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test an area whose id is "outline" is validated beside the site outline."""
+    ar.async_get(hass).async_create("Outline")
+    client = await hass_ws_client(hass)
+
+    msg = await _write(
+        client,
+        site={**FRAME, "outline": OUTLINE},
+        areas={"outline": polygon((1, 1), (5, 1), (1, 4.9))},
+    )
+
+    assert msg["error"] == {
+        "code": "invalid_format",
+        "message": "A corner must be between 45 and 315 degrees (outline)",
+    }
