@@ -468,7 +468,8 @@ def draw_box_mid_drag(shot: Shot) -> None:
     draw_active(shot)
     shot.activate_pill("Building")
     left, top, right, bottom = shot.floor_screen_box("Ground floor")
-    shot.start_drag((left, top), ((left + right) / 2, (top + bottom) / 2))
+    # Outside the drawn outline, which lies around the rooms: a press inside it would move it.
+    shot.start_drag((left - 40, top - 40), ((left + right) / 2, (top + bottom) / 2))
 
 
 def draw_box_apart(shot: Shot) -> None:
@@ -880,9 +881,13 @@ def main() -> None:
         browser.close()
     write_index(results, warnings, sheets)
     if DOCS_IMAGES_DIR.is_dir():
+        # A skipped state leaves its documentation image as it was, and says so.
         for name, shot in DOCS_IMAGES.items():
-            shutil.copyfile(OUTPUT_DIR / shot, DOCS_IMAGES_DIR / f"{name}.png")
-        print(f"Copied {len(DOCS_IMAGES)} documentation images to {DOCS_IMAGES_DIR}")
+            if (OUTPUT_DIR / shot).exists():
+                shutil.copyfile(OUTPUT_DIR / shot, DOCS_IMAGES_DIR / f"{name}.png")
+                print(f"Copied {shot} to docs/images/{name}.png")
+            else:
+                print(f"MISSING {shot}: docs/images/{name}.png not updated")
     shots = sum(result.endswith(".png") for result in results.values())
     skipped = sorted(
         {state for (state, _, _), result in results.items() if result.startswith("Skipped")}
