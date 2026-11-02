@@ -30,6 +30,7 @@ import {
   sources,
   touchZoomRotate,
   unprojectPixel,
+  US_UNITS,
 } from "./panel-harness";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
@@ -619,7 +620,7 @@ test("typing 5 on a side saves the room with that side 5 m long, in one batch", 
   await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
 });
 
-test.each(["0.1", ""])("a side typed as %j saves nothing and a toast says a side is at least 0.20 m", async (value) => {
+test.each(["0.1", "0,1", "", "abc"])("a side typed as %j saves nothing and a toast says a side is at least 0.20 m", async (value) => {
   const { panel, connection } = mountEditor();
   await startAdjusting(panel);
   await tapRoom(panel, "kitchen");
@@ -628,6 +629,29 @@ test.each(["0.1", ""])("a side typed as %j saves nothing and a toast says a side
   expect(saves(connection)).toEqual([]);
   expect(toasts).toEqual([{ message: "A side is at least 0.20 m" }]);
   expect(sideField()).toBeDefined();
+});
+
+test("in US customary units a side shows feet and inches and reads a typed length in feet and inches", async () => {
+  const { panel, connection, setFeed } = mountEditor();
+  (panel as HTMLElement & { hass: object }).hass = { ...(panel as HTMLElement & { hass: object }).hass, ...US_UNITS };
+  await startAdjusting(panel);
+  setFeed([feature("kitchen", pixelShape([0, 0], [40, 0], [40, 30], [0, 30]))]);
+  await onUpdateOf(connection)();
+  await tapRoom(panel, "kitchen");
+  expect(sideButtons().map((button) => button.textContent)).toEqual([`13' 1"`, `9' 10"`, `13' 1"`, `9' 10"`]);
+  sideButtons()[0].click();
+  const field = sideField()!;
+  expect(field.value).toBe(`13' 1"`);
+  const enter = (value: string) => {
+    field.value = value;
+    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+  };
+  enter(`6"`);
+  await settle(panel);
+  expect(toasts).toEqual([{ message: `A side is at least 8"` }]);
+  enter(`16' 5"`);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  expect(edgeLengths(saves(connection)[0].areas.kitchen)[0]).toBeCloseTo(197 * 0.0254, 3);
 });
 
 test("on a floor each room is labelled with its area's icon, name and net m² from the feed", async () => {

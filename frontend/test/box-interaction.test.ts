@@ -5,6 +5,7 @@ import type { Polygon } from "geojson";
 import type { Map as MapLibreMap } from "maplibre-gl";
 import { afterEach, expect, test, vi } from "vitest";
 import {
+  METRIC_UNITS,
   dragPan,
   dragRotate,
   fakeMapLibre,
@@ -53,6 +54,7 @@ const mountInteraction = (tool: Tool = "draw", activeRoom?: ActiveRoom) => {
     saving: () => false,
     activeRoom: () => activeRoom,
     siteBearing: () => 30,
+    units: () => METRIC_UNITS,
     onBox,
     onMove,
     onPickRoom,

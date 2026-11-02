@@ -5,6 +5,7 @@ import type { Feature, Polygon } from "geojson";
 import { css } from "lit";
 import { Marker, type Map as MapLibreMap } from "maplibre-gl";
 import polylabel from "polylabel";
+import { type HassUnits, formatArea } from "./units";
 
 type Point = [number, number];
 
@@ -148,6 +149,7 @@ export class RoomLabels {
   private _rooms: Feature<Polygon>[] = [];
   private _outline?: Polygon;
   private _areas: Record<string, AreaInfo> = {};
+  private _units?: HassUnits;
   private _pointed?: string;
   private _labels = new Map<string, Label>();
   private _building?: Marker;
@@ -163,14 +165,17 @@ export class RoomLabels {
   destroy() {
     this._map.off("move", this.update);
     this._map.off("resize", this.update);
-    this.show([], undefined, {});
+    this._rooms = [];
+    this._outline = undefined;
+    this.update();
   }
 
-  /** The rooms of the floor on screen (none for all floors), the building outline and Home Assistant's areas. */
-  show(rooms: Feature<Polygon>[], outline: Polygon | undefined, areas: Record<string, AreaInfo>) {
+  /** The rooms of the floor on screen (none for all floors), the building outline, Home Assistant's areas and its unit system. */
+  show(rooms: Feature<Polygon>[], outline: Polygon | undefined, areas: Record<string, AreaInfo>, units: HassUnits) {
     this._rooms = rooms;
     this._outline = outline;
     this._areas = areas;
+    this._units = units;
     this.update();
   }
 
@@ -194,7 +199,7 @@ export class RoomLabels {
       const area = this._areas[areaId];
       const name = area?.name ?? String(room.properties?.name ?? areaId);
       const icon = area?.icon || FALLBACK_ICON;
-      const size = step === "size" ? `${Number(room.properties?.area_m2).toFixed(1)} m²` : "";
+      const size = step === "size" && this._units ? formatArea(Number(room.properties?.area_m2), this._units) : "";
       const chip = step === "icon" && areaId === this._pointed;
       const shown = JSON.stringify([step, name, icon, size, chip, Math.floor(space.width)]);
       if (shown !== label.shown) {

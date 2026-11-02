@@ -200,6 +200,13 @@ export const answer: Reply = async ({ type }) => {
   throw new Error(type);
 };
 
+// The unit system and number format parts of `hass`, as Home Assistant sends them.
+export const METRIC_UNITS = {
+  config: { unit_system: { length: "km" } },
+  locale: { language: "en", number_format: "language" },
+};
+export const US_UNITS = { ...METRIC_UNITS, config: { unit_system: { length: "mi" } } };
+
 export const mountPanel = (reply: Reply = answer, floors = {}, card = false, floor?: string) => {
   const sendMessagePromise = vi.fn(reply);
   const unsubscribe = vi.fn(async () => {});
@@ -222,7 +229,7 @@ export const mountPanel = (reply: Reply = answer, floors = {}, card = false, flo
     floor?: string;
   };
   panel.floor = floor;
-  panel.hass = { connection, floors, themes: { darkMode: false } };
+  panel.hass = { connection, floors, themes: { darkMode: false }, ...METRIC_UNITS };
   panel.toggleAttribute("card", card);
   document.body.append(panel);
   const tokenCalls = () =>

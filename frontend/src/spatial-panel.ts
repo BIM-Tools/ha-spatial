@@ -22,9 +22,10 @@ import { BUILDING } from "./area-strip";
 import { type Guide, RoomEditor, type Toast, type Tool } from "./room-editor";
 import { type AreaInfo, RoomLabels, roomLabelStyles } from "./room-labels";
 import { floatingSurface, phoneBar } from "./styles";
+import type { HassUnits } from "./units";
 
 // The parts of Home Assistant's `hass` object this panel uses.
-interface Hass {
+interface Hass extends HassUnits {
   connection: {
     sendMessagePromise<T>(message: { type: string; [key: string]: unknown }): Promise<T>;
     subscribeMessage(callback: () => void, message: { type: string }): Promise<() => Promise<void>>;
@@ -410,7 +411,8 @@ class SpatialPanel extends LitElement {
     if (previous && this.hass) {
       // Home Assistant hands over a new themes object only when the theme changes.
       if (previous.themes !== this.hass.themes) this._repaint();
-      if (previous.areas !== this.hass.areas) this._showLabels();
+      const unitsChanged = previous.config !== this.hass.config || previous.locale !== this.hass.locale;
+      if (previous.areas !== this.hass.areas || unitsChanged) this._showLabels();
     }
     // A render queued by _stop must not start a map for a panel that has left.
     if (!this.hass || !this.isConnected) return;
@@ -513,6 +515,7 @@ class SpatialPanel extends LitElement {
           requestUpdate: () => this.requestUpdate(),
           reloadRooms: loadAreas,
           siteBearing: () => this._axisDeg,
+          units: () => this.hass!,
           selectTool: (tool) => this._selectTool(tool),
           toast: (toast) => this._toast(toast),
         });
@@ -687,13 +690,13 @@ class SpatialPanel extends LitElement {
 
   // Labels name the rooms of one floor; the 3D view of all floors has none.
   private _showLabels() {
-    if (!this._labels) return;
+    if (!this._labels || !this.hass) return;
     const onFloor = this._floor !== "all";
     const rooms = onFloor
       ? (this._areas.features.filter((feature) => feature.properties?.floor_id === this._floor) as Feature<Polygon>[])
       : [];
     const outline = onFloor && this._outline.type === "Polygon" ? this._outline : undefined;
-    this._labels.show(rooms, outline, this.hass?.areas ?? {});
+    this._labels.show(rooms, outline, this.hass.areas ?? {}, this.hass);
   }
 
   private _pointAt(event: MapMouseEvent) {
