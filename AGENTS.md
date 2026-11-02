@@ -36,6 +36,7 @@ prefix `docker` commands with `MSYS_NO_PATHCONV=1`.
 | Frontend (typecheck, test, build) | `MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/frontend":/app -v "$(pwd -W)/custom_components":/custom_components -w /app node:24-alpine sh -c "npm ci && npm run typecheck && npm test && npm run build"` |
 | E2E smoke test (build the panel first) | `docker compose run --rm e2e; docker compose rm -sf homeassistant-e2e` |
 | State gallery: screenshots and contact sheets of every UI state in `gallery-out/` (build the panel first) | `docker compose run --rm gallery; docker compose rm -sf homeassistant-e2e` |
+| Release | `git tag -a vX.Y.Z -m "<release notes>" && git push origin vX.Y.Z`; the workflow builds `spatial.zip` and publishes the full release with it |
 | Sync frontend versions | `python tools/sync_frontend_versions.py` (`--check` only compares) |
 | Tools | Run them against the real Home Assistant, see `tools/README.md` |
 
@@ -170,9 +171,10 @@ What is and is not checked automatically:
   vitest, a build, `sync_frontend_versions.py --check`).
 - `E2E` runs on the same triggers but is not a required check yet: it covers one room drawn with
   the mouse in the panel of a fresh Home Assistant, and nothing else of the panel.
-- On a published GitHub release: `Release` builds the panel and uploads `spatial.zip` (the
-  integration with the bundle and licences, version taken from the tag). It ran for
-  v0.1.0 and that zip was checked: version, licences and both bundles.
+- On a pushed `v*` tag: `Release` builds the panel and `spatial.zip` (the integration with the
+  bundle and licences, version taken from the tag), then creates the release with the zip and
+  the tag message as notes. The zip build ran for v0.1.0 and was checked; the tag trigger is
+  untested until the next release, check that release then.
 - `main` is protected by a ruleset: pull request required, review threads resolved, squash
   merge only, checks `test`, `hassfest`, `ruff`, `agents-file` and `hacs` required and up to
   date with `main`, no force pushes or deletion. Copilot reviews every pull request.
