@@ -171,8 +171,8 @@ What is and is not checked automatically:
 - `E2E` runs on the same triggers but is not a required check yet: it covers one room drawn with
   the mouse in the panel of a fresh Home Assistant, and nothing else of the panel.
 - On a published GitHub release: `Release` builds the panel and uploads `spatial.zip` (the
-  integration with the bundle and licences, version taken from the tag). Untested until the
-  first release; check the zip then.
+  integration with the bundle and licences, version taken from the tag). It ran for
+  v0.1.0 and that zip was checked: version, licences and both bundles.
 - `main` is protected by a ruleset: pull request required, review threads resolved, squash
   merge only, checks `test`, `hassfest`, `ruff`, `agents-file` and `hacs` required and up to
   date with `main`, no force pushes or deletion. Copilot reviews every pull request.
@@ -204,3 +204,5 @@ What is and is not checked automatically:
   Assistant registers `/spatial_static` as a single file and the panel 404s until a restart.
 - `manifest.json`'s `version` in git is not the released one; the release workflow writes the
   tag into the zip.
+- HACS does not install a repository whose only release is a GitHub pre-release; publish
+  releases as full releases.
