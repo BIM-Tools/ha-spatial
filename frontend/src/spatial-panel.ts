@@ -568,7 +568,7 @@ class SpatialPanel extends LitElement {
       interactive: !this.floor,
     });
     this._map = map;
-    this._labels = new RoomLabels(map, !this.card);
+    this._labels = new RoomLabels(map, !this.card, () => this.hass!);
     this._showLabels();
     map.on("style.load", () => this._addAreas());
     map.on("mousemove", (event) => {
@@ -690,13 +690,13 @@ class SpatialPanel extends LitElement {
 
   // Labels name the rooms of one floor; the 3D view of all floors has none.
   private _showLabels() {
-    if (!this._labels || !this.hass) return;
+    if (!this._labels) return;
     const onFloor = this._floor !== "all";
     const rooms = onFloor
       ? (this._areas.features.filter((feature) => feature.properties?.floor_id === this._floor) as Feature<Polygon>[])
       : [];
     const outline = onFloor && this._outline.type === "Polygon" ? this._outline : undefined;
-    this._labels.show(rooms, outline, this.hass.areas ?? {}, this.hass);
+    this._labels.show(rooms, outline, this.hass?.areas ?? {});
   }
 
   private _pointAt(event: MapMouseEvent) {

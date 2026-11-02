@@ -1,15 +1,9 @@
 // Checks lengths and areas in both of Home Assistant's unit systems and in several number formats.
 
 import { expect, test } from "vitest";
-import { type HassUnits, formatArea, formatLength, parseLength } from "../src/units";
+import { formatArea, formatLength, parseLength, typedLength } from "../src/units";
+import { METRIC_UNITS as METRIC, US_UNITS as US, unitsOf } from "./units-fixture";
 
-const hassWith = (length: "km" | "mi", number_format = "language", language = "en"): HassUnits => ({
-  config: { unit_system: { length } },
-  locale: { language, number_format },
-});
-
-const METRIC = hassWith("km");
-const US = hassWith("mi");
 const INCH_M = 0.0254;
 // Rounding to half a step can land a float rounding error past it.
 const FLOAT_SLACK = 1e-9;
@@ -21,12 +15,12 @@ test("metric lengths have two decimals and areas one", () => {
 });
 
 test("lengths and areas follow the user's number format", () => {
-  expect(formatLength(4.25, hassWith("km", "language", "nl"))).toBe("4,25 m");
-  expect(formatLength(4.25, hassWith("km", "decimal_comma"))).toBe("4,25 m");
-  expect(formatLength(4.25, hassWith("km", "comma_decimal", "nl"))).toBe("4.25 m");
-  expect(formatArea(1234.5, hassWith("km", "language", "en"))).toBe("1,234.5 m²");
-  expect(formatArea(1234.5, hassWith("km", "none", "nl"))).toBe("1234.5 m²");
-  expect(formatArea(18.44, hassWith("km", "space_comma"))).toBe("18,4 m²");
+  expect(formatLength(4.25, unitsOf("km", "language", "nl"))).toBe("4,25 m");
+  expect(formatLength(4.25, unitsOf("km", "decimal_comma"))).toBe("4,25 m");
+  expect(formatLength(4.25, unitsOf("km", "comma_decimal", "nl"))).toBe("4.25 m");
+  expect(formatArea(1234.5, unitsOf("km", "language", "en"))).toBe("1,234.5 m²");
+  expect(formatArea(1234.5, unitsOf("km", "none", "nl"))).toBe("1234.5 m²");
+  expect(formatArea(18.44, unitsOf("km", "space_comma"))).toBe("18,4 m²");
 });
 
 test("US customary lengths are feet and inches to the nearest inch", () => {
@@ -73,10 +67,8 @@ test.each([".5", ",5", "0.5 m"])("metric %j reads as 0.5 m", (text) => {
   expect(parseLength(text, METRIC)).toBeCloseTo(0.5, 9);
 });
 
-test("a length in Persian digits and decimal mark reads back", () => {
-  const persian = hassWith("km", "language", "fa");
-  expect(formatLength(4.25, persian)).toBe("۴٫۲۵ m");
-  expect(parseLength("۴٫۲۵ m", persian)).toBeCloseTo(4.25, 9);
+test.each([`12’ 6”`, `12′ 6″`, `12‘6“`])("US customary %j with curly quotes or primes reads as 150 inches", (text) => {
+  expect(parseLength(text, US)).toBeCloseTo(150 * INCH_M, 9);
 });
 
 test("metric does not read feet and inches", () => {
@@ -84,13 +76,23 @@ test("metric does not read feet and inches", () => {
   expect(parseLength("12 6", METRIC)).toBeUndefined();
 });
 
-test("a shown length reads back within half an inch, or half a centimetre", () => {
+test("a field starts with ASCII digits and a dot in every number format", () => {
+  expect(typedLength(4.254, unitsOf("km", "language", "fa"))).toBe("4.25 m");
+  expect(typedLength(4.254, unitsOf("km", "decimal_comma"))).toBe("4.25 m");
+  expect(typedLength(150 * INCH_M, US)).toBe(`12' 6"`);
+});
+
+test("a field's starting length reads back within half an inch, or half a centimetre", () => {
   for (let metres = 0.2; metres < 30; metres += 0.137) {
-    expect(Math.abs(parseLength(formatLength(metres, US), US)! - metres)).toBeLessThanOrEqual(INCH_M / 2 + FLOAT_SLACK);
-    expect(Math.abs(parseLength(formatLength(metres, METRIC), METRIC)! - metres)).toBeLessThanOrEqual(0.005 + FLOAT_SLACK);
-    for (const [numberFormat, language] of [["language", "nl"], ["language", "fa"], ["quote_decimal", "en"], ["space_comma", "en"]]) {
-      const local = hassWith("km", numberFormat, language);
-      expect(Math.abs(parseLength(formatLength(metres, local), local)! - metres)).toBeLessThanOrEqual(0.005 + FLOAT_SLACK);
+    expect(Math.abs(parseLength(typedLength(metres, US), US)! - metres)).toBeLessThanOrEqual(INCH_M / 2 + FLOAT_SLACK);
+    for (const [numberFormat, language] of [["language", "en"], ["language", "nl"], ["language", "fa"], ["quote_decimal", "en"]]) {
+      const local = unitsOf("km", numberFormat, language);
+      expect(Math.abs(parseLength(typedLength(metres, local), local)! - metres)).toBeLessThanOrEqual(0.005 + FLOAT_SLACK);
     }
   }
+});
+
+test("a metric length shown with a comma decimal reads back", () => {
+  const dutch = unitsOf("km", "language", "nl");
+  expect(parseLength(formatLength(4.25, dutch), dutch)).toBeCloseTo(4.25, 9);
 });

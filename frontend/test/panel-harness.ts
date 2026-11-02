@@ -3,6 +3,7 @@ import bearing from "@turf/bearing";
 import destination from "@turf/destination";
 import distance from "@turf/distance";
 import { vi } from "vitest";
+import { METRIC_UNITS } from "./units-fixture";
 
 export const mapCreated = vi.fn();
 export const setBearing = vi.fn();
@@ -200,14 +201,7 @@ export const answer: Reply = async ({ type }) => {
   throw new Error(type);
 };
 
-// The unit system and number format parts of `hass`, as Home Assistant sends them.
-export const METRIC_UNITS = {
-  config: { unit_system: { length: "km" } },
-  locale: { language: "en", number_format: "language" },
-};
-export const US_UNITS = { ...METRIC_UNITS, config: { unit_system: { length: "mi" } } };
-
-export const mountPanel = (reply: Reply = answer, floors = {}, card = false, floor?: string) => {
+export const mountPanel = (reply: Reply = answer, floors = {}, card = false, floor?: string, units = METRIC_UNITS) => {
   const sendMessagePromise = vi.fn(reply);
   const unsubscribe = vi.fn(async () => {});
   const unsubscribeEvents = vi.fn(async () => {});
@@ -229,7 +223,7 @@ export const mountPanel = (reply: Reply = answer, floors = {}, card = false, flo
     floor?: string;
   };
   panel.floor = floor;
-  panel.hass = { connection, floors, themes: { darkMode: false }, ...METRIC_UNITS };
+  panel.hass = { connection, floors, themes: { darkMode: false }, ...units };
   panel.toggleAttribute("card", card);
   document.body.append(panel);
   const tokenCalls = () =>

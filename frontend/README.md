@@ -41,14 +41,16 @@ removes the highlighted shape. **All** shows the floors in 3D, does not draw, an
 shows the Building.
 **Adjust**, on a floor: a tap on a room makes its area active; the Building pill makes the
 outline active. When the room is a rectangle along the site axis, each side shows its length
-as a button; tap one, type the length in metres and press Enter to save (at least 0.20 m; the
-side's start corner stays). Dragging the active room moves it, as in Draw. **Undo** and **Redo**
-(Ctrl+Z, Ctrl+Shift+Z) undo every saved change of this session, each as one save. Undo restores
+as a button; tap one, type the length and press Enter to save (at least 0.20 m or 8 in; the
+side's start corner stays; Enter on an unchanged length saves nothing). Lengths and areas follow
+Home Assistant's unit system and number format; in US customary units a length is typed in feet and
+inches, such as 12' 6", 12 6, 150" or 12.5'. Dragging the active room moves it, as in Draw.
+**Undo** and **Redo** (Ctrl+Z, Ctrl+Shift+Z) undo every saved change of this session, each as one save. Undo restores
 footprints only: an area created with New area stays in Home Assistant.
 Refusals and failures use Home Assistant's toast; "Could not save" stays with **Retry**, and the
 shape that failed stays on the map until it saves or the next box replaces it.
-Each room on a floor shows its Home Assistant area icon and name, and in the panel its net m²; a
-smaller room drops the m², then the name (pointing at or tapping it shows the name), and a tiny room
+Each room on a floor shows its Home Assistant area icon and name, and in the panel its net area; a
+smaller room drops the area, then the name (pointing at or tapping it shows the name), and a tiny room
 has no label. The outline shows "Building" until the floor has rooms.
 On a dashboard, add a card with `type: custom:spatial-map-card`, best in a panel view; its
 `floor` option (`all` or a `floor_id`) fixes the view, see `custom_components/spatial/README.md`.
@@ -76,7 +78,7 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/editor-toolbar.ts` | Align, Draw, Adjust, Undo and Redo: floating, or a bottom bar on a phone |
 | `src/map-stack.ts` | Map toggle, zoom and compass |
 | `src/map-paint.ts` | The map layers' colours, read from Home Assistant's theme at style load and on a theme change |
-| `src/room-labels.ts` | Room labels: area icon, name and (in the panel) net m², placed and stepped by the room's size on screen |
+| `src/room-labels.ts` | Room labels: area icon, name and (in the panel) net area, placed and stepped by the room's size on screen |
 | `src/styles.ts` | The floating card, pill buttons and phone bar shared by the controls, from Home Assistant's theme tokens |
 | `src/room-editor.ts` | The space editor controller: the area strip, side length fields, undo and redo, saving each action, area creation and rename |
 | `src/box-interaction.ts` | Pointer and keyboard drafting input on the map, screen-rectangle projection, Space pan, draft preview |
@@ -86,6 +88,7 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/map-view.ts` | Pure helpers: map bearing, style URL, map tiles token, floor order, room bounds |
 | `src/outline.ts` | The OSM building under a click and the bearing of its nearest wall, with turf |
 | `src/plan.ts` | Box from screen corners, side lengths, resizing, moving and joining footprints, all with turf |
+| `src/units.ts` | Lengths and areas shown in Home Assistant's unit system and number format, and typed lengths read back in metres |
 | `test/` | Unit tests (vitest) |
 
 ### Serving

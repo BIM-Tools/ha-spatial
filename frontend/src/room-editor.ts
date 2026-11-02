@@ -12,11 +12,12 @@ import { byLevel } from "./map-view";
 import {
   MIN_SIDE_M,
   addToFootprint,
+  edgeLengths,
   isAxisRectangle,
   resizeSide,
   sideLabels,
 } from "./plan";
-import { type HassUnits, formatLength, parseLength } from "./units";
+import { type HassUnits, formatLength, parseLength, typedLength } from "./units";
 
 interface Connection {
   sendMessagePromise<T>(message: { type: string; [key: string]: unknown }): Promise<T>;
@@ -358,15 +359,18 @@ export class RoomEditor {
     if (!map || this.tool !== "adjust" || this._floor === "all" || !footprint) return;
     if (!isAxisRectangle(footprint, this._host.siteBearing())) return;
     const units = this._host.units();
+    const lengths = edgeLengths(footprint);
     let field: HTMLInputElement | undefined;
     this._sides.push(...sideLabels(footprint, units).map(({ at, edgeIndex, text }) => {
       let control: HTMLElement;
       if (edgeIndex === this._editingSide) {
-        field = Object.assign(document.createElement("input"), { type: "text", value: text });
+        const prefilled = typedLength(lengths[edgeIndex], units);
+        field = Object.assign(document.createElement("input"), { type: "text", value: prefilled });
         const typed = field;
         typed.addEventListener("keydown", (event) => {
-          if (event.key === "Enter") this._resize(areaId, footprint, edgeIndex, parseLength(typed.value, units));
-          if (event.key === "Escape") this._select(areaId);
+          // An unchanged field leaves the edit: saving its rounded length would shift the side and add an undo step.
+          if (event.key === "Escape" || (event.key === "Enter" && typed.value === prefilled)) this._select(areaId);
+          else if (event.key === "Enter") this._resize(areaId, footprint, edgeIndex, parseLength(typed.value, units));
         });
         control = typed;
       } else {

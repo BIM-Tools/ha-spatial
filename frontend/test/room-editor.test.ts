@@ -30,8 +30,8 @@ import {
   sources,
   touchZoomRotate,
   unprojectPixel,
-  US_UNITS,
 } from "./panel-harness";
+import { METRIC_UNITS, US_UNITS } from "./units-fixture";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
 
@@ -57,7 +57,7 @@ const pixelBox = (x1: number, y1: number, x2: number, y2: number): Polygon => {
 const KITCHEN = pixelBox(0, 0, 50, 50);
 const OUTLINE = pixelBox(0, 100, 100, 200);
 
-const mountEditor = (overrides: Reply = async () => undefined, outline: Polygon | null = OUTLINE) => {
+const mountEditor = (overrides: Reply = async () => undefined, outline: Polygon | null = OUTLINE, units = METRIC_UNITS) => {
   let registry = [
     { area_id: "kitchen", name: "Kitchen", floor_id: "ground" },
     { area_id: "bath", name: "Bath", floor_id: "ground" },
@@ -92,7 +92,7 @@ const mountEditor = (overrides: Reply = async () => undefined, outline: Polygon 
     }
     return answer(message);
   };
-  const mounted = mountPanel(reply);
+  const mounted = mountPanel(reply, {}, false, undefined, units);
   const setRegistry = (next: typeof registry) => (registry = next);
   const setFeed = (next: typeof feed) => (feed = next);
   return { ...mounted, setRegistry, setFeed };
@@ -631,9 +631,22 @@ test.each(["0.1", "0,1", "", "abc"])("a side typed as %j saves nothing and a toa
   expect(sideField()).toBeDefined();
 });
 
+test("Enter on an unchanged side field leaves the edit without a save or an undo step", async () => {
+  const { panel, connection } = mountEditor();
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  sideButtons()[0].click();
+  const field = sideField()!;
+  expect(field.value).toBe("5.00 m");
+  field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+  await settle(panel);
+  expect(saves(connection)).toEqual([]);
+  expect(sideField()).toBeUndefined();
+  expect(buttonNamed(panel, "Undo")!.disabled).toBe(true);
+});
+
 test("in US customary units a side shows feet and inches and reads a typed length in feet and inches", async () => {
-  const { panel, connection, setFeed } = mountEditor();
-  (panel as HTMLElement & { hass: object }).hass = { ...(panel as HTMLElement & { hass: object }).hass, ...US_UNITS };
+  const { panel, connection, setFeed } = mountEditor(undefined, OUTLINE, US_UNITS);
   await startAdjusting(panel);
   setFeed([feature("kitchen", pixelShape([0, 0], [40, 0], [40, 30], [0, 30]))]);
   await onUpdateOf(connection)();

@@ -2,7 +2,8 @@
 // Checks what a room's label shows at each size on screen, against the fake MapLibre.
 import type { Feature, Polygon } from "geojson";
 import { afterEach, expect, test, vi } from "vitest";
-import { METRIC_UNITS, US_UNITS, fakeMapLibre, liveMarkers, resetFakes, unprojectPixel } from "./panel-harness";
+import { fakeMapLibre, liveMarkers, resetFakes, unprojectPixel } from "./panel-harness";
+import { METRIC_UNITS, US_UNITS } from "./units-fixture";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
 
@@ -22,8 +23,8 @@ const pixelRoom = (areaId: string, [x1, y1]: [number, number], [x2, y2]: [number
 });
 
 const mountLabels = (rooms: Feature<Polygon>[], withSize = true, areas = {}, outline?: Polygon, units = METRIC_UNITS) => {
-  const labels = new RoomLabels(new fakeMapLibre.Map({}) as never, withSize);
-  labels.show(rooms, outline, areas, units);
+  const labels = new RoomLabels(new fakeMapLibre.Map({}) as never, withSize, () => units);
+  labels.show(rooms, outline, areas);
   return labels;
 };
 
@@ -95,7 +96,7 @@ test("the outline is labelled Building only while the floor has no rooms", () =>
   const labels = mountLabels([], true, AREAS, outline);
   const buildingLabels = () => liveMarkers().filter((marker) => marker.element.classList.contains("building-label"));
   expect(buildingLabels().map((marker) => marker.element.textContent)).toEqual(["Building"]);
-  labels.show([pixelRoom("living", [0, 0], [200, 120])], outline, AREAS, METRIC_UNITS);
+  labels.show([pixelRoom("living", [0, 0], [200, 120])], outline, AREAS);
   expect(buildingLabels()).toEqual([]);
 });
 

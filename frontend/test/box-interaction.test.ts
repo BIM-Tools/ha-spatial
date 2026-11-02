@@ -5,7 +5,6 @@ import type { Polygon } from "geojson";
 import type { Map as MapLibreMap } from "maplibre-gl";
 import { afterEach, expect, test, vi } from "vitest";
 import {
-  METRIC_UNITS,
   dragPan,
   dragRotate,
   fakeMapLibre,
@@ -15,6 +14,7 @@ import {
   sources,
   unprojectPixel,
 } from "./panel-harness";
+import { METRIC_UNITS } from "./units-fixture";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
 

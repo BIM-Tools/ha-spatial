@@ -20,7 +20,7 @@ import {
   resizeSide,
   sideLabels,
 } from "../src/plan";
-import type { HassUnits } from "../src/units";
+import { METRIC_UNITS, US_UNITS } from "./units-fixture";
 
 type Corners = [Position, Position, Position, Position];
 
@@ -68,24 +68,19 @@ test("boxFromCorners refuses a side shorter than the minimum", () => {
   expect(boxFromCorners(rectangle(ORIGIN, 0.1, 4, 20))).toBeUndefined();
 });
 
-const unitsOf = (length: "km" | "mi"): HassUnits => ({
-  config: { unit_system: { length } },
-  locale: { language: "en", number_format: "language" },
-});
-
 test("sideLabels and areaLabel show metres and square metres", () => {
-  const labels = sideLabels(box, unitsOf("km"));
+  const labels = sideLabels(box, METRIC_UNITS);
   expect(labels.map((label) => label.text)).toEqual(["4.00 m", "3.00 m", "4.00 m", "3.00 m"]);
   expect(labels.map((label) => label.edgeIndex)).toEqual([0, 1, 2, 3]);
   const ring = ringOf(box);
   const middle = move(ring[0], 2, 20);
   expect(distance(point(labels[0].at), point(middle), { units: "meters" })).toBeLessThan(0.01);
-  expect(areaLabel(box, unitsOf("km"))).toBe("12.0 m²");
+  expect(areaLabel(box, METRIC_UNITS)).toBe("12.0 m²");
 });
 
 test("sideLabels and areaLabel show feet and inches and square feet in US customary units", () => {
-  expect(sideLabels(box, unitsOf("mi")).map((label) => label.text)).toEqual([`13' 1"`, `9' 10"`, `13' 1"`, `9' 10"`]);
-  expect(areaLabel(box, unitsOf("mi"))).toBe("129 ft²");
+  expect(sideLabels(box, US_UNITS).map((label) => label.text)).toEqual([`13' 1"`, `9' 10"`, `13' 1"`, `9' 10"`]);
+  expect(areaLabel(box, US_UNITS)).toBe("129 ft²");
 });
 
 test("isAxisRectangle accepts the axis and its perpendicular only", () => {
