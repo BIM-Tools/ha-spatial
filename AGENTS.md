@@ -162,6 +162,9 @@ The panel and the card should look as if they were always part of Home Assistant
 
 - One change per pull request, squash merged into `main`.
 - Conventional commits, subject at most 72 characters, a short body with what and why.
+- A pull request description is the squash commit message: plain text without Markdown, only
+  the why (one or two sentences, then a line per notable part with its reason); never the
+  discussion, alternatives, verification logs or review history.
 - No AI attribution in commits, pull requests or files: no `Co-Authored-By` trailers or
   "generated with" lines. The author is accountable for every line, however it was written.
 
