@@ -25,11 +25,16 @@ import {
   zoomIn,
   zoomOut,
   easeTo,
+  SITE,
+  siteReply,
   sources,
+  unprojectPixel,
 } from "./panel-harness";
+import { US_UNIT_M, siteFrameData } from "./site-frame-fixture";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
 
+import { PlanFrame } from "../src/site-frame";
 import "../src/spatial-panel";
 
 afterEach(resetFakes);
@@ -117,7 +122,7 @@ test("the card has one button per floor in the rooms, named by Home Assistant", 
 test("an update with a new site bearing turns the map", async () => {
   let bearing = 0;
   const { connection } = mountPanel(async (message) =>
-    message.type === "spatial/site" ? { lon: 5, lat: 52, bearing_deg: bearing } : answer(message),
+    message.type === "spatial/site" ? siteReply({ bearing_deg: bearing }) : answer(message),
   );
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
   bearing = 90;
@@ -267,7 +272,7 @@ test("the panel has an Align button, the card does not", async () => {
   expect(alignButton(card)).toBeUndefined();
 });
 
-test("in Align a click on a building saves only the bearing of the wall nearest to it, and ends the mode", async () => {
+test("Align on an empty plan sends the bearing and the wall's left end as origin, and ends the mode", async () => {
   const { panel, connection } = mountPanel();
   // The buildings layer is one MultiPolygon per tile.
   const tile = { type: "MultiPolygon", coordinates: [SHED.coordinates, HOUSE.coordinates] };
@@ -279,13 +284,35 @@ test("in Align a click on a building saves only the bearing of the wall nearest 
   await vi.waitFor(() => expect(guideText(panel)).toBe("Click the wall your rooms follow"));
   click();
   expect(queryRenderedFeatures).toHaveBeenLastCalledWith({ x: 1, y: 2 }, { layers: ["building-3d"] });
-  const [saved] = updates(connection) as unknown as [{ bearing_deg: number }];
-  expect(Object.keys(saved)).toEqual(["type", "bearing_deg"]);
-  // The counter-clockwise ring runs north along the east wall.
+  const [saved] = updates(connection) as unknown as [{ bearing_deg: number; origin: number[] }];
+  expect(Object.keys(saved)).toEqual(["type", "bearing_deg", "origin"]);
+  // The counter-clockwise ring runs north along the east wall, so its south end is on the left in the aligned view.
   expect(saved.bearing_deg).toBeCloseTo(0, 1);
+  expect(saved.origin).toEqual([5.0002, 52]);
   click();
   expect(updates(connection)).toHaveLength(1);
   await vi.waitFor(() => expect(guideText(panel)).not.toContain("Click the wall"));
+});
+
+const ROOM_FEED = {
+  type: "FeatureCollection",
+  features: [{ type: "Feature", id: "kitchen", geometry: SHED, properties: { floor_id: null, level: null } }],
+};
+
+test.each([
+  ["a footprint", ROOM_FEED, null],
+  ["an outline", EMPTY, SHED],
+])("Align with %s sends only the bearing", async (_name, feed, outline) => {
+  const { panel, connection } = mountPanel(async (message) => {
+    if (message.type === "spatial/geojson") return feed;
+    if (message.type === "spatial/site") return siteReply({ outline });
+    return answer(message);
+  });
+  queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
+  await startAligning(panel);
+  click();
+  const [saved] = updates(connection);
+  expect(Object.keys(saved)).toEqual(["type", "bearing_deg"]);
 });
 
 test("in Align a click turns the camera so the wall lies low in the view, and the update does not turn it again", async () => {
@@ -349,7 +376,7 @@ test.each([false, true])("the stored outline is drawn on start and after updates
   let outline: object | null = HOUSE;
   const { connection } = mountPanel(
     async (message) =>
-      message.type === "spatial/site" ? { lon: 5, lat: 52, bearing_deg: 0, outline } : answer(message),
+      message.type === "spatial/site" ? siteReply({ outline }) : answer(message),
     {},
     card,
   );
@@ -472,6 +499,33 @@ test("the card does not follow the registries", async () => {
   expect(connection.subscribeEvents).not.toHaveBeenCalled();
 });
 
+test("a unit system change uses the refetched frame", async () => {
+  let frame = siteFrameData(SITE, 0);
+  const { panel, connection } = mountPanel(async (message) =>
+    message.type === "spatial/site" ? siteReply({ frame }) : answer(message),
+  );
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
+  await showNoFloor(panel);
+  buttonNamed(panel, "Draw")!.click();
+  await settle(panel);
+  frame = siteFrameData(SITE, 0, US_UNIT_M);
+  await onUpdateOf(connection)();
+  const mouse = (x: number, y: number) => {
+    const [lng, lat] = unprojectPixel([x, y]);
+    return { point: { x, y }, lngLat: { lng, lat }, originalEvent: { button: 0 }, preventDefault: vi.fn() };
+  };
+  handlers.mousedown(mouse(10.3, 0.2));
+  handlers.mousemove(mouse(47.1, 31.7));
+  handlers.mouseup(mouse(47.1, 31.7));
+  await vi.waitFor(() => expect(updates(connection)).toHaveLength(1));
+  const [{ outline }] = updates(connection) as unknown as [{ outline: { coordinates: number[][][] } }];
+  const inches = PlanFrame.fromSite(frame);
+  for (const corner of outline.coordinates[0]) {
+    for (const units of inches.toLatticeUnits(corner)) expect(Math.abs(units / 4 - Math.round(units / 4))).toBeLessThan(1e-6);
+  }
+});
+
 const pressedTools = (panel: HTMLElement) =>
   ["Align", "Draw", "Adjust"].filter((name) => buttonNamed(panel, name)?.getAttribute("aria-pressed") === "true");
 
@@ -555,7 +609,7 @@ test("Align turns the map on with the toggle disabled, and its end turns it off 
 test("the compass turns with the map", async () => {
   let bearing = 0;
   const { panel, connection } = mountPanel(async (message) =>
-    message.type === "spatial/site" ? { lon: 5, lat: 52, bearing_deg: bearing, outline: null } : answer(message),
+    message.type === "spatial/site" ? siteReply({ bearing_deg: bearing }) : answer(message),
   );
   await vi.waitFor(() => expect(handlers.rotate).toBeDefined());
   await settle(panel);
@@ -570,7 +624,7 @@ test("the compass turns with the map", async () => {
 });
 
 const UNALIGNED_SITE: Reply = async (message) =>
-  message.type === "spatial/site" ? { lon: 5, lat: 52, bearing_deg: null, outline: null } : answer(message);
+  message.type === "spatial/site" ? siteReply({ bearing_deg: null }) : answer(message);
 
 test("before any Align the map opens north up and the compass faces north, also in Draw", async () => {
   const { panel } = mountPanel(UNALIGNED_SITE);

@@ -2,7 +2,7 @@
 // Checks drawing, adjusting and undoing rooms in the panel against a fake MapLibre and a scripted Home Assistant connection.
 import area from "@turf/area";
 import distance from "@turf/distance";
-import type { Feature, Polygon } from "geojson";
+import type { Feature, Point, Polygon } from "geojson";
 import { afterEach, expect, test, vi } from "vitest";
 import {
   EMPTY,
@@ -27,21 +27,30 @@ import {
   queryRenderedFeatures,
   resetFakes,
   settle,
+  SITE,
+  siteReply,
   sources,
   touchZoomRotate,
   unprojectPixel,
 } from "./panel-harness";
+import { US_UNIT_M, siteFrameData } from "./site-frame-fixture";
 import { METRIC_UNITS, US_UNITS } from "./units-fixture";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
 
 import { edgeLengths, isAxisRectangle } from "../src/plan";
+import { PlanFrame } from "../src/site-frame";
 import "../src/spatial-panel";
 
 afterEach(resetFakes);
 
 // Site bearing 30 turns the map to bearing 300.
 const SITE_BEARING = 30;
+// Lattice x runs to the right on the screen and y up; a pixel is one grid step.
+const FRAME_DATA = siteFrameData(SITE, SITE_BEARING);
+const INCH_FRAME_DATA = siteFrameData(SITE, SITE_BEARING, US_UNIT_M);
+const FRAME = PlanFrame.fromSite(FRAME_DATA);
+const INCH_FRAME = PlanFrame.fromSite(INCH_FRAME_DATA);
 
 const pixelBox = (x1: number, y1: number, x2: number, y2: number): Polygon => {
   const ring = [
@@ -70,7 +79,7 @@ const mountEditor = (overrides: Reply = async () => undefined, outline: Polygon 
     if (overridden !== undefined) return overridden;
     switch (message.type) {
       case "spatial/site":
-        return { lon: 5, lat: 52, bearing_deg: SITE_BEARING, outline };
+        return siteReply({ bearing_deg: SITE_BEARING, outline, frame: units === US_UNITS ? INCH_FRAME_DATA : FRAME_DATA });
       case "spatial/geojson":
         return { type: "FeatureCollection", features: feed };
       case "config/area_registry/list":
@@ -238,7 +247,7 @@ test("in Draw the map pans only while Space is held, and leaving Draw restores p
 
 test("before any Align the map turns north up for Draw and boxes run north to south", async () => {
   const { panel, connection } = mountEditor(async (message) =>
-    message.type === "spatial/site" ? { lon: 5, lat: 52, bearing_deg: null, outline: OUTLINE } : undefined,
+    message.type === "spatial/site" ? siteReply({ bearing_deg: null, outline: OUTLINE }) : undefined,
   );
   await startDrawing(panel);
   expect(jumpTo).toHaveBeenLastCalledWith({ bearing: 0, pitch: 0 });
@@ -246,7 +255,7 @@ test("before any Align the map turns north up for Draw and boxes run north to so
   tap(140, 30);
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
   const [{ areas }] = saves(connection);
-  expect(isAxisRectangle(areas.bath, 0)).toBe(true);
+  expect(isAxisRectangle(PlanFrame.fromSite(siteFrameData(SITE, 0)), areas.bath)).toBe(true);
 });
 
 test("two taps save a box along the site axis and move on to the next area", async () => {
@@ -256,7 +265,7 @@ test("two taps save a box along the site axis and move on to the next area", asy
   tap(140, 30);
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
   const [{ areas }] = saves(connection);
-  expect(isAxisRectangle(areas.bath, SITE_BEARING)).toBe(true);
+  expect(isAxisRectangle(FRAME, areas.bath)).toBe(true);
   await vi.waitFor(() => expect(activeChip(panel)).toBe("Hall"));
   expect(activeFilter()).toEqual(["==", ["get", "area_id"], "hall"]);
   expect(buttonNamed(panel, "Undo")!.disabled).toBe(false);
@@ -300,13 +309,46 @@ test("a box being drawn is marked apart while it cannot join the active footprin
   expect(draftApart()).toBe(false);
 });
 
-test("two taps 0.1 m apart save nothing", async () => {
+// Whole lattice units within 1e-6, and on the grid unless only the lattice is asked for.
+const expectOnGrid = (frame: PlanFrame, shape: Polygon, step = frame.unitsPerStep) => {
+  for (const corner of shape.coordinates[0]) {
+    for (const units of frame.toLatticeUnits(corner)) expect(Math.abs(units / step - Math.round(units / step))).toBeLessThan(1e-6);
+  }
+};
+
+test("a drawn box's corners land on the grid", async () => {
   const { panel, connection } = mountEditor();
   await startDrawing(panel);
-  tap(100, 0);
-  tap(101, 1);
+  drag([100.4, 0.3], [140.2, 29.6]);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  const [{ areas }] = saves(connection);
+  expectOnGrid(FRAME, areas.bath);
+  expect(edgeLengths(FRAME, areas.bath).map((m) => Math.round(m * 1e6) / 1e6)).toEqual([4, 3, 4, 3]);
+});
+
+const draft = () => sources["spatial-draft"].data as Feature;
+
+test.each([
+  ["a drag on the grid narrower than half a step", false, 0.3],
+  ["an Alt drag 3 lattice units wide", true, 0.75],
+])("%s yields no box and no toast, and shows only the start dot while drawn", async (_name, altKey, widthPx) => {
+  const { panel, connection } = mountEditor();
+  await startDrawing(panel);
+  const at = (x: number, y: number) => {
+    const event = mouse(x, y);
+    return { ...event, originalEvent: { ...event.originalEvent, altKey } };
+  };
+  handlers.mousedown(at(100, 0));
+  handlers.mousemove(at(100 + widthPx, 30));
+  expect(draft().geometry.type).toBe("Point");
+  expect(FRAME.toLattice((draft().geometry as Point).coordinates)).toEqual([400, 0]);
+  expect(layers.find((layer) => layer.id === "spatial-draft-point")).toMatchObject({ type: "circle", source: "spatial-draft" });
+  expect(editorMarkers()).toEqual([]);
+  handlers.mouseup(at(100 + widthPx, 30));
   await settle(panel);
   expect(saves(connection)).toEqual([]);
+  expect(toasts).toEqual([]);
+  expect(sources["spatial-draft"].data).toEqual(EMPTY);
 });
 
 const expectCornersNear = (actual: Polygon, expected: Polygon) =>
@@ -318,6 +360,21 @@ const activateKitchen = async (panel: HTMLElement) => {
   chip(panel, "Kitchen").click();
   await settle(panel);
 };
+
+test("a move shifts the room by whole grid steps", async () => {
+  const { panel, connection } = mountEditor();
+  await startDrawing(panel);
+  await activateKitchen(panel);
+  drag([25, 25], [45.3, 25.3]);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  const moved = saves(connection)[0].areas.kitchen;
+  expectOnGrid(FRAME, moved, 1);
+  moved.coordinates[0].forEach((corner, index) => {
+    const [x, y] = FRAME.toLattice(corner);
+    const [fromX, fromY] = FRAME.toLattice(KITCHEN.coordinates[0][index]);
+    expect([x - fromX, y - fromY]).toEqual([80, 0]);
+  });
+});
 
 test("in Draw a drag inside the active room moves it in one batch, and undo puts it back", async () => {
   const { panel, connection } = mountEditor();
@@ -615,19 +672,35 @@ test("typing 5 on a side saves the room with that side 5 m long, in one batch", 
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
   const [{ areas }] = saves(connection);
   expect(Object.keys(areas)).toEqual(["kitchen"]);
-  expect(edgeLengths(areas.kitchen)[0]).toBeCloseTo(5, 3);
-  expect(edgeLengths(areas.kitchen)[1]).toBeCloseTo(3, 3);
+  expect(edgeLengths(FRAME, areas.kitchen)[0]).toBeCloseTo(5, 3);
+  expect(edgeLengths(FRAME, areas.kitchen)[1]).toBeCloseTo(3, 3);
   await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
 });
 
-test.each(["0.1", "0,1", "", "abc"])("a side typed as %j saves nothing and a toast says a side is at least 0.20 m", async (value) => {
+test("a typed 3.47 m lands on the lattice: 139 units, and the side and its field read 3.475 m", async () => {
+  const { panel, connection, setFeed } = mountEditor();
+  await startAdjusting(panel);
+  setFeed([feature("kitchen", pixelShape([0, 0], [40, 0], [40, 30], [0, 30]))]);
+  await onUpdateOf(connection)();
+  await tapRoom(panel, "kitchen");
+  typeSide(0, "3.47");
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  const ring = saves(connection)[0].areas.kitchen.coordinates[0].map((corner) => FRAME.toLattice(corner));
+  expect(ring[1][0] - ring[0][0]).toBe(139);
+  expectOnGrid(FRAME, saves(connection)[0].areas.kitchen, 1);
+  await vi.waitFor(() => expect(sideButtons()[0]?.textContent).toBe("3.475 m"));
+  sideButtons()[0].click();
+  expect(sideField()!.value).toBe("3.475 m");
+});
+
+test.each(["0.05", "0,05", "", "abc"])("a side typed as %j saves nothing and a toast says every side needs 10 cm", async (value) => {
   const { panel, connection } = mountEditor();
   await startAdjusting(panel);
   await tapRoom(panel, "kitchen");
   typeSide(0, value);
   await settle(panel);
   expect(saves(connection)).toEqual([]);
-  expect(toasts).toEqual([{ message: "A side is at least 0.20 m" }]);
+  expect(toasts).toEqual([{ message: "Too small: every side needs at least 10 cm" }]);
   expect(sideField()).toBeDefined();
 });
 
@@ -659,12 +732,12 @@ test("in US customary units a side shows feet and inches and reads a typed lengt
     field.value = value;
     field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
   };
-  enter(`6"`);
+  enter(`3"`);
   await settle(panel);
-  expect(toasts).toEqual([{ message: `A side is at least 0′ 8″` }]);
+  expect(toasts).toEqual([{ message: "Too small: every side needs at least 4 in" }]);
   enter(`16' 5"`);
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
-  expect(edgeLengths(saves(connection)[0].areas.kitchen)[0]).toBeCloseTo(197 * 0.0254, 3);
+  expect(edgeLengths(INCH_FRAME, saves(connection)[0].areas.kitchen)[0]).toBeCloseTo(197 * 0.0254, 3);
 });
 
 test("on a floor each room is labelled with its area's icon, name and net m² from the feed", async () => {
@@ -1012,7 +1085,7 @@ test("typing a side of the outline in Adjust saves the outline", async () => {
   await settle(panel);
   typeSide(0, "12");
   await vi.waitFor(() => expect(siteSaves(connection)).toHaveLength(1));
-  expect(edgeLengths(siteSaves(connection)[0].outline!)[0]).toBeCloseTo(12, 3);
+  expect(edgeLengths(FRAME, siteSaves(connection)[0].outline!)[0]).toBeCloseTo(12, 3);
 });
 
 test("Space during a move cancels it", async () => {

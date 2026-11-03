@@ -45,7 +45,8 @@ export class PlanFrame {
   /** The nearest lattice point. */
   toLattice(lonLat: Position): LatticePoint {
     const [x, y] = this.toLatticeUnits(lonLat);
-    return [Math.round(x), Math.round(y)];
+    // Adding 0 turns -0 into 0, so equal points compare equal.
+    return [Math.round(x) + 0, Math.round(y) + 0];
   }
 
   fromLattice(point: readonly [number, number]): Position {

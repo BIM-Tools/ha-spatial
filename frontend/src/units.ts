@@ -10,7 +10,7 @@ const METRES_PER_INCH = 0.0254;
 const SQUARE_METRES_PER_SQUARE_FOOT = METRES_PER_INCH * METRES_PER_INCH * 144;
 const INCHES_PER_FOOT = 12;
 
-const isUsCustomary = (hass: HassUnits): boolean => hass.config.unit_system.length === "mi";
+export const isUsCustomary =(hass: HassUnits): boolean => hass.config.unit_system.length === "mi";
 
 /*!
  * numberFormatToLocale and formatNumber are ported from home-assistant/frontend

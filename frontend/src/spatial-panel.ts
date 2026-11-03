@@ -21,6 +21,7 @@ import "./panel-header";
 import { BUILDING } from "./area-strip";
 import { type Guide, RoomEditor, type Toast, type Tool } from "./room-editor";
 import { type AreaInfo, RoomLabels, roomLabelStyles } from "./room-labels";
+import { PlanFrame, type SiteFrameData } from "./site-frame";
 import { floatingSurface, phoneBar } from "./styles";
 import type { HassUnits } from "./units";
 
@@ -44,7 +45,11 @@ interface Site {
   lat: number;
   // Null until the first Align.
   bearing_deg: number | null;
+  // As stored: null until Align sets it on an empty plan.
+  origin: [number, number] | null;
   outline: Polygon | null;
+  // The frame the integration reads footprints in, with its defaults filled in.
+  frame: SiteFrameData;
 }
 
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -268,6 +273,8 @@ class SpatialPanel extends LitElement {
   private _unsubscribe?: () => void;
   private _areas: FeatureCollection = EMPTY;
   private _outline: Polygon | FeatureCollection = EMPTY;
+  // Rebuilt on every site load, so a unit system change reaches the next gesture.
+  private _frame?: PlanFrame;
   private _labels?: RoomLabels;
   // Only the admin panel edits; the card stays read-only.
   private _editor?: RoomEditor;
@@ -499,7 +506,11 @@ class SpatialPanel extends LitElement {
 
     const loadAreas = async () => {
       const feed = call<FeatureCollection>("spatial/geojson");
-      const site = call<Site>("spatial/site");
+      // The frame is set before the editor takes the footprints, so it measures them in it.
+      const site = call<Site>("spatial/site").then((reply) => {
+        this._frame = PlanFrame.fromSite(reply.frame);
+        return reply;
+      });
       await editor?.refresh(feed, site);
       this._areas = await feed;
       this._floors = floorsByLevel(this._areas);
@@ -515,6 +526,7 @@ class SpatialPanel extends LitElement {
           requestUpdate: () => this.requestUpdate(),
           reloadRooms: loadAreas,
           siteBearing: () => this._axisDeg,
+          siteFrame: () => this._frame!,
           units: () => this.hass!,
           selectTool: (tool) => this._selectTool(tool),
           toast: (toast) => this._toast(toast),
@@ -775,18 +787,22 @@ class SpatialPanel extends LitElement {
       this._toast({ message: "No building here" });
       return;
     }
-    const newBearing = wallBearingAt(building, [event.lngLat.lng, event.lngLat.lat]);
+    const at: Position = [event.lngLat.lng, event.lngLat.lat];
+    const newBearing = wallBearingAt(building, at);
     // The picked wall lies low in the view with the building above it, its outside facing the viewer.
     const wallBelowCentre = (this._map?.getContainer().clientHeight ?? 0) * WALL_OFFSET_SHARE;
     this._map?.easeTo({ bearing: mapBearing(newBearing), center: event.lngLat, offset: [0, wallBelowCentre] });
-    this._saveBearing(newBearing, this._bearing);
+    // On an empty plan the grid starts at the wall's left end; later the origin stays, so no room moves on the lattice.
+    const origin = this._editor?.hasShapes ? {} : { origin: wallAt(building, at)[0] };
+    this._saveBearing({ bearing_deg: newBearing, ...origin }, this._bearing);
   }
 
   // A failed save turns the view back. A refusal shows Spatial's reason, as trying again would not
-  // help; otherwise Retry turns the view to the picked wall again and saves once more.
-  private _saveBearing(newBearing: number, previousBearing: number | null) {
+  // help; otherwise Retry turns the view to the picked wall again and saves the same fields once more.
+  private _saveBearing(fields: { bearing_deg: number; origin?: Position }, previousBearing: number | null) {
+    const newBearing = fields.bearing_deg;
     this._bearing = newBearing;
-    this.hass!.connection.sendMessagePromise({ type: "spatial/site/update", bearing_deg: newBearing }).catch((err) => {
+    this.hass!.connection.sendMessagePromise({ type: "spatial/site/update", ...fields }).catch((err) => {
       console.error(err);
       this._bearing = previousBearing;
       this._map?.easeTo({ bearing: mapBearing(this._axisDeg) });
@@ -796,7 +812,7 @@ class SpatialPanel extends LitElement {
       }
       const retry = () => {
         this._map?.easeTo({ bearing: mapBearing(newBearing) });
-        this._saveBearing(newBearing, previousBearing);
+        this._saveBearing(fields, previousBearing);
       };
       this._toast({ message: "Could not save", action: { text: "Retry", action: retry }, duration: -1, dismissable: true });
     });

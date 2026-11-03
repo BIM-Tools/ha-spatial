@@ -11,9 +11,11 @@ import {
   handlers,
   queryRenderedFeatures,
   resetFakes,
+  SITE,
   sources,
   unprojectPixel,
 } from "./panel-harness";
+import { siteFrameData } from "./site-frame-fixture";
 import { METRIC_UNITS } from "./units-fixture";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
@@ -21,6 +23,9 @@ vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibr
 import { type ActiveRoom, BoxInteraction } from "../src/box-interaction";
 import { layerColours, readMapPaint } from "../src/map-paint";
 import type { Tool } from "../src/room-editor";
+import { PlanFrame } from "../src/site-frame";
+
+const FRAME = PlanFrame.fromSite(siteFrameData(SITE, 30));
 
 let mounted: BoxInteraction | undefined;
 
@@ -54,6 +59,7 @@ const mountInteraction = (tool: Tool = "draw", activeRoom?: ActiveRoom) => {
     saving: () => false,
     activeRoom: () => activeRoom,
     siteBearing: () => 30,
+    siteFrame: () => FRAME,
     units: () => METRIC_UNITS,
     onBox,
     onMove,
@@ -104,6 +110,15 @@ test("two clicks draft a box along the site axis", () => {
 
   handlers.click(pointEvent(80, 60));
   expect(onBox).toHaveBeenCalledWith(expect.objectContaining({ type: "Polygon" }));
+});
+
+test("the first of two taps shows the start dot, and the box once each side is a grid step", () => {
+  mountInteraction();
+  const draftType = () => (sources["spatial-draft"].data as { geometry: { type: string } }).geometry.type;
+  handlers.click(pointEvent(0, 0));
+  expect(draftType()).toBe("Point");
+  handlers.mousemove(pointEvent(80, 60));
+  expect(draftType()).toBe("Polygon");
 });
 
 test("a drag inside the active footprint moves it", () => {

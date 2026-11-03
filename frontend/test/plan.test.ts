@@ -1,139 +1,127 @@
-// Checks the plan-space geometry against rectangles built with turf in metres, independent of the code under test.
+// Checks the plan geometry on lattice cases, in a metric and a US customary site frame.
 
-import bearing from "@turf/bearing";
 import area from "@turf/area";
 import booleanClockwise from "@turf/boolean-clockwise";
-import destination from "@turf/destination";
-import distance from "@turf/distance";
-import { point, polygon } from "@turf/helpers";
-import type { Polygon, Position } from "geojson";
+import type { Polygon } from "geojson";
 import { expect, test } from "vitest";
 import {
-  MIN_SIDE_M,
   addToFootprint,
   areaLabel,
   boxFromCorners,
   centreOf,
   edgeLengths,
+  gridPoint,
   isAxisRectangle,
   movePolygon,
   resizeSide,
   sideLabels,
 } from "../src/plan";
+import { type LatticePoint, PlanFrame } from "../src/site-frame";
+import { US_UNIT_M, siteFrameData } from "./site-frame-fixture";
 import { METRIC_UNITS, US_UNITS } from "./units-fixture";
 
-type Corners = [Position, Position, Position, Position];
+const METRIC = PlanFrame.fromSite(siteFrameData([5, 52], 20));
+const INCHES = PlanFrame.fromSite(siteFrameData([5, 52], 20, US_UNIT_M));
 
-const ORIGIN: Position = [5, 52];
-const move = (from: Position, metres: number, bearingDeg: number): Position =>
-  destination(from, metres, bearingDeg, { units: "meters" }).geometry.coordinates;
+const box = boxFromCorners(METRIC, [0, 0], [160, 120])!;
+const latticeOf = (frame: PlanFrame, shape: Polygon) => shape.coordinates.map((ring) => ring.map((p) => frame.toLattice(p)));
+const shapeOf = (frame: PlanFrame, ...rings: LatticePoint[][]): Polygon => ({
+  type: "Polygon",
+  coordinates: rings.map((ring) => [...ring, ring[0]].map((corner) => frame.fromLattice(corner))),
+});
+const rounded = (lengths: number[]) => lengths.map((m) => Math.round(m * 1e6) / 1e6);
 
-// Four corners of a counter-clockwise rectangle: `along` metres on bearing `axis`, then `across` metres on axis - 90.
-const rectangle = (from: Position, along: number, across: number, axis: number): Corners => {
-  const a = move(from, along, axis);
-  return [from, a, move(a, across, axis - 90), move(from, across, axis - 90)];
-};
-
-const corners = rectangle(ORIGIN, 4, 3, 20);
-const box = boxFromCorners(corners)!;
-const bearingOf = (from: Position, to: Position) => (bearing(point(from), point(to)) + 360) % 360;
-const ringOf = (shape: Polygon) => shape.coordinates[0];
-
-test("boxFromCorners closes the corners into a counter-clockwise ring", () => {
-  expect(MIN_SIDE_M).toBe(0.2);
-  const ring = ringOf(box);
+test("boxFromCorners makes a counter-clockwise axis box", () => {
+  const ring = box.coordinates[0];
   expect(ring).toHaveLength(5);
   expect(ring[4]).toEqual(ring[0]);
   expect(booleanClockwise(ring)).toBe(false);
-  expect(edgeLengths(box).map((m) => Math.round(m * 1000) / 1000)).toEqual([4, 3, 4, 3]);
+  expect(rounded(edgeLengths(METRIC, box))).toEqual([4, 3, 4, 3]);
+  expect(latticeOf(METRIC, boxFromCorners(METRIC, [160, 120], [0, 0])!)).toEqual(latticeOf(METRIC, box));
 });
 
-test("boxFromCorners keeps the first corner and the edge bearings", () => {
-  const ring = ringOf(box);
-  expect(ring[0]).toEqual(corners[0]);
-  [20, 290, 200, 110].forEach((expected, index) => {
-    const delta = Math.abs(((bearingOf(ring[index], ring[index + 1]) - expected + 540) % 360) - 180);
-    expect(delta).toBeLessThan(0.1);
-  });
+test("boxFromCorners is undefined under one grid step", () => {
+  expect(boxFromCorners(METRIC, [0, 0], [0, 100])).toBeUndefined();
+  expect(boxFromCorners(METRIC, [0, 0], [3, 100])).toBeUndefined();
+  expect(boxFromCorners(METRIC, [0, 0], [100, 3])).toBeUndefined();
+  expect(boxFromCorners(METRIC, [0, 0], [4, 100])).toBeDefined();
 });
 
-test("boxFromCorners rewinds a clockwise input", () => {
-  const clockwise = [corners[0], corners[3], corners[2], corners[1]] as Corners;
-  expect(booleanClockwise([...clockwise, clockwise[0]])).toBe(true);
-  expect(booleanClockwise(ringOf(boxFromCorners(clockwise)!))).toBe(false);
-});
-
-test("boxFromCorners refuses a side shorter than the minimum", () => {
-  expect(boxFromCorners(rectangle(ORIGIN, 4, 0.1, 20))).toBeUndefined();
-  expect(boxFromCorners(rectangle(ORIGIN, 0.1, 4, 20))).toBeUndefined();
-});
-
-test("sideLabels and areaLabel show metres and square metres", () => {
-  const labels = sideLabels(box, METRIC_UNITS);
+test("sideLabels and areaLabel show metres and square metres, at the middle of each side", () => {
+  const labels = sideLabels(METRIC, box, METRIC_UNITS);
   expect(labels.map((label) => label.text)).toEqual(["4.00 m", "3.00 m", "4.00 m", "3.00 m"]);
   expect(labels.map((label) => label.edgeIndex)).toEqual([0, 1, 2, 3]);
-  const ring = ringOf(box);
-  const middle = move(ring[0], 2, 20);
-  expect(distance(point(labels[0].at), point(middle), { units: "meters" })).toBeLessThan(0.01);
-  expect(areaLabel(box, METRIC_UNITS)).toBe("12.0 m²");
+  const middle = METRIC.toLatticeUnits(labels[0].at);
+  expect(middle[0]).toBeCloseTo(80, 6);
+  expect(middle[1]).toBeCloseTo(0, 6);
+  expect(areaLabel(METRIC, box, METRIC_UNITS)).toBe("12.0 m²");
 });
 
 test("sideLabels and areaLabel show feet and inches and square feet in US customary units", () => {
-  expect(sideLabels(box, US_UNITS).map((label) => label.text)).toEqual(["13′ 1″", "9′ 10″", "13′ 1″", "9′ 10″"]);
-  expect(areaLabel(box, US_UNITS)).toBe("129 ft²");
+  const inchBox = boxFromCorners(INCHES, [0, 0], [157, 118])!;
+  expect(sideLabels(INCHES, inchBox, US_UNITS).map((label) => label.text)).toEqual(["13′ 1″", "9′ 10″", "13′ 1″", "9′ 10″"]);
+  expect(areaLabel(INCHES, inchBox, US_UNITS)).toBe("129 ft²");
 });
 
-test("isAxisRectangle accepts the axis and its perpendicular only", () => {
-  expect(isAxisRectangle(box, 20)).toBe(true);
-  expect(isAxisRectangle(box, 30)).toBe(false);
-  expect(isAxisRectangle(boxFromCorners(rectangle(ORIGIN, 4, 3, 30))!, 20)).toBe(false);
-  const lShape = polygon([[
-    ORIGIN, move(ORIGIN, 4, 20), move(move(ORIGIN, 4, 20), 1, 110),
-    move(move(move(ORIGIN, 4, 20), 1, 110), 2, 20), move(move(ORIGIN, 2, 20), 3, 110), move(ORIGIN, 3, 110), ORIGIN,
-  ]]).geometry;
-  expect(isAxisRectangle(lShape, 20)).toBe(false);
+test("areaLabel takes holes out", () => {
+  const holed = shapeOf(METRIC, [[0, 0], [160, 0], [160, 120], [0, 120]], [[40, 40], [40, 80], [80, 80], [80, 40]]);
+  expect(areaLabel(METRIC, holed, METRIC_UNITS)).toBe("11.0 m²");
 });
 
-test("resizeSide stretches an edge and its opposite and keeps the start vertex", () => {
-  const resized = resizeSide(box, 0, 5);
-  expect(edgeLengths(resized).map((m) => Math.round(m * 1000) / 1000)).toEqual([5, 3, 5, 3]);
-  expect(distance(point(ringOf(resized)[0]), point(ringOf(box)[0]), { units: "meters" })).toBeLessThan(0.001);
-  const second = resizeSide(box, 1, 2);
-  expect(edgeLengths(second).map((m) => Math.round(m * 1000) / 1000)).toEqual([4, 2, 4, 2]);
+test("isAxisRectangle is false for an L-shape, a holed box and a box built from turned lattice points", () => {
+  expect(isAxisRectangle(METRIC, box)).toBe(true);
+  expect(isAxisRectangle(METRIC, shapeOf(METRIC, [[0, 0], [160, 0], [160, 40], [80, 40], [80, 120], [0, 120]]))).toBe(false);
+  expect(
+    isAxisRectangle(METRIC, shapeOf(METRIC, [[0, 0], [160, 0], [160, 120], [0, 120]], [[40, 40], [40, 80], [80, 80], [80, 40]])),
+  ).toBe(false);
+  expect(isAxisRectangle(METRIC, shapeOf(METRIC, [[0, 0], [120, 90], [30, 210], [-90, 120]]))).toBe(false);
+});
+
+test("resizeSide rounds the length to whole lattice units and keeps the start corner", () => {
+  const resized = resizeSide(METRIC, box, 0, 3.47)!;
+  expect(latticeOf(METRIC, resized)[0]).toEqual([[0, 0], [139, 0], [139, 120], [0, 120], [0, 0]]);
+  const second = resizeSide(METRIC, box, 1, 2)!;
+  expect(latticeOf(METRIC, second)[0]).toEqual([[0, 0], [160, 0], [160, 80], [0, 80], [0, 0]]);
+  const fromTheFar = resizeSide(METRIC, box, 2, 2)!;
+  expect(latticeOf(METRIC, fromTheFar)[0]).toEqual([[80, 0], [160, 0], [160, 120], [80, 120], [80, 0]]);
+});
+
+test("resizeSide is undefined under one grid step", () => {
+  expect(resizeSide(METRIC, box, 0, 0.05)).toBeUndefined();
+});
+
+test("movePolygon moves every corner by a lattice delta", () => {
+  expect(latticeOf(METRIC, movePolygon(METRIC, box, [8, -4]))[0]).toEqual([
+    [8, -4],
+    [168, -4],
+    [168, 116],
+    [8, 116],
+    [8, -4],
+  ]);
+});
+
+test("gridPoint rounds to the nearest grid point", () => {
+  expect(gridPoint(METRIC, METRIC.fromLattice([5.9, 1.9]))).toEqual([4, 0]);
+  expect(gridPoint(METRIC, METRIC.fromLattice([-6.1, 10.2]))).toEqual([-8, 12]);
+});
+
+test("centreOf is the middle of the box on the plan", () => {
+  const [x, y] = METRIC.toLatticeUnits(centreOf(METRIC, box));
+  expect(x).toBeCloseTo(80, 6);
+  expect(y).toBeCloseTo(60, 6);
 });
 
 test("addToFootprint unions touching boxes into one Polygon", () => {
-  const neighbour = boxFromCorners(rectangle(corners[3], 4, 3, 20))!;
-  const union = addToFootprint(box, neighbour)!;
-  expect(union.type).toBe("Polygon");
-  expect(Math.abs(area(union) - 24) / 24).toBeLessThan(0.005);
+  const neighbour = boxFromCorners(METRIC, [0, 120], [160, 240])!;
+  const joined = addToFootprint(box, neighbour)!;
+  expect(joined.type).toBe("Polygon");
+  expect(Math.abs(area(joined) - 24) / 24).toBeLessThan(0.005);
 });
 
 test("addToFootprint refuses a box that does not touch the footprint", () => {
-  const apart = boxFromCorners(rectangle(move(corners[3], 1, 290), 4, 3, 20))!;
-  expect(addToFootprint(box, apart)).toBeUndefined();
+  expect(addToFootprint(box, boxFromCorners(METRIC, [0, 160], [160, 280])!)).toBeUndefined();
 });
 
 test("addToFootprint returns the box when there is no footprint", () => {
   expect(addToFootprint(undefined, box)).toEqual(box);
-});
-
-test("centreOf is the middle of a box", () => {
-  const box: Polygon = { type: "Polygon", coordinates: [[[0, 0], [2, 0], [2, 2], [0, 2], [0, 0]]] };
-  expect(centreOf(box)).toEqual([1, 1]);
-});
-
-test("isAxisRectangle refuses a rectangle with a hole", () => {
-  const hole = rectangle(move(move(ORIGIN, 1, 20), 1, -70), 1, 1, 20);
-  const holed: Polygon = { type: "Polygon", coordinates: [ringOf(box), [...hole, hole[0]].reverse()] };
-  expect(isAxisRectangle(holed, 20)).toBe(false);
-});
-
-test("movePolygon moves every corner 2 m east and keeps the side lengths", () => {
-  const box4By3 = boxFromCorners(rectangle(ORIGIN, 4, 3, 0))!;
-  const moved = movePolygon(box4By3, ORIGIN, move(ORIGIN, 2, 90));
-  ringOf(moved).forEach((corner, index) => {
-    expect(distance(point(corner), point(move(ringOf(box4By3)[index], 2, 90)), { units: "meters" })).toBeLessThan(0.01);
-  });
-  edgeLengths(moved).forEach((length, index) => expect(length).toBeCloseTo(edgeLengths(box4By3)[index], 2));
 });

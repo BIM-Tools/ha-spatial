@@ -2,12 +2,13 @@
 
 import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
 import { feature } from "@turf/helpers";
-import type { FeatureCollection, Polygon, Position } from "geojson";
-import { type GeoJSONSource, type LngLat, Marker, type MapMouseEvent, type Map as MapLibreMap } from "maplibre-gl";
+import type { FeatureCollection, Point, Polygon, Position } from "geojson";
+import { type GeoJSONSource, Marker, type MapMouseEvent, type Map as MapLibreMap } from "maplibre-gl";
 import type { LayerColours } from "./map-paint";
 import { mapBearing } from "./map-view";
-import { addToFootprint, areaLabel, boxFromCorners, centreOf, movePolygon, sideLabels } from "./plan";
+import { addToFootprint, areaLabel, boxFromCorners, centreOf, gridPoint, movePolygon, sideLabels } from "./plan";
 import type { Tool } from "./room-editor";
+import type { LatticePoint, PlanFrame } from "./site-frame";
 import type { HassUnits } from "./units";
 
 interface Pixel {
@@ -26,27 +27,46 @@ export interface BoxInteractionCallbacks {
   readonly saving: () => boolean;
   readonly activeRoom: () => ActiveRoom | undefined;
   readonly siteBearing: () => number;
+  readonly siteFrame: () => PlanFrame;
   readonly units: () => HassUnits;
   readonly onBox: (box: Polygon) => void;
   readonly onMove: (room: ActiveRoom, moved: Polygon) => void;
   readonly onPickRoom: (areaId: string) => void;
 }
 
+// A gesture keeps the frame it started with.
 interface Grab {
   room: ActiveRoom;
   from: Position;
+  frame: PlanFrame;
+}
+
+interface Start {
+  corner: LatticePoint;
+  frame: PlanFrame;
 }
 
 const lngLatOf = (event: MapMouseEvent): Position => [event.lngLat.lng, event.lngLat.lat];
+// Alt places a corner on the lattice instead of the grid.
+const cornerAt = (event: MapMouseEvent, frame: PlanFrame): LatticePoint =>
+  event.originalEvent.altKey ? frame.toLattice(lngLatOf(event)) : gridPoint(frame, lngLatOf(event));
+// The pointer's travel in whole grid steps, so a moved room keeps its offset to the grid.
+const stepsBetween = (frame: PlanFrame, from: Position, to: Position): LatticePoint => {
+  const [fromX, fromY] = frame.toLatticeUnits(from);
+  const [toX, toY] = frame.toLatticeUnits(to);
+  const step = frame.unitsPerStep;
+  return [Math.round((toX - fromX) / step) * step, Math.round((toY - fromY) / step) * step];
+};
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 const DRAG_MIN_PX = 5;
 const LABEL_STYLE =
   "font: 12px sans-serif; background: color-mix(in srgb, var(--card-background-color) 85%, transparent); color: var(--primary-text-color); padding: 0 3px; border-radius: 3px; pointer-events: none";
 
 export class BoxInteraction {
-  // A spot on the map, so a pan or zoom between the two taps does not move it.
-  private _corner?: LngLat;
+  // A lattice point, so a pan or zoom between the two taps does not move it.
+  private _corner?: Start;
   private _press?: Pixel;
+  private _pressCorner?: Start;
   private _dragging = false;
   // Set when a press starts inside the active room's footprint: a drag then moves it.
   private _grab?: Grab;
@@ -86,11 +106,20 @@ export class BoxInteraction {
       source: "spatial-draft",
       paint: { ...colours["spatial-draft"], "line-width": 2, "line-dasharray": [2, 1] },
     });
+    // The start of a box that is still under one grid step: 14 px across with a 2 px ring.
+    this._map.addLayer({
+      id: "spatial-draft-point",
+      type: "circle",
+      source: "spatial-draft",
+      filter: ["==", ["geometry-type"], "Point"],
+      paint: { ...colours["spatial-draft-point"], "circle-radius": 7, "circle-stroke-width": 2 },
+    });
   }
 
   cancel() {
     this._corner = undefined;
     this._press = undefined;
+    this._pressCorner = undefined;
     this._dragging = false;
     this._grab = undefined;
     this._preview(undefined);
@@ -180,12 +209,14 @@ export class BoxInteraction {
       return;
     }
     const at = lngLatOf(event);
+    const frame = this._callbacks.siteFrame();
     const room = this._callbacks.activeRoom();
-    this._grab = room && booleanPointInPolygon(at, room.footprint) ? { room, from: at } : undefined;
+    this._grab = room && booleanPointInPolygon(at, room.footprint) ? { room, from: at, frame } : undefined;
     if (!this._grab && !this._canDraw()) return;
     // Keeps MapLibre from panning the map under the room in Adjust.
     if (this._grab) event.preventDefault();
     this._press = event.point;
+    this._pressCorner = { corner: cornerAt(event, frame), frame };
     this._dragging = false;
   };
 
@@ -198,26 +229,24 @@ export class BoxInteraction {
       this._corner = undefined;
     }
     if (grab) {
-      if (this._dragging) this._preview(movePolygon(grab.room.footprint, grab.from, lngLatOf(event)));
+      if (this._dragging) this._preview(this._moved(grab, lngLatOf(event)), grab.frame);
       return;
     }
-    const from = this._dragging ? press : this._corner && this._map.project(this._corner);
-    if (from) {
-      const box = this._box(from, event.point);
-      this._preview(box, box && this._apartFromActive(box));
-    }
+    const start = this._dragging ? this._pressCorner : this._corner;
+    if (start) this._draft(start, cornerAt(event, start.frame));
   };
 
   private _up = (event: MapMouseEvent) => {
-    const press = this._press;
+    const start = this._pressCorner;
     const dragged = this._dragging;
     const grab = this._grab;
     this._press = undefined;
+    this._pressCorner = undefined;
     this._dragging = false;
     this._grab = undefined;
-    if (!press || !dragged) return;
+    if (!start || !dragged) return;
     if (grab) this._drop(grab, lngLatOf(event));
-    else this._finish(press, event.point);
+    else this._finish(start, cornerAt(event, start.frame));
   };
 
   // MapLibre fires `click` for a tap too, so two taps draw a box on a phone.
@@ -228,24 +257,26 @@ export class BoxInteraction {
       return;
     }
     if (!this._canDraw() || this._spaceHeld || this._callbacks.saving()) return;
-    const corner = this._corner;
-    if (!corner) {
-      this._corner = event.lngLat;
+    const start = this._corner;
+    if (!start) {
+      const frame = this._callbacks.siteFrame();
+      this._corner = { corner: cornerAt(event, frame), frame };
+      this._draft(this._corner, this._corner.corner);
       return;
     }
     this._corner = undefined;
-    this._finish(this._map.project(corner), event.point);
+    this._finish(start, cornerAt(event, start.frame));
   };
 
-  private _box(from: Pixel, to: Pixel): Polygon | undefined {
-    const pixels = [
-      [from.x, from.y],
-      [to.x, from.y],
-      [to.x, to.y],
-      [from.x, to.y],
-    ] as [number, number][];
-    const corners = pixels.map((pixel): Position => this._map.unproject(pixel).toArray());
-    return boxFromCorners(corners as [Position, Position, Position, Position]);
+  // A box under one grid step shows only its start, as a dot.
+  private _draft({ corner, frame }: Start, end: LatticePoint) {
+    const box = boxFromCorners(frame, corner, end);
+    if (box) this._preview(box, frame, this._apartFromActive(box));
+    else this._preview({ type: "Point", coordinates: frame.fromLattice(corner) }, frame);
+  }
+
+  private _moved({ room, from, frame }: Grab, to: Position): Polygon {
+    return movePolygon(frame, room.footprint, stepsBetween(frame, from, to));
   }
 
   // A box the active footprint cannot join is refused on release, so it shows in the warning colour while drawn.
@@ -254,17 +285,17 @@ export class BoxInteraction {
     return Boolean(room && !addToFootprint(room.footprint, box));
   }
 
-  private _preview(box: Polygon | undefined, apart = false) {
+  private _preview(draft: Polygon | Point | undefined, frame?: PlanFrame, apart = false) {
     const map = this._map;
     this._kept = undefined;
-    map.getSource<GeoJSONSource>("spatial-draft")?.setData(box ? feature(box, { apart }) : EMPTY);
-    if (!box) {
+    map.getSource<GeoJSONSource>("spatial-draft")?.setData(draft ? feature(draft, { apart }) : EMPTY);
+    if (draft?.type !== "Polygon" || !frame) {
       for (const label of this._labels) label.remove();
       this._labels = [];
       return;
     }
     const units = this._callbacks.units();
-    const labels = [...sideLabels(box, units), { at: centreOf(box), text: areaLabel(box, units) }];
+    const labels = [...sideLabels(frame, draft, units), { at: centreOf(frame, draft), text: areaLabel(frame, draft, units) }];
     if (!this._labels.length) {
       this._labels = labels.map(() => {
         const element = document.createElement("span");
@@ -278,14 +309,15 @@ export class BoxInteraction {
     });
   }
 
-  private _finish(from: Pixel, to: Pixel) {
-    const box = this._box(from, to);
+  // A box under one grid step is not created, without a toast: while drawn it showed only its start.
+  private _finish({ corner, frame }: Start, end: LatticePoint) {
+    const box = boxFromCorners(frame, corner, end);
     this._preview(undefined);
     if (box) this._callbacks.onBox(box);
   }
 
-  private _drop({ room, from }: Grab, to: Position) {
+  private _drop(grab: Grab, to: Position) {
     this._preview(undefined);
-    this._callbacks.onMove(room, movePolygon(room.footprint, from, to));
+    this._callbacks.onMove(grab.room, this._moved(grab, to));
   }
 }
