@@ -149,6 +149,8 @@ export const layerColours = (paint: MapPaint): LayerColours => ({
   "spatial-draft-fill": { "fill-color": apart(paint.apartFill, paint.draftFill) },
   "spatial-draft": { "line-color": apart(paint.apartEdge, paint.primary) },
   "spatial-draft-point": { "circle-color": paint.primary, "circle-stroke-color": paint.handleFill },
+  "spatial-snap-line": { "line-color": paint.primary },
+  "spatial-snap-point": { "circle-color": paint.primary },
 });
 
 type PaintArguments = Parameters<MapLibreMap["setPaintProperty"]>;

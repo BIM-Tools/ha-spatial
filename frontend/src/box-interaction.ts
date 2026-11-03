@@ -9,6 +9,7 @@ import { mapBearing } from "./map-view";
 import { addToFootprint, areaLabel, boxFromCorners, centreOf, gridPoint, movePolygon, sideLabels } from "./plan";
 import type { Tool } from "./room-editor";
 import type { LatticePoint, PlanFrame } from "./site-frame";
+import { SnapHighlight } from "./snap-highlight";
 import type { HassUnits } from "./units";
 
 interface Pixel {
@@ -74,11 +75,13 @@ export class BoxInteraction {
   private _labels: Marker[] = [];
   // The shape of a failed save, shown until it saves or the next draft replaces it.
   private _kept?: Polygon;
+  private readonly _highlight: SnapHighlight;
 
   constructor(
     private readonly _map: MapLibreMap,
     private readonly _callbacks: BoxInteractionCallbacks,
   ) {
+    this._highlight = new SnapHighlight(_map);
     _map.on("mousedown", this._down);
     _map.on("mousemove", this._move);
     _map.on("mouseup", this._up);
@@ -114,6 +117,7 @@ export class BoxInteraction {
       filter: ["==", ["geometry-type"], "Point"],
       paint: { ...colours["spatial-draft-point"], "circle-radius": 7, "circle-stroke-width": 2 },
     });
+    this._highlight.addLayers(colours);
   }
 
   cancel() {

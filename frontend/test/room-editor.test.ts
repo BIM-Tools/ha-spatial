@@ -1459,6 +1459,17 @@ test("a new map style keeps the shape of a failed save on the map", async () => 
   expect(draftGeometry()).toEqual(kept);
 });
 
+test("the snap highlight sits above the corner handles and comes back with a new map style", async () => {
+  const { panel } = mountEditor();
+  await showFloor(panel);
+  const ids = () => layers.map((layer) => layer.id);
+  expect(ids().indexOf("spatial-snap-line")).toBeGreaterThan(ids().indexOf("spatial-handles"));
+  expect(ids().indexOf("spatial-snap-point")).toBeGreaterThan(ids().indexOf("spatial-handles"));
+  handlers["style.load"]();
+  expect(ids().filter((id) => id === "spatial-snap-point")).toHaveLength(2);
+  expect(sources["spatial-snap"].data).toEqual(EMPTY);
+});
+
 test("Ctrl+Z with nothing to undo keeps the failure toast and the failed shape", async () => {
   const { panel } = failingFirstSave();
   await startDrawing(panel);
