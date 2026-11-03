@@ -133,8 +133,8 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
   of this session, each as one save.
 - Undo restores footprints only: an area created with New area stays in Home Assistant.
 - Saving is silent. Refusals and failures use Home Assistant's toast. "Could not save" stays with
-  **Retry**, and the shape that failed stays on the map until it saves or the next box replaces
-  it.
+  **Retry**. A room that already had a shape keeps showing it as saved; a first box that failed
+  stays on the map until it saves or the next box replaces it.
 - Spatial refuses an indoor room that would extend beyond the outline, or a shape with no net
   area left; in the panel that save ends as "Could not save".
 
