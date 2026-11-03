@@ -426,6 +426,9 @@ async def test_us_customary_minimum_edge(
     client = await hass_ws_client(hass)
     await hass.config.async_update(unit_system="us_customary")
     msg = await _write(client, site=FRAME, areas={"kitchen": notched(3 * 0.0254)})
-    assert msg["error"]["code"] == "invalid_format"
+    assert msg["error"] == {
+        "code": "invalid_format",
+        "message": "An edge must be at least one grid step (kitchen)",
+    }
     msg = await _write(client, site=FRAME, areas={"kitchen": notched(0.1016)})
     assert msg["success"], msg
