@@ -79,8 +79,8 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
 
 | Tool | Does |
 | --- | --- |
-| Align | One click on a building on the map, near a wall, saves that wall's direction as the site direction. Without a building under the click a toast says "No building here"; when Spatial refuses the new direction, the toast gives its reason. The map stays on while Align is active |
-| Draw | Draws boxes along the site direction (north up before any Align) for the highlighted pill |
+| Align | One click on a building on the map, near a wall, saves that wall's direction as the site direction. Without a building under the click a toast says "No building here"; when Spatial refuses the new direction, the toast gives its reason. On an empty plan, with no room and no outline drawn, it also puts the grid origin on the left end of that wall. The map stays on while Align is active |
+| Draw | Draws boxes along the site direction (north up before any Align) for the highlighted pill. Corners land on the 10 cm (4 in) grid, or with Alt held on the 2.5 cm (1 in) lattice; while a side is shorter than one grid step only the start dot shows, and such a box is not drawn |
 | Adjust | A tap on a room makes it active: it is filled, edged and gets round handles on its corners. Drag the active room to move it. Type exact side lengths (below) |
 
 ### The area strip
@@ -120,11 +120,13 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
 - Tap a room on the map, or its pill, to make it active. The **Building** pill makes the outline
   active.
 - When the active room is a rectangle along the site direction, each side shows its length as a
-  button. Tap one, type the length and press Enter (at least 0.20 m or 8 in; an unchanged length
-  saves nothing). The side's start corner stays, the opposite side follows. Escape closes the
-  field.
-- Lengths and areas follow Home Assistant's unit system and number format. In US customary
-  units a length is typed in feet and inches, such as 12' 6", 12 6, 150" or 12.5'.
+  button. Tap one, type the length and press Enter (at least 10 cm or 4 in; an unchanged length
+  saves nothing). The length is rounded to the 2.5 cm (1 in) lattice, so 3.47 m becomes 3.475 m.
+  The side's start corner stays, the opposite side follows. Escape closes the field.
+- Moving a room shifts it by whole grid steps.
+- Lengths and areas follow Home Assistant's unit system and number format. Metric lengths show
+  the stored value exactly, such as 3.40 m or 3.475 m. In US customary units a length shows as
+  feet and inches, such as 11′ 4″, and is typed as 12' 6", 12 6, 150" or 12.5'.
 - **Delete** removes the active shape here too.
 
 ### Undo, redo and saving
@@ -221,14 +223,14 @@ The panel does not edit these; tools and scripts set them through the
 | Floor elevation and height | Where each floor sits in 3D (`spatial/floor/update`) |
 | `floors_up` | A room that reaches the floors above its own, such as a stairwell or a double-height living room; it then counts on each of those floors for neighbours and the 3D view |
 | `on_facade_override` | Replaces the derived `on_facade` with true or false |
-| Grid origin | The site's `origin`, where the site frame and its 10 cm (4 in) drawing grid start; without one, the first save stores the first corner of the outline, else of the first footprint, else the home location. The panel does not snap to the grid |
+| Grid origin | The site's `origin`, where the site frame and its 10 cm (4 in) drawing grid start; Align on an empty plan sets it to the left end of the picked wall; without one, the first save stores the first corner of the outline, else of the first footprint, else the home location. The panel draws on this grid |
 
 ## Known limits
 
 - Boxes follow the site direction; walls at other angles cannot be drawn.
 - Side lengths can only be typed for a rectangle along the site direction.
-- Lengths shown in the panel are measured on a sphere and can differ from the drawn size by
-  about 0.3%; the 8.5 m side of the example living room shows as 8.49 m.
+- After the first room or the outline, a new Align keeps the grid origin, so the grid turns
+  around the old origin.
 - Align needs a building in the map tiles. A building cut by a tile border gives only the part
   in that tile.
 - Undo covers this session only, and overwrites changes made elsewhere in the meantime. An undo
