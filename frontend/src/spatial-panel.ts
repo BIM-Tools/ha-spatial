@@ -27,6 +27,9 @@ import type { HassUnits } from "./units";
 
 // The parts of Home Assistant's `hass` object this panel uses.
 interface Hass extends HassUnits {
+  // The location name is the building's name.
+  config: HassUnits["config"] & { location_name: string };
+  user?: { is_admin: boolean };
   connection: {
     sendMessagePromise<T>(message: { type: string; [key: string]: unknown }): Promise<T>;
     subscribeMessage(callback: () => void, message: { type: string }): Promise<() => Promise<void>>;
@@ -530,6 +533,9 @@ class SpatialPanel extends LitElement {
           units: () => this.hass!,
           selectTool: (tool) => this._selectTool(tool),
           toast: (toast) => this._toast(toast),
+          buildingName: () => this._buildingName(),
+          // Renaming writes Home Assistant's core config, which only an admin may change.
+          canRenameBuilding: () => this.hass?.user?.is_admin === true,
         });
     this._editor = editor;
     const site = await loadAreas();
@@ -580,7 +586,7 @@ class SpatialPanel extends LitElement {
       interactive: !this.floor,
     });
     this._map = map;
-    this._labels = new RoomLabels(map, !this.card, () => this.hass!);
+    this._labels = new RoomLabels(map, !this.card, () => this.hass!, () => this._buildingName());
     this._showLabels();
     map.on("style.load", () => this._addAreas());
     map.on("mousemove", (event) => {
@@ -698,6 +704,10 @@ class SpatialPanel extends LitElement {
       // Without the map the ground is the page colour, which a theme in the same mode changes too.
       if (this._map.getLayer("ground")) this._map.setPaintProperty("ground", "background-color", this._groundColour());
     });
+  }
+
+  private _buildingName() {
+    return this.hass?.config.location_name || "Building";
   }
 
   // Labels name the rooms of one floor; the 3D view of all floors has none.

@@ -23,7 +23,7 @@ const pixelRoom = (areaId: string, [x1, y1]: [number, number], [x2, y2]: [number
 });
 
 const mountLabels = (rooms: Feature<Polygon>[], withSize = true, areas = {}, outline?: Polygon, units = METRIC_UNITS) => {
-  const labels = new RoomLabels(new fakeMapLibre.Map({}) as never, withSize, () => units);
+  const labels = new RoomLabels(new fakeMapLibre.Map({}) as never, withSize, () => units, () => "Building");
   labels.show(rooms, outline, areas);
   return labels;
 };

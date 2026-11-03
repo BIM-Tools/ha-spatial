@@ -10,12 +10,13 @@ boxes along one wall. Every action saves at once and can be undone.
 | Floor | A Home Assistant floor; its level orders the floor buttons | Home Assistant's floor registry |
 | Area | A Home Assistant area on a floor, with its name and icon; Spatial gives it an optional footprint | Home Assistant's area registry |
 | Footprint | One polygon per area, drawn on the wall axes (the middle of each wall), so neighbouring rooms share edges | Spatial |
-| Building | The outline on the axis of the exterior walls, one per installation; indoor rooms stay inside it | Spatial |
+| Building | The outline on the axis of the exterior walls, one per installation; indoor rooms stay inside it. Its name is Home Assistant's location name | Spatial; the name from Home Assistant's core config |
 | Site direction | The direction of one wall of your house; the map turns so that wall is horizontal, and boxes follow it | Spatial |
 | Floor height | Elevation and height per floor, for the 3D view; without them floors stack 3 m per level | Spatial |
 
 - Home Assistant owns areas and floors. Names, icons, levels and floor assignment are always
-  read from its registries; rename or move an area in Home Assistant and the map follows.
+  read from its registries; rename or move an area in Home Assistant and the map follows. The
+  building carries Home Assistant's location name ("Home" unless you changed it).
 - Deleting an area or floor in Home Assistant deletes its footprint or heights.
 - Spatial stores coordinates in WGS84, the same world as Home Assistant's zones, exactly as
   drawn. It reads them on a lattice of 2.5 cm (1 in with US customary units) in one site frame,
@@ -33,11 +34,11 @@ opens on **All**, north up, centred on your home location.
 
    ![Align on the ground floor: the guide line on top, the wall under the pointer highlighted](images/align.png)
 
-2. **Draw the building.** Press **Draw**. The strip at the bottom starts with **Building**,
-   highlighted while there is no outline. Draw it on the middle of the exterior walls, with the
-   building on the map as a guide: press and drag
+2. **Draw the building.** Press **Draw**. The strip at the bottom starts with the building,
+   under Home Assistant's location name and highlighted while there is no outline. Draw it on
+   the middle of the exterior walls, with the building on the map as a guide: press and drag
    from one corner to the opposite one, or click one corner and then the other. After the first
-   box the next area is highlighted; for an L or other shape, choose **Building** again and add
+   box the next area is highlighted; for an L or other shape, choose the building again and add
    boxes against the outline.
 3. **Draw the rooms.** After an area's first shape, the next area of the floor without one is
    highlighted, and the line at the top says "Draw Kitchen" with how far the floor is, for
@@ -71,7 +72,7 @@ strip at the bottom.
 
 Each room on a floor shows its area's icon, name and net area, in m² or ft² as Home Assistant's
 unit system says. A smaller room drops the area, then the name; pointing at it or tapping it shows the name. A tiny room has no label. The outline
-shows "Building" until the floor has rooms.
+shows the building's name until the floor has rooms.
 
 ### Tools
 
@@ -87,7 +88,7 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
 
 | Pill | Means |
 | --- | --- |
-| Building | The outline; always first |
+| Building | The outline, under Home Assistant's location name; always first |
 | Filled square | The space has a shape |
 | Dashed square | No shape yet |
 | Highlighted | The active space: the next box goes to it, Adjust works on it |
@@ -97,7 +98,8 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
 - Choosing a pill without a shape switches to Draw.
 - Pointing at a pill outlines its room on the map, and pointing at a room marks its pill.
 - Click the highlighted pill again (a long press on a phone) to rename the area in Home
-  Assistant: Enter or the check saves, Escape cancels.
+  Assistant: Enter or the check saves, Escape cancels. Renaming the building renames the
+  location in Home Assistant (Settings, System, General); only an administrator can do that.
 - The arrow keys move between the pills.
 
 ### Draw

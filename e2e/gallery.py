@@ -95,6 +95,8 @@ class House:
             normalize_name(entry["name"]): entry["name"]
             for entry in websocket.call("config/area_registry/list")
         }
+        # The building pill carries Home Assistant's location name.
+        self.building_name = websocket.call("get_config")["location_name"]
         self.rings: dict[str, dict[str, list[list[float]]]] = {}
         for feature in collection["features"]:
             if feature["geometry"] is None:
@@ -172,7 +174,12 @@ class Shot:
 
     def pill(self, area: str) -> Locator:
         strip = self.panel.locator("spatial-area-strip")
-        name = area if area in ("Building", "New area") else self.house.area_name(area)
+        if area == "Building":
+            name = self.house.building_name
+        elif area == "New area":
+            name = area
+        else:
+            name = self.house.area_name(area)
         return self.require(strip.get_by_role("button", name=name, exact=True), f"pill {name}")
 
     def activate_pill(self, area: str) -> None:
