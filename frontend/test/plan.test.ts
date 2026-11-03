@@ -113,15 +113,29 @@ test("centreOf is the middle of the box on the plan", () => {
 
 test("addToFootprint unions touching boxes into one Polygon", () => {
   const neighbour = boxFromCorners(METRIC, [0, 120], [160, 240])!;
-  const joined = addToFootprint(box, neighbour)!;
+  const joined = addToFootprint(METRIC, box, neighbour)!;
   expect(joined.type).toBe("Polygon");
   expect(Math.abs(area(joined) - 24) / 24).toBeLessThan(0.005);
 });
 
 test("addToFootprint refuses a box that does not touch the footprint", () => {
-  expect(addToFootprint(box, boxFromCorners(METRIC, [0, 160], [160, 280])!)).toBeUndefined();
+  expect(addToFootprint(METRIC, box, boxFromCorners(METRIC, [0, 160], [160, 280])!)).toBeUndefined();
 });
 
 test("addToFootprint returns the box when there is no footprint", () => {
-  expect(addToFootprint(undefined, box)).toEqual(box);
+  expect(addToFootprint(METRIC, undefined, box)).toEqual(box);
+});
+
+test("addToFootprint joins boxes that share part of an edge, in any frame, on whole lattice units", () => {
+  for (const bearing of [0, 10, 30, 45, 61, 77, 89]) {
+    const frame = PlanFrame.fromSite(siteFrameData([5, 52], bearing));
+    const room = boxFromCorners(frame, [0, 0], [160, 120])!;
+    for (let y = 4; y < 100; y += 4) {
+      const joined = addToFootprint(frame, room, boxFromCorners(frame, [160, y], [280, y + 12])!);
+      expect(joined, `bearing ${bearing}, y ${y}`).toBeDefined();
+      for (const corner of joined!.coordinates[0]) {
+        for (const units of frame.toLatticeUnits(corner)) expect(Math.abs(units - Math.round(units))).toBeLessThan(1e-6);
+      }
+    }
+  }
 });

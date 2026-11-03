@@ -372,7 +372,8 @@ export class RoomEditor {
         typed.addEventListener("keydown", (event) => {
           // An unchanged field leaves the edit: saving its rounded length would shift the side and add an undo step.
           if (event.key === "Escape" || (event.key === "Enter" && typed.value === prefilled)) this._select(areaId);
-          else if (event.key === "Enter") this._resize(areaId, footprint, edgeIndex, parseLength(typed.value, units));
+          // The frame the field was built in, so a refresh still in flight cannot pair it with another one.
+          else if (event.key === "Enter") this._resize(frame, areaId, footprint, edgeIndex, parseLength(typed.value, units));
         });
         control = typed;
       } else {
@@ -393,8 +394,8 @@ export class RoomEditor {
     field?.select();
   }
 
-  private _resize(areaId: string, footprint: Polygon, edgeIndex: number, lengthM: number | undefined) {
-    const after = lengthM === undefined ? undefined : resizeSide(this._host.siteFrame(), footprint, edgeIndex, lengthM);
+  private _resize(frame: PlanFrame, areaId: string, footprint: Polygon, edgeIndex: number, lengthM: number | undefined) {
+    const after = lengthM === undefined ? undefined : resizeSide(frame, footprint, edgeIndex, lengthM);
     if (!after) {
       const step = isUsCustomary(this._host.units()) ? "4 in" : "10 cm";
       this._host.toast({ message: `Too small: every side needs at least ${step}` });
@@ -408,7 +409,7 @@ export class RoomEditor {
     const areaId = this._active;
     const floor = this._floor;
     const current = this._footprints.get(areaId);
-    const footprint = addToFootprint(current, box);
+    const footprint = addToFootprint(this._host.siteFrame(), current, box);
     if (!footprint) {
       this._host.toast({ message: "A room is one shape: draw against it" });
       return;

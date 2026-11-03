@@ -119,9 +119,16 @@ export function gridPoint(frame: PlanFrame, lonLat: Position): LatticePoint {
   return [Math.round(x / step) * step + 0, Math.round(y / step) * step + 0];
 }
 
-/** The footprint with the box added, or undefined when the result is not one Polygon. */
-export function addToFootprint(existing: Polygon | undefined, box: Polygon): Polygon | undefined {
+/**
+ * The footprint with the box added, or undefined when the result is not one Polygon. Joined on
+ * lattice units, where shared walls are exact; in lon/lat a partly shared edge can open a gap.
+ */
+export function addToFootprint(frame: PlanFrame, existing: Polygon | undefined, box: Polygon): Polygon | undefined {
   if (!existing) return box;
-  const joined = union({ type: "FeatureCollection", features: [polygon(existing.coordinates), polygon(box.coordinates)] });
-  return joined?.geometry.type === "Polygon" ? joined.geometry : undefined;
+  const onLattice = (shape: Polygon) =>
+    polygon(latticeRings(frame, shape).map((corners) => [...corners, corners[0]].map(([x, y]) => [x, y])));
+  const joined = union({ type: "FeatureCollection", features: [onLattice(existing), onLattice(box)] });
+  if (joined?.geometry.type !== "Polygon") return undefined;
+  const rings = joined.geometry.coordinates.map((ring) => ring.map((corner) => frame.fromLattice([corner[0], corner[1]])));
+  return { type: "Polygon", coordinates: rings };
 }

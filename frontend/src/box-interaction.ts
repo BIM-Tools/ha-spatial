@@ -271,7 +271,7 @@ export class BoxInteraction {
   // A box under one grid step shows only its start, as a dot.
   private _draft({ corner, frame }: Start, end: LatticePoint) {
     const box = boxFromCorners(frame, corner, end);
-    if (box) this._preview(box, frame, this._apartFromActive(box));
+    if (box) this._preview(box, frame, this._apartFromActive(box, frame));
     else this._preview({ type: "Point", coordinates: frame.fromLattice(corner) }, frame);
   }
 
@@ -280,9 +280,9 @@ export class BoxInteraction {
   }
 
   // A box the active footprint cannot join is refused on release, so it shows in the warning colour while drawn.
-  private _apartFromActive(box: Polygon): boolean {
+  private _apartFromActive(box: Polygon, frame: PlanFrame): boolean {
     const room = this._callbacks.activeRoom();
-    return Boolean(room && !addToFootprint(room.footprint, box));
+    return Boolean(room && !addToFootprint(frame, room.footprint, box));
   }
 
   private _preview(draft: Polygon | Point | undefined, frame?: PlanFrame, apart = false) {
@@ -316,8 +316,10 @@ export class BoxInteraction {
     if (box) this._callbacks.onBox(box);
   }
 
+  // A drag that rounds to no grid step saves nothing, so it adds no undo step.
   private _drop(grab: Grab, to: Position) {
     this._preview(undefined);
-    this._callbacks.onMove(grab.room, this._moved(grab, to));
+    const [x, y] = stepsBetween(grab.frame, grab.from, to);
+    if (x || y) this._callbacks.onMove(grab.room, movePolygon(grab.frame, grab.room.footprint, [x, y]));
   }
 }

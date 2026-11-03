@@ -361,6 +361,20 @@ const activateKitchen = async (panel: HTMLElement) => {
   await settle(panel);
 };
 
+test("a drag that ends less than half a grid step from where it started saves nothing and records no undo step", async () => {
+  const { panel, connection } = mountEditor();
+  await startDrawing(panel);
+  await activateKitchen(panel);
+  handlers.mousedown(mouse(25, 25));
+  handlers.mousemove(mouse(40, 25));
+  handlers.mousemove(mouse(25.2, 25.1));
+  handlers.mouseup(mouse(25.2, 25.1));
+  await settle(panel);
+  expect(saves(connection)).toEqual([]);
+  expect(sources["spatial-draft"].data).toEqual(EMPTY);
+  expect(buttonNamed(panel, "Undo")!.disabled).toBe(true);
+});
+
 test("a move shifts the room by whole grid steps", async () => {
   const { panel, connection } = mountEditor();
   await startDrawing(panel);
@@ -638,6 +652,33 @@ const typeSide = (edgeIndex: number, value: string) => {
   field.value = value;
   field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
 };
+
+test("a side field typed while a new frame's refresh is pending resizes in the frame the field was built in", async () => {
+  let turned = false;
+  let releaseRegistry = () => {};
+  const { panel, connection } = mountEditor(async (message) => {
+    if (!turned) return undefined;
+    if (message.type === "spatial/site") return siteReply({ bearing_deg: 75, outline: OUTLINE, frame: siteFrameData(SITE, 75) });
+    if (message.type === "config/area_registry/list") await new Promise<void>((resolve) => (releaseRegistry = resolve));
+    return undefined;
+  });
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  sideButtons()[0].click();
+  turned = true;
+  const refreshed = onUpdateOf(connection)();
+  await vi.waitFor(() => expect(sent(connection, "spatial/site").length).toBeGreaterThan(1));
+  await settle(panel);
+  const field = sideField()!;
+  field.value = "6";
+  field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  const resized = saves(connection)[0].areas.kitchen;
+  expect(isAxisRectangle(FRAME, resized)).toBe(true);
+  expect(edgeLengths(FRAME, resized)[0]).toBeCloseTo(6, 6);
+  releaseRegistry();
+  await refreshed;
+});
 
 const ctrlZ = (shiftKey = false) =>
   window.dispatchEvent(new KeyboardEvent("keydown", { key: shiftKey ? "Z" : "z", ctrlKey: true, shiftKey }));
