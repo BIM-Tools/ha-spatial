@@ -66,6 +66,7 @@ class SiteFrame:
         bearing = math.radians(bearing_deg)
         self._sin, self._cos = math.sin(bearing), math.cos(bearing)
         self.unit_m = unit_m
+        self.bearing_deg = bearing_deg
 
     def to_lattice_units(self, lon: float, lat: float) -> Point:
         """Return a position in lattice units, not rounded."""
@@ -74,6 +75,24 @@ class SiteFrame:
         along = east * self._sin + north * self._cos
         across = -east * self._cos + north * self._sin
         return along / self.unit_m, across / self.unit_m
+
+    def lattice_transform(self) -> tuple[list[float], list[list[float]]]:
+        """Return the origin [lon, lat] and the matrix from degrees to lattice units.
+
+        The matrix is [[a, b], [c, d]] with x = a (lon - lon0) + b (lat - lat0) and
+        y = c (lon - lon0) + d (lat - lat0). It is exactly the affine map that
+        to_lattice_units applies, so a client that applies it lands on the same
+        unrounded lattice position; its inverse is to_wgs84 before the unit scaling.
+        """
+        unit = float(self.unit_m)
+        mlon, mlat = self._m_per_deg_lon, self._m_per_deg_lat
+        return (
+            [self._lon0, self._lat0],
+            [
+                [mlon * self._sin / unit, mlat * self._cos / unit],
+                [-mlon * self._cos / unit, mlat * self._sin / unit],
+            ],
+        )
 
     def _snap(self, position: Sequence[float]) -> Point:
         """Return the lattice point nearest to a [lon, lat] position."""

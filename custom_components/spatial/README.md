@@ -35,6 +35,7 @@
 - Site centre: the middle of the bounding box of all footprints, computed on every read; else the building outline, else the home location. The bearing is null until the first Align.
 - Site origin: the grid origin; the 10 cm (4 in) drawing grid runs along the site bearing from it, or north before the first Align. Never moved automatically; the centre may move, the origin does not. The first write to a site without an origin, unless it sets one, stores the default origin: the first corner of the outline, else of the first footprint, else the home location. A site whose origin was removed reads on that default.
 - Site frame and lattice: the origin, the bearing and the WGS84 radii at the origin's latitude give one plane per site. Coordinates are stored exactly as written; every read snaps them to the lattice in that plane (a quarter of the drawing grid of Home Assistant's unit system: 2.5 cm, or 1 in for US customary; a unit switch reads everything again on the new lattice), and every derived value is computed from those lattice points. Reads return the snapped coordinates, which snap to themselves again. A new bearing or origin moves no stored data, only the lattice it is read on.
+- Site frame as published: `frame` holds the effective origin and bearing (after the defaults), `unit_m` (the lattice unit), `units_per_step` and `to_lattice`, the 2 x 2 matrix that maps `[lon - lon0, lat - lat0]` to lattice units; its inverse maps back. Clients apply it instead of computing their own.
 
 ### Websocket API
 
@@ -43,7 +44,7 @@
 | `spatial/geojson` | no | `floor_id`? (the areas occupying that floor) | FeatureCollection of footprints, JSON-FG conformant (`conformsTo`), each feature with `featureType` `https://w3id.org/bot#Space` |
 | `spatial/query_point` | no | `lon`, `lat`, `floor_id`? (among the areas occupying that floor) | `{area_id}` (smallest match, or null) |
 | `spatial/area/adjacent` | no | `area_id` | `{area_ids}` |
-| `spatial/site` | no | - | `{lon, lat, bearing_deg, origin, outline, rev}` (the outline on the lattice; `bearing_deg` null until the first Align; centre derived from the footprints, else the outline, else the home location) |
+| `spatial/site` | no | - | `{lon, lat, bearing_deg, origin, outline, rev, frame}` (the outline on the lattice; `frame` is the site frame as published, see Site frame; `bearing_deg` null until the first Align; centre derived from the footprints, else the outline, else the home location) |
 | `spatial/subscribe` | no | - | An empty event message on every change, until `unsubscribe_events` |
 | `spatial/area/update_geometries` | yes | `areas`?: `{area_id: polygon or null}` (null removes); `properties`?: `{area_id: {floors_up?, on_facade_override?}}` (for areas with a footprint after the change; omitted ones are kept); `site`?: `{bearing_deg?, origin?, outline?}` (null removes one); `expected_rev`?: `{area_id: rev or null}` (null: expect no footprint); `expected_site_rev`?; areas, properties and/or site | `{area_m2: {area_id: m²}, rev: {area_id: rev or null}, site_rev}` (`rev` of every area in areas or properties) |
 | `spatial/floor/update` | yes | `floor_id`, `elevation_m`?, `height_m`? (null clears one; omitted ones are kept) | - |
