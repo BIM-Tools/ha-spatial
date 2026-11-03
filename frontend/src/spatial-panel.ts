@@ -526,7 +526,7 @@ class SpatialPanel extends LitElement {
           requestUpdate: () => this.requestUpdate(),
           reloadRooms: loadAreas,
           siteBearing: () => this._axisDeg,
-          siteFrame: () => this._frame!,
+          siteFrame: () => this._frame,
           units: () => this.hass!,
           selectTool: (tool) => this._selectTool(tool),
           toast: (toast) => this._toast(toast),

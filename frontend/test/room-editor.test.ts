@@ -375,6 +375,26 @@ test("a drag that ends less than half a grid step from where it started saves no
   expect(buttonNamed(panel, "Undo")!.disabled).toBe(true);
 });
 
+test("a box joins in the frame its gesture started in, also when the frame changes before release", async () => {
+  let inches = false;
+  const { panel, connection } = mountEditor(async (message) =>
+    inches && message.type === "spatial/site"
+      ? siteReply({ bearing_deg: SITE_BEARING, outline: OUTLINE, frame: INCH_FRAME_DATA })
+      : undefined,
+  );
+  await startDrawing(panel);
+  await activateKitchen(panel);
+  handlers.mousedown(mouse(100, 50));
+  handlers.mousemove(mouse(90, 40));
+  inches = true;
+  await onUpdateOf(connection)();
+  handlers.mousemove(mouse(50, 0));
+  handlers.mouseup(mouse(50, 0));
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  expectOnGrid(FRAME, saves(connection)[0].areas.kitchen, 1);
+  expect(toasts).toEqual([]);
+});
+
 test("a move shifts the room by whole grid steps", async () => {
   const { panel, connection } = mountEditor();
   await startDrawing(panel);

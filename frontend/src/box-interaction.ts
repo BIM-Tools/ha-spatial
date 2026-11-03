@@ -27,9 +27,9 @@ export interface BoxInteractionCallbacks {
   readonly saving: () => boolean;
   readonly activeRoom: () => ActiveRoom | undefined;
   readonly siteBearing: () => number;
-  readonly siteFrame: () => PlanFrame;
+  readonly siteFrame: () => PlanFrame | undefined;
   readonly units: () => HassUnits;
-  readonly onBox: (box: Polygon) => void;
+  readonly onBox: (box: Polygon, frame: PlanFrame) => void;
   readonly onMove: (room: ActiveRoom, moved: Polygon) => void;
   readonly onPickRoom: (areaId: string) => void;
 }
@@ -145,7 +145,7 @@ export class BoxInteraction {
     this.applyInput();
   }
 
-  // Boxes are screen rectangles, so the map must be flat and turned to the site axis.
+  // Boxes run along the site axes, so the map must be flat and turned to them.
   applyInput(align = true) {
     const map = this._map;
     if (this._canDraw()) {
@@ -208,8 +208,10 @@ export class BoxInteraction {
     if (!this._toolOnFloor() || this._spaceHeld || this._callbacks.saving() || event.originalEvent.button !== 0) {
       return;
     }
-    const at = lngLatOf(event);
     const frame = this._callbacks.siteFrame();
+    // Until the first site reply there is no lattice to draw on.
+    if (!frame) return;
+    const at = lngLatOf(event);
     const room = this._callbacks.activeRoom();
     this._grab = room && booleanPointInPolygon(at, room.footprint) ? { room, from: at, frame } : undefined;
     if (!this._grab && !this._canDraw()) return;
@@ -260,6 +262,7 @@ export class BoxInteraction {
     const start = this._corner;
     if (!start) {
       const frame = this._callbacks.siteFrame();
+      if (!frame) return;
       this._corner = { corner: cornerAt(event, frame), frame };
       this._draft(this._corner, this._corner.corner);
       return;
@@ -313,7 +316,7 @@ export class BoxInteraction {
   private _finish({ corner, frame }: Start, end: LatticePoint) {
     const box = boxFromCorners(frame, corner, end);
     this._preview(undefined);
-    if (box) this._callbacks.onBox(box);
+    if (box) this._callbacks.onBox(box, frame);
   }
 
   // A drag that rounds to no grid step saves nothing, so it adds no undo step.

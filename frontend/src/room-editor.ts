@@ -47,7 +47,7 @@ export interface EditorHost {
   requestUpdate(): void;
   reloadRooms(): Promise<void>;
   siteBearing(): number;
-  siteFrame(): PlanFrame;
+  siteFrame(): PlanFrame | undefined;
   units(): HassUnits;
   selectTool(tool: Tool): void;
   toast(toast: Toast): void;
@@ -121,7 +121,7 @@ export class RoomEditor {
       siteBearing: () => this._host.siteBearing(),
       siteFrame: () => this._host.siteFrame(),
       units: () => this._host.units(),
-      onBox: (box) => this._finishBox(box),
+      onBox: (box, frame) => this._finishBox(box, frame),
       onMove: (room, moved) => this._saveMove(room, moved),
       onPickRoom: (areaId) => this._select(areaId),
     });
@@ -359,7 +359,7 @@ export class RoomEditor {
     const footprint = this._footprints.get(areaId);
     if (!map || this.tool !== "adjust" || this._floor === "all" || !footprint) return;
     const frame = this._host.siteFrame();
-    if (!isAxisRectangle(frame, footprint)) return;
+    if (!frame || !isAxisRectangle(frame, footprint)) return;
     const units = this._host.units();
     const lengths = edgeLengths(frame, footprint);
     let field: HTMLInputElement | undefined;
@@ -405,11 +405,11 @@ export class RoomEditor {
     this._whileSaving(() => this._apply({ before: { [areaId]: footprint }, after: { [areaId]: after } }), after);
   }
 
-  private async _finishBox(box: Polygon) {
+  private async _finishBox(box: Polygon, frame: PlanFrame) {
     const areaId = this._active;
     const floor = this._floor;
     const current = this._footprints.get(areaId);
-    const footprint = addToFootprint(this._host.siteFrame(), current, box);
+    const footprint = addToFootprint(frame, current, box);
     if (!footprint) {
       this._host.toast({ message: "A room is one shape: draw against it" });
       return;

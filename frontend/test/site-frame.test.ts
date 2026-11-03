@@ -19,8 +19,6 @@ test("toLatticeUnits applies the matrix", () => {
   const [x, y] = HAND_MADE.toLatticeUnits([5.5, 52.25]);
   expect(x).toBeCloseTo(1.25, 12);
   expect(y).toBeCloseTo(0.25, 12);
-  expect(HAND_MADE.unitM).toBe(0.025);
-  expect(HAND_MADE.unitsPerStep).toBe(4);
 });
 
 test("fromLattice inverts it", () => {

@@ -48,7 +48,7 @@ const pixelBox = (x1: number, y1: number, x2: number, y2: number): Polygon => {
 
 const ROOM = pixelBox(0, 0, 50, 50);
 
-const mountInteraction = (tool: Tool = "draw", activeRoom?: ActiveRoom) => {
+const mountInteraction = (tool: Tool = "draw", activeRoom?: ActiveRoom, framed = true) => {
   const map = new fakeMapLibre.Map({ bearing: 300 }) as unknown as MapLibreMap;
   const onBox = vi.fn();
   const onMove = vi.fn();
@@ -59,7 +59,7 @@ const mountInteraction = (tool: Tool = "draw", activeRoom?: ActiveRoom) => {
     saving: () => false,
     activeRoom: () => activeRoom,
     siteBearing: () => 30,
-    siteFrame: () => FRAME,
+    siteFrame: () => (framed ? FRAME : undefined),
     units: () => METRIC_UNITS,
     onBox,
     onMove,
@@ -99,7 +99,7 @@ test("a mouse drag drafts a box and saves it on mouseup", () => {
   expect(sources["spatial-draft"].data).toBeDefined();
 
   handlers.mouseup(pointEvent(100, 100));
-  expect(onBox).toHaveBeenCalledWith(expect.objectContaining({ type: "Polygon" }));
+  expect(onBox).toHaveBeenCalledWith(expect.objectContaining({ type: "Polygon" }), FRAME);
   expect(sources["spatial-draft"].data).toEqual({ type: "FeatureCollection", features: [] });
 });
 
@@ -109,7 +109,7 @@ test("two clicks draft a box along the site axis", () => {
   expect(onBox).not.toHaveBeenCalled();
 
   handlers.click(pointEvent(80, 60));
-  expect(onBox).toHaveBeenCalledWith(expect.objectContaining({ type: "Polygon" }));
+  expect(onBox).toHaveBeenCalledWith(expect.objectContaining({ type: "Polygon" }), FRAME);
 });
 
 test("the first of two taps shows the start dot, and the box once each side is a grid step", () => {
@@ -119,6 +119,18 @@ test("the first of two taps shows the start dot, and the box once each side is a
   expect(draftType()).toBe("Point");
   handlers.mousemove(pointEvent(80, 60));
   expect(draftType()).toBe("Polygon");
+});
+
+test("before the site frame arrives presses and taps draw and move nothing", () => {
+  const { onBox, onMove } = mountInteraction("draw", { areaId: "room", footprint: ROOM }, false);
+  handlers.mousedown(pointEvent(25, 25));
+  handlers.mousemove(pointEvent(45, 25));
+  handlers.mouseup(pointEvent(45, 25));
+  handlers.click(pointEvent(100, 100));
+  handlers.click(pointEvent(180, 160));
+  expect(onBox).not.toHaveBeenCalled();
+  expect(onMove).not.toHaveBeenCalled();
+  expect(sources["spatial-draft"].data).toEqual({ type: "FeatureCollection", features: [] });
 });
 
 test("a drag inside the active footprint moves it", () => {
