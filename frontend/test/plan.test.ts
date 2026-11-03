@@ -79,7 +79,7 @@ test("sideLabels and areaLabel show metres and square metres", () => {
 });
 
 test("sideLabels and areaLabel show feet and inches and square feet in US customary units", () => {
-  expect(sideLabels(box, US_UNITS).map((label) => label.text)).toEqual([`13' 1"`, `9' 10"`, `13' 1"`, `9' 10"`]);
+  expect(sideLabels(box, US_UNITS).map((label) => label.text)).toEqual(["13′ 1″", "9′ 10″", "13′ 1″", "9′ 10″"]);
   expect(areaLabel(box, US_UNITS)).toBe("129 ft²");
 });
 

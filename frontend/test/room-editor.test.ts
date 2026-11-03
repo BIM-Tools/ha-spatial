@@ -651,17 +651,17 @@ test("in US customary units a side shows feet and inches and reads a typed lengt
   setFeed([feature("kitchen", pixelShape([0, 0], [40, 0], [40, 30], [0, 30]))]);
   await onUpdateOf(connection)();
   await tapRoom(panel, "kitchen");
-  expect(sideButtons().map((button) => button.textContent)).toEqual([`13' 1"`, `9' 10"`, `13' 1"`, `9' 10"`]);
+  expect(sideButtons().map((button) => button.textContent)).toEqual(["13′ 1″", "9′ 10″", "13′ 1″", "9′ 10″"]);
   sideButtons()[0].click();
   const field = sideField()!;
-  expect(field.value).toBe(`13' 1"`);
+  expect(field.value).toBe("13′ 1″");
   const enter = (value: string) => {
     field.value = value;
     field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
   };
   enter(`6"`);
   await settle(panel);
-  expect(toasts).toEqual([{ message: `A side is at least 8"` }]);
+  expect(toasts).toEqual([{ message: `A side is at least 0′ 8″` }]);
   enter(`16' 5"`);
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
   expect(edgeLengths(saves(connection)[0].areas.kitchen)[0]).toBeCloseTo(197 * 0.0254, 3);
