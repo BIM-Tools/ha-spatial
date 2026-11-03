@@ -22,9 +22,10 @@ import { BUILDING } from "./area-strip";
 import { type Guide, RoomEditor, type Toast, type Tool } from "./room-editor";
 import { type AreaInfo, RoomLabels, roomLabelStyles } from "./room-labels";
 import { floatingSurface, phoneBar } from "./styles";
+import type { HassUnits } from "./units";
 
 // The parts of Home Assistant's `hass` object this panel uses.
-interface Hass {
+interface Hass extends HassUnits {
   connection: {
     sendMessagePromise<T>(message: { type: string; [key: string]: unknown }): Promise<T>;
     subscribeMessage(callback: () => void, message: { type: string }): Promise<() => Promise<void>>;
@@ -410,7 +411,8 @@ class SpatialPanel extends LitElement {
     if (previous && this.hass) {
       // Home Assistant hands over a new themes object only when the theme changes.
       if (previous.themes !== this.hass.themes) this._repaint();
-      if (previous.areas !== this.hass.areas) this._showLabels();
+      const unitsChanged = previous.config !== this.hass.config || previous.locale !== this.hass.locale;
+      if (previous.areas !== this.hass.areas || unitsChanged) this._showLabels();
     }
     // A render queued by _stop must not start a map for a panel that has left.
     if (!this.hass || !this.isConnected) return;
@@ -513,6 +515,7 @@ class SpatialPanel extends LitElement {
           requestUpdate: () => this.requestUpdate(),
           reloadRooms: loadAreas,
           siteBearing: () => this._axisDeg,
+          units: () => this.hass!,
           selectTool: (tool) => this._selectTool(tool),
           toast: (toast) => this._toast(toast),
         });
@@ -565,7 +568,7 @@ class SpatialPanel extends LitElement {
       interactive: !this.floor,
     });
     this._map = map;
-    this._labels = new RoomLabels(map, !this.card);
+    this._labels = new RoomLabels(map, !this.card, () => this.hass!);
     this._showLabels();
     map.on("style.load", () => this._addAreas());
     map.on("mousemove", (event) => {

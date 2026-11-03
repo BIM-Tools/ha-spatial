@@ -8,6 +8,7 @@ import type { LayerColours } from "./map-paint";
 import { mapBearing } from "./map-view";
 import { addToFootprint, areaLabel, boxFromCorners, centreOf, movePolygon, sideLabels } from "./plan";
 import type { Tool } from "./room-editor";
+import type { HassUnits } from "./units";
 
 interface Pixel {
   x: number;
@@ -25,6 +26,7 @@ export interface BoxInteractionCallbacks {
   readonly saving: () => boolean;
   readonly activeRoom: () => ActiveRoom | undefined;
   readonly siteBearing: () => number;
+  readonly units: () => HassUnits;
   readonly onBox: (box: Polygon) => void;
   readonly onMove: (room: ActiveRoom, moved: Polygon) => void;
   readonly onPickRoom: (areaId: string) => void;
@@ -261,7 +263,8 @@ export class BoxInteraction {
       this._labels = [];
       return;
     }
-    const labels = [...sideLabels(box), { at: centreOf(box), text: areaLabel(box) }];
+    const units = this._callbacks.units();
+    const labels = [...sideLabels(box, units), { at: centreOf(box), text: areaLabel(box, units) }];
     if (!this._labels.length) {
       this._labels = labels.map(() => {
         const element = document.createElement("span");

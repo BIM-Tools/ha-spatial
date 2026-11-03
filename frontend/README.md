@@ -37,7 +37,7 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/editor-toolbar.ts` | Align, Draw, Adjust, Undo and Redo: floating, or a bottom bar on a phone |
 | `src/map-stack.ts` | Map toggle, zoom and compass |
 | `src/map-paint.ts` | The map layers' colours, read from Home Assistant's theme at style load and on a theme change |
-| `src/room-labels.ts` | Room labels: area icon, name and (in the panel) net m², placed and stepped by the room's size on screen |
+| `src/room-labels.ts` | Room labels: area icon, name and (in the panel) net area, placed and stepped by the room's size on screen |
 | `src/styles.ts` | The floating card, pill buttons and phone bar shared by the controls, from Home Assistant's theme tokens |
 | `src/room-editor.ts` | The space editor controller: the area strip, side length fields, undo and redo, saving each action, area creation and rename |
 | `src/box-interaction.ts` | Pointer and keyboard drafting input on the map, screen-rectangle projection, Space pan, draft preview |
@@ -47,6 +47,7 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/map-view.ts` | Pure helpers: map bearing, style URL, map tiles token, floor order, room bounds |
 | `src/outline.ts` | The OSM building under a click and the bearing of its nearest wall, with turf |
 | `src/plan.ts` | Box from screen corners, side lengths, resizing, moving and joining footprints, all with turf |
+| `src/units.ts` | Lengths and areas shown in Home Assistant's unit system and number format, and typed lengths read back in metres |
 | `test/` | Unit tests (vitest) |
 
 ### Serving

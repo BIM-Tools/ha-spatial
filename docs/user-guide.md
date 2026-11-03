@@ -69,8 +69,8 @@ strip at the bottom.
 
 ### Room labels
 
-Each room on a floor shows its area's icon, name and net m². A smaller room drops the m², then
-the name; pointing at it or tapping it shows the name. A tiny room has no label. The outline
+Each room on a floor shows its area's icon, name and net area, in m² or ft² as Home Assistant's
+unit system says. A smaller room drops the area, then the name; pointing at it or tapping it shows the name. A tiny room has no label. The outline
 shows "Building" until the floor has rooms.
 
 ### Tools
@@ -120,8 +120,11 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
 - Tap a room on the map, or its pill, to make it active. The **Building** pill makes the outline
   active.
 - When the active room is a rectangle along the site direction, each side shows its length as a
-  button. Tap one, type the length in metres and press Enter (at least 0.20 m). The side's start
-  corner stays, the opposite side follows. Escape closes the field.
+  button. Tap one, type the length and press Enter (at least 0.20 m or 8 in; an unchanged length
+  saves nothing). The side's start corner stays, the opposite side follows. Escape closes the
+  field.
+- Lengths and areas follow Home Assistant's unit system and number format. In US customary
+  units a length is typed in feet and inches, such as 12' 6", 12 6, 150" or 12.5'.
 - **Delete** removes the active shape here too.
 
 ### Undo, redo and saving
@@ -177,7 +180,7 @@ At 600 px wide or less:
 Add a card with `type: custom:spatial-map-card`, best in a view of type Panel, so the map fills
 it; elsewhere the card is 400 px high. Everyone who can see the dashboard sees the map, also
 users who are not an administrator. The card has no tools, always shows the map, and its labels
-show icon and name without m².
+show icon and name without the area.
 
 | `floor` | Shows |
 | --- | --- |

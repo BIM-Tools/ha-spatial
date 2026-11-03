@@ -14,6 +14,7 @@ import {
   sources,
   unprojectPixel,
 } from "./panel-harness";
+import { METRIC_UNITS } from "./units-fixture";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
 
@@ -53,6 +54,7 @@ const mountInteraction = (tool: Tool = "draw", activeRoom?: ActiveRoom) => {
     saving: () => false,
     activeRoom: () => activeRoom,
     siteBearing: () => 30,
+    units: () => METRIC_UNITS,
     onBox,
     onMove,
     onPickRoom,

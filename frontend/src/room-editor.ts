@@ -17,6 +17,7 @@ import {
   resizeSide,
   sideLabels,
 } from "./plan";
+import { type HassUnits, formatLength, parseLength, typedLength } from "./units";
 
 interface Connection {
   sendMessagePromise<T>(message: { type: string; [key: string]: unknown }): Promise<T>;
@@ -52,6 +53,7 @@ export interface EditorHost {
   requestUpdate(): void;
   reloadRooms(): Promise<void>;
   siteBearing(): number;
+  units(): HassUnits;
   selectTool(tool: Tool): void;
   toast(toast: Toast): void;
 }
@@ -117,6 +119,7 @@ export class RoomEditor {
         return footprint && { areaId: this._active, footprint };
       },
       siteBearing: () => this._host.siteBearing(),
+      units: () => this._host.units(),
       onBox: (box) => this._finishBox(box),
       onMove: (room, moved) => this._saveMove(room, moved),
       onPickRoom: (areaId) => this._select(areaId),
@@ -355,21 +358,19 @@ export class RoomEditor {
     const footprint = this._footprints.get(areaId);
     if (!map || this.tool !== "adjust" || this._floor === "all" || !footprint) return;
     if (!isAxisRectangle(footprint, this._host.siteBearing())) return;
+    const units = this._host.units();
     const lengths = edgeLengths(footprint);
     let field: HTMLInputElement | undefined;
-    this._sides.push(...sideLabels(footprint).map(({ at, edgeIndex, text }) => {
+    this._sides.push(...sideLabels(footprint, units).map(({ at, edgeIndex, text }) => {
       let control: HTMLElement;
       if (edgeIndex === this._editingSide) {
-        field = Object.assign(document.createElement("input"), {
-          type: "number",
-          step: "0.01",
-          min: String(MIN_SIDE_M),
-          value: lengths[edgeIndex].toFixed(2),
-        });
+        const prefilled = typedLength(lengths[edgeIndex], units);
+        field = Object.assign(document.createElement("input"), { type: "text", value: prefilled });
         const typed = field;
         typed.addEventListener("keydown", (event) => {
-          if (event.key === "Enter") this._resize(areaId, footprint, edgeIndex, Number(typed.value));
-          if (event.key === "Escape") this._select(areaId);
+          // An unchanged field leaves the edit: saving its rounded length would shift the side and add an undo step.
+          if (event.key === "Escape" || (event.key === "Enter" && typed.value === prefilled)) this._select(areaId);
+          else if (event.key === "Enter") this._resize(areaId, footprint, edgeIndex, parseLength(typed.value, units));
         });
         control = typed;
       } else {
@@ -390,10 +391,9 @@ export class RoomEditor {
     field?.select();
   }
 
-  private _resize(areaId: string, footprint: Polygon, edgeIndex: number, lengthM: number) {
-    // An empty field reads as 0.
-    if (!(lengthM >= MIN_SIDE_M)) {
-      this._host.toast({ message: `A side is at least ${MIN_SIDE_M.toFixed(2)} m` });
+  private _resize(areaId: string, footprint: Polygon, edgeIndex: number, lengthM: number | undefined) {
+    if (lengthM === undefined || lengthM < MIN_SIDE_M) {
+      this._host.toast({ message: `A side is at least ${formatLength(MIN_SIDE_M, this._host.units())}` });
       return;
     }
     const after = resizeSide(footprint, edgeIndex, lengthM);

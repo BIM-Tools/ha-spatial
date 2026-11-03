@@ -10,6 +10,7 @@ import rewind from "@turf/rewind";
 import transformTranslate from "@turf/transform-translate";
 import union from "@turf/union";
 import type { Polygon, Position } from "geojson";
+import { type HassUnits, formatArea, formatLength } from "./units";
 
 export const MIN_SIDE_M = 0.2;
 const AXIS_TOLERANCE_DEG = 0.5;
@@ -31,16 +32,16 @@ export function boxFromCorners(rectangle: [Position, Position, Position, Positio
   return edgeLengths(box).some((length) => length < MIN_SIDE_M) ? undefined : box;
 }
 
-export function sideLabels(shape: Polygon): { at: Position; edgeIndex: number; text: string }[] {
+export function sideLabels(shape: Polygon, units: HassUnits): { at: Position; edgeIndex: number; text: string }[] {
   const vertices = corners(shape);
   return edgeLengths(shape).map((length, edgeIndex) => {
     const next = vertices[(edgeIndex + 1) % vertices.length];
     const from = vertices[edgeIndex];
-    return { at: [(from[0] + next[0]) / 2, (from[1] + next[1]) / 2], edgeIndex, text: `${length.toFixed(2)} m` };
+    return { at: [(from[0] + next[0]) / 2, (from[1] + next[1]) / 2], edgeIndex, text: formatLength(length, units) };
   });
 }
 
-export const areaLabel = (shape: Polygon): string => `${area(shape).toFixed(1)} m²`;
+export const areaLabel = (shape: Polygon, units: HassUnits): string => formatArea(area(shape), units);
 
 /** Where the area label goes: the middle of the shape's bounding box. */
 export const centreOf = (shape: Polygon): Position => center(shape).geometry.coordinates;

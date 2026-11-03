@@ -5,6 +5,7 @@ import type { Feature, Polygon } from "geojson";
 import { css } from "lit";
 import { Marker, type Map as MapLibreMap } from "maplibre-gl";
 import polylabel from "polylabel";
+import { type HassUnits, formatArea } from "./units";
 
 type Point = [number, number];
 
@@ -155,6 +156,7 @@ export class RoomLabels {
   constructor(
     private readonly _map: MapLibreMap,
     private readonly _withSize: boolean,
+    private readonly _units: () => HassUnits,
   ) {
     _map.on("move", this.update);
     _map.on("resize", this.update);
@@ -194,7 +196,7 @@ export class RoomLabels {
       const area = this._areas[areaId];
       const name = area?.name ?? String(room.properties?.name ?? areaId);
       const icon = area?.icon || FALLBACK_ICON;
-      const size = step === "size" ? `${Number(room.properties?.area_m2).toFixed(1)} m²` : "";
+      const size = step === "size" ? formatArea(Number(room.properties?.area_m2), this._units()) : "";
       const chip = step === "icon" && areaId === this._pointed;
       const shown = JSON.stringify([step, name, icon, size, chip, Math.floor(space.width)]);
       if (shown !== label.shown) {
