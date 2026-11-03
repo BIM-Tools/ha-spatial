@@ -2,7 +2,14 @@
 
 import type { FeatureCollection } from "geojson";
 import { expect, test } from "vitest";
-import { darkModeOf, floorsByLevel, mapBearing, styleUrl, withMapTilesToken } from "../src/map-view";
+import { darkModeOf, floorsByLevel, mapBearing, styleUrl, withMapTilesToken, workerUrl } from "../src/map-view";
+
+test("the worker is loaded from next to the panel bundle, with the same version", () => {
+  // The bundle version covers the worker, so a cached old worker is never reused.
+  expect(workerUrl("http://ha:8123/spatial_static/spatial-panel.js?v=abc")).toBe(
+    "http://ha:8123/spatial_static/maplibre-gl-worker.js?v=abc",
+  );
+});
 
 test("mapBearing turns the site's x-axis to point right", () => {
   expect(mapBearing(0)).toBe(270);

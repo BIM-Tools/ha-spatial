@@ -15,7 +15,7 @@ import type { Floor, FloorChoice } from "./floor-selector";
 import "./floor-selector";
 import "./map-stack";
 import { type MapPaint, layerColours, readMapPaint, repaint } from "./map-paint";
-import { type ThemeState, bounds, darkModeOf, floorsByLevel, mapBearing, styleUrl, withMapTilesToken } from "./map-view";
+import { type ThemeState, bounds, darkModeOf, floorsByLevel, mapBearing, styleUrl, withMapTilesToken, workerUrl } from "./map-view";
 import { buildingAt, wallAt, wallBearingAt } from "./outline";
 import "./panel-header";
 import { BUILDING } from "./area-strip";
@@ -573,7 +573,7 @@ class SpatialPanel extends LitElement {
     this._bearing = site.bearing_deg;
     const style = await this._loadStyle();
     if (stopped() || !style) return;
-    setWorkerUrl(new URL("maplibre-gl-worker.js" + new URL(import.meta.url).search, import.meta.url).href);
+    setWorkerUrl(workerUrl(import.meta.url));
     this._mapBearingDeg = mapBearing(this._axisDeg);
     const map = new MapLibreMap({
       container: this.renderRoot.querySelector<HTMLElement>("#map")!,
