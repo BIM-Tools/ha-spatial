@@ -25,6 +25,7 @@ import {
   zoomIn,
   zoomOut,
   easeTo,
+  fakeMapLibre,
   SITE,
   siteReply,
   sources,
@@ -66,6 +67,13 @@ test("the panel says so when the map cannot load", async () => {
     throw new Error("connection lost");
   });
   await vi.waitFor(() => expect(panel.shadowRoot?.textContent).toContain("Map could not load"));
+});
+
+test("the panel loads the MapLibre worker from next to its own bundle", async () => {
+  mountPanel();
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
+  // Here the panel module is the source file; in Home Assistant it is the served bundle.
+  expect(fakeMapLibre.setWorkerUrl).toHaveBeenCalledWith(expect.stringMatching(/^file:\/\/.*\/src\/maplibre-gl-worker\.js$/));
 });
 
 test("leaving the panel during startup leaves nothing behind", async () => {

@@ -573,7 +573,7 @@ class SpatialPanel extends LitElement {
     this._bearing = site.bearing_deg;
     const style = await this._loadStyle();
     if (stopped() || !style) return;
-    setWorkerUrl("/spatial_static/maplibre-gl-worker.mjs");
+    setWorkerUrl(new URL("maplibre-gl-worker.js" + new URL(import.meta.url).search, import.meta.url).href);
     this._mapBearingDeg = mapBearing(this._axisDeg);
     const map = new MapLibreMap({
       container: this.renderRoot.querySelector<HTMLElement>("#map")!,

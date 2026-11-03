@@ -115,15 +115,16 @@ def module_urls(hass: HomeAssistant) -> list[str]:
     return [url for url in hass.data[DATA_EXTRA_MODULE_URL].urls if url.startswith(STATIC_URL)]
 
 
-async def test_module_url_follows_either_bundle(hass: HomeAssistant, frontend_folder: Path) -> None:
-    """Rebuilding the card or the panel gives a new URL, so browsers do not keep the old one."""
+async def test_module_url_follows_every_bundle(hass: HomeAssistant, frontend_folder: Path) -> None:
+    """Rebuilding the card, the panel or the worker gives a new URL, so no browser keeps it."""
     (frontend_folder / "spatial-card.js").write_text("card")
     (frontend_folder / "spatial-panel.js").write_text("panel")
+    (frontend_folder / "maplibre-gl-worker.js").write_text("worker")
     entry = await setup_entry(hass)
     (url,) = module_urls(hass)
     seen = {url}
 
-    for bundle in ("spatial-panel.js", "spatial-card.js"):
+    for bundle in ("spatial-panel.js", "spatial-card.js", "maplibre-gl-worker.js"):
         assert await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
         (frontend_folder / bundle).write_text("rebuilt")
