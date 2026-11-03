@@ -416,6 +416,21 @@ def test_validate_lattice_polygon_rejects(polygon: list[Ring], message: str) -> 
         validate_lattice_polygon(polygon)
 
 
+def test_minimum_edge_on_the_lattice() -> None:
+    """Test an edge is kept from 4 lattice units, on a diagonal too (3, 3 is 4.24 long)."""
+    validate_lattice_polygon([[(0, 0), (10, 0), (10, 10), (3, 10), (0, 7)]])
+    with pytest.raises(ValueError, match="^An edge must be at least one grid step$"):
+        validate_lattice_polygon([[(0, 0), (10, 0), (10, 10), (2, 10), (0, 7)]])
+
+
+def test_minimum_edge_applies_to_holes() -> None:
+    """Test a hole with an edge under one grid step is refused."""
+    shell = [(0, 0), (40, 0), (40, 40), (0, 40)]
+    validate_lattice_polygon([shell, [(10, 10), (10, 20), (20, 20), (20, 10)]])
+    with pytest.raises(ValueError, match="^An edge must be at least one grid step$"):
+        validate_lattice_polygon([shell, [(10, 10), (10, 20), (13, 20), (13, 10)]])
+
+
 @pytest.mark.parametrize(
     ("p1", "p2", "p3", "p4", "meet"),
     [
