@@ -370,7 +370,7 @@ class SpatialCoordinator:
             "rev": self.site_rev(),
             "frame": {
                 "origin": origin,
-                "bearing_deg": self.store.site["bearing_deg"] or 0.0,
+                "bearing_deg": site.frame.bearing_deg,
                 "unit_m": float(site.grid.lattice_unit_m),
                 "units_per_step": LATTICE_UNITS_PER_STEP,
                 "to_lattice": to_lattice,

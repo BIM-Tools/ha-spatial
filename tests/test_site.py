@@ -447,11 +447,14 @@ async def test_a_fresh_site_publishes_home_and_north(
     assert frame["units_per_step"] == 4
 
 
-async def test_us_customary_publishes_an_inch_lattice(
+async def test_the_published_lattice_follows_the_unit_system_read_live(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator
 ) -> None:
-    """Test the lattice unit follows the unit system, which is read live."""
-    hass.config.units = US_CUSTOMARY_SYSTEM
+    """Test switching to US customary on a live client moves the lattice to inches."""
     client = await hass_ws_client(hass)
-    frame = (await _call(client, type="spatial/site"))["result"]["frame"]
-    assert frame["unit_m"] == 0.0254
+    metric = (await _call(client, type="spatial/site"))["result"]["frame"]
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    us = (await _call(client, type="spatial/site"))["result"]["frame"]
+    assert (metric["unit_m"], us["unit_m"]) == (0.025, 0.0254)
+    for metric_row, us_row in zip(metric["to_lattice"], us["to_lattice"], strict=True):
+        assert us_row == pytest.approx([value * 0.025 / 0.0254 for value in metric_row])

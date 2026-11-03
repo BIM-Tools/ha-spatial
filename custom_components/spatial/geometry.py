@@ -64,6 +64,7 @@ class SiteFrame:
         bearing = math.radians(bearing_deg)
         self._sin, self._cos = math.sin(bearing), math.cos(bearing)
         self.unit_m = unit_m
+        self.bearing_deg = bearing_deg
 
     def to_lattice_units(self, lon: float, lat: float) -> Point:
         """Return a position in lattice units, not rounded."""
