@@ -148,8 +148,8 @@ def draw_rooms(websocket):
         drag(page, (x, y), (x + 150, y + 150))
         kitchen = wait_for_features(websocket, "Kitchen")
         assert len(kitchen) == 1, kitchen
-        # After a first shape the editor moves on, here to the Building pill; then pick Bedroom.
-        panel.get_by_role("button", name="Building", exact=True, pressed=True).wait_for()
+        # After a first shape the editor moves on, here to the building's pill; then pick Bedroom.
+        panel.get_by_role("button", name="Kitchen", exact=True, pressed=False).wait_for()
         panel.get_by_role("button", name="Bedroom", exact=True).click()
         corner_x, corner_y = top_right_on_screen(panel, kitchen[0]["geometry"]["coordinates"][0])
         drag(page, (corner_x + 5, corner_y), (corner_x + 155, corner_y + 150))
