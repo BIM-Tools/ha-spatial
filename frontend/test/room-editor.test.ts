@@ -1472,17 +1472,79 @@ test("Ctrl+Z with nothing to undo keeps the failure toast and the failed shape",
   expect(draftGeometry()).toBeDefined();
 });
 
-test("a removal that saves after a failed move clears the failed shape and its toast", async () => {
-  const { panel, connection } = failingFirstSave();
+test("an undo that saves after a failed first box clears the failed shape and its toast", async () => {
+  let saveCount = 0;
+  const { panel, connection } = mountEditor(async (message) => {
+    if (message.type === "spatial/area/update_geometries" && ++saveCount === 2) throw new Error("connection lost");
+    return undefined;
+  });
+  vi.spyOn(console, "error").mockImplementationOnce(() => {});
+  await startDrawing(panel);
+  tap(100, 0);
+  tap(140, 30);
+  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
+  tap(100, 60);
+  tap(140, 90);
+  await vi.waitFor(() => expect(toastMessages()).toEqual(["Could not save"]));
+  await vi.waitFor(() => expect(draftGeometry()).toBeDefined());
+  ctrlZ();
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(3));
+  await vi.waitFor(() => expect(sources["spatial-draft"].data).toEqual(EMPTY));
+  expect(toasts.at(-1)).toMatchObject({ message: "", duration: 0 });
+});
+
+const failingSaves = () => {
+  let fail = true;
+  const mounted = mountEditor(async (message) => {
+    if (message.type === "spatial/area/update_geometries" && fail) throw new Error("outside_outline");
+    return undefined;
+  });
+  vi.spyOn(console, "error").mockImplementationOnce(() => {});
+  return { ...mounted, stopFailing: () => (fail = false) };
+};
+
+// A refused change of a stored room shows that room as stored, still active; Retry sends the same change.
+const expectOnlyStoredKitchen = async (panel: HTMLElement) => {
+  await vi.waitFor(() => expect(toastMessages()).toEqual(["Could not save"]));
+  await settle(panel);
+  expect(sources["spatial-draft"].data).toEqual(EMPTY);
+  expect(activeFilter()).toEqual(["==", ["get", "area_id"], "kitchen"]);
+  expect(handleCorners()).toEqual(KITCHEN.coordinates[0].slice(0, -1));
+};
+
+const expectRetrySendsTheSame = async (connection: { sendMessagePromise: unknown }, stopFailing: () => void) => {
+  stopFailing();
+  toasts[0].action!.action();
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
+  expect(saves(connection)[1]).toEqual(saves(connection)[0]);
+};
+
+test("a refused move shows only the stored room, still active, and Retry sends the same move", async () => {
+  const { panel, connection, stopFailing } = failingSaves();
   await startAdjusting(panel);
   await tapRoom(panel, "kitchen");
   drag([25, 25], [45, 25]);
-  await vi.waitFor(() => expect(toastMessages()).toEqual(["Could not save"]));
-  await vi.waitFor(() => expect(draftGeometry()).toBeDefined());
-  key("keydown", "Delete");
-  await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
-  await vi.waitFor(() => expect(sources["spatial-draft"].data).toEqual(EMPTY));
-  expect(toasts.at(-1)).toMatchObject({ message: "", duration: 0 });
+  await expectOnlyStoredKitchen(panel);
+  await expectRetrySendsTheSame(connection, stopFailing);
+});
+
+test("a refused resize shows only the stored room, still active, and Retry sends the same resize", async () => {
+  const { panel, connection, stopFailing } = failingSaves();
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  typeSide(0, "7");
+  await expectOnlyStoredKitchen(panel);
+  await expectRetrySendsTheSame(connection, stopFailing);
+});
+
+test("a refused extension shows only the stored room, still active, and Retry sends the same extension", async () => {
+  const { panel, connection, stopFailing } = failingSaves();
+  await startDrawing(panel);
+  await activateKitchen(panel);
+  tap(50, 0);
+  tap(100, 50);
+  await expectOnlyStoredKitchen(panel);
+  await expectRetrySendsTheSame(connection, stopFailing);
 });
 
 test("Retry of a failed New area creates it on the floor it was asked on, with the same name", async () => {

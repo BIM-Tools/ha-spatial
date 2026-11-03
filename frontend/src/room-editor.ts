@@ -402,7 +402,7 @@ export class RoomEditor {
       return;
     }
     this._editingSide = undefined;
-    this._whileSaving(() => this._apply({ before: { [areaId]: footprint }, after: { [areaId]: after } }), after);
+    this._whileSaving(() => this._apply({ before: { [areaId]: footprint }, after: { [areaId]: after } }));
   }
 
   private async _finishBox(box: Polygon, frame: PlanFrame) {
@@ -418,11 +418,11 @@ export class RoomEditor {
       await this._apply({ before: { [areaId]: current ?? null }, after: { [areaId]: footprint } });
       // Only a first shape moves on: the next box for a drawn area usually extends it.
       if (!current && this._floor === floor) this._setActive(this._firstToDraw());
-    }, footprint);
+    }, current ? undefined : footprint);
   }
 
   private _saveMove({ areaId, footprint }: ActiveRoom, moved: Polygon) {
-    this._whileSaving(() => this._apply({ before: { [areaId]: footprint }, after: { [areaId]: moved } }), moved);
+    this._whileSaving(() => this._apply({ before: { [areaId]: footprint }, after: { [areaId]: moved } }));
   }
 
   private async _apply(change: Change) {
@@ -431,7 +431,8 @@ export class RoomEditor {
   }
 
   // One action at a time: a second one before the first settles would build on a stale footprint.
-  // A failed action keeps its shape on the map and offers to run again, until it saves or the user draws on.
+  // A failed action offers to run again. A failed first shape stays on the map until it saves or the user draws
+  // on; a room with a stored shape shows only that one, as a second outline reads as a second room.
   private async _whileSaving(action: () => Promise<void>, shape?: Polygon) {
     if (this._saving) return;
     this._saving = true;
