@@ -6,6 +6,8 @@ from unittest.mock import ANY
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
+from homeassistant.util.location import vincenty
+from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     MockUser,
@@ -50,6 +52,7 @@ async def test_site_defaults_to_home_location(
         "origin": None,
         "outline": None,
         "rev": ANY,
+        "frame": ANY,
     }
 
 
@@ -110,6 +113,7 @@ async def test_update_site_persists_bearing(
         "origin": [hass.config.longitude, hass.config.latitude],
         "outline": None,
         "rev": ANY,
+        "frame": ANY,
     }
 
 
@@ -183,6 +187,7 @@ async def test_legacy_stored_site_loads(
         "origin": [hass.config.longitude, hass.config.latitude],
         "outline": None,
         "rev": ANY,
+        "frame": ANY,
     }
 
 
@@ -384,3 +389,69 @@ async def test_site_update_with_stale_rev_changes_nothing(
     assert "site" in msg["error"]["message"]
     assert events == []
     assert (await _call(client, type="spatial/site"))["result"] == before
+
+
+def _to_lattice(frame: dict[str, Any], position: list[float]) -> tuple[float, float]:
+    """Apply a published frame to a [lon, lat] position with plain arithmetic."""
+    a, b = frame["to_lattice"][0]
+    c, d = frame["to_lattice"][1]
+    dlon, dlat = position[0] - frame["origin"][0], position[1] - frame["origin"][1]
+    return a * dlon + b * dlat, c * dlon + d * dlat
+
+
+async def test_site_publishes_a_frame_that_maps_stored_corners_to_lattice_units(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test every corner read back is a whole number of lattice units in the published frame."""
+    client = await hass_ws_client(hass)
+    await _call(client, type="spatial/site/update", origin=FRAME["origin"], bearing_deg=30.0)
+    await _call(client, type="spatial/area/update_geometries", areas={"kitchen": rect(0, 0, 4, 3)})
+    await _call(client, type="spatial/site/update", outline=rect(-1, -1, 6, 5))
+
+    site = (await _call(client, type="spatial/site"))["result"]
+    room = (await _call(client, type="spatial/geojson"))["result"]["features"][0]["geometry"]
+    corners = [*room["coordinates"][0], *site["outline"]["coordinates"][0]]
+    assert len(corners) == 10
+    for corner in corners:
+        x, y = _to_lattice(site["frame"], corner)
+        assert abs(x - round(x)) < 1e-6
+        assert abs(y - round(y)) < 1e-6
+
+
+async def test_the_published_frame_measures_like_vincenty(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test a 4 m edge measures the same in lattice units times unit_m as by Vincenty."""
+    client = await hass_ws_client(hass)
+    await _call(client, type="spatial/site/update", origin=FRAME["origin"], bearing_deg=30.0)
+    await _call(client, type="spatial/area/update_geometries", areas={"kitchen": rect(0, 0, 4, 3)})
+
+    frame = (await _call(client, type="spatial/site"))["result"]["frame"]
+    room = (await _call(client, type="spatial/geojson"))["result"]["features"][0]["geometry"]
+    first, second = room["coordinates"][0][:2]
+    (x0, y0), (x1, y1) = _to_lattice(frame, first), _to_lattice(frame, second)
+    lattice_length_m = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5 * frame["unit_m"]
+    reference_m = vincenty((first[1], first[0]), (second[1], second[0])) * 1000
+    assert lattice_length_m == pytest.approx(reference_m, abs=0.002)
+
+
+async def test_a_fresh_site_publishes_home_and_north(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test without writes the frame is at home, facing north, on the metric lattice."""
+    client = await hass_ws_client(hass)
+    frame = (await _call(client, type="spatial/site"))["result"]["frame"]
+    assert frame["origin"] == [hass.config.longitude, hass.config.latitude]
+    assert frame["bearing_deg"] == 0.0
+    assert frame["unit_m"] == 0.025
+    assert frame["units_per_step"] == 4
+
+
+async def test_us_customary_publishes_an_inch_lattice(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test the lattice unit follows the unit system, which is read live."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    client = await hass_ws_client(hass)
+    frame = (await _call(client, type="spatial/site"))["result"]["frame"]
+    assert frame["unit_m"] == 0.0254
