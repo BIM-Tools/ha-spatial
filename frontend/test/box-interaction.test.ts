@@ -167,6 +167,23 @@ test("Alt keydown and keyup are prevented while drawing", () => {
   }
 });
 
+test("in Adjust Alt is prevented through the release of a move made with it, and left alone otherwise", () => {
+  const room = pixelBox(60, 0, 100, 50);
+  mountInteraction("adjust", { areaId: "1", footprint: room }, true, { neighbours: [NEIGHBOUR, room] });
+  const alt = (type: string) => {
+    const event = new KeyboardEvent(type, { key: "Alt", cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  expect(alt("keydown")).toBe(false);
+  handlers.mousedown(pointEvent(80, 25, 0, true));
+  handlers.mousemove(pointEvent(70, 25, 0, true));
+  handlers.mouseup(pointEvent(70, 25, 0, true));
+  expect(alt("keyup")).toBe(true);
+  expect(alt("keydown")).toBe(false);
+  expect(alt("keyup")).toBe(false);
+});
+
 test("a moved room snaps its corner to a neighbour's corner", () => {
   const room = pixelBox(60, 0, 100, 50);
   const { onMove } = mountInteraction("adjust", { areaId: "1", footprint: room }, true, { neighbours: [NEIGHBOUR, room] });

@@ -74,12 +74,17 @@ const tiersOf = (candidates: SnapCandidates): Tier[] => [
 ];
 
 // The first tier with a candidate within the radius, and in it the nearest; a tie keeps the earlier one.
-const nearestHit = (pointer: readonly [number, number], candidates: SnapCandidates, radius: number): Hit | undefined => {
+const nearestHit = (
+  pointer: readonly [number, number],
+  candidates: SnapCandidates,
+  radius: number,
+  accept: (source: Hit["source"]) => boolean = () => true,
+): Hit | undefined => {
   const tiers = tiersOf(candidates);
   for (const [tier, entries] of tiers.entries()) {
     let best: Hit | undefined;
     const consider = (distance: number, source: Hit["source"]) => {
-      if (distance <= radius && (!best || distance < best.distance)) best = { tier, distance, source };
+      if (distance <= radius && (!best || distance < best.distance) && accept(source)) best = { tier, distance, source };
     };
     if ("corners" in entries) {
       for (const at of entries.corners) consider(Math.hypot(pointer[0] - at[0], pointer[1] - at[1]), { kind: "corner", at });
@@ -137,14 +142,22 @@ export function snapMove(
   options: SnapOptions,
 ): { delta: LatticePoint; source: SnapSource } {
   if (options.free) return { delta: [whole(delta[0]), whole(delta[1])], source: { kind: "lattice" } };
+  const onGrid: [number, number] = [toGrid(delta[0], options.gridUnits), toGrid(delta[1], options.gridUnits)];
   let best: { hit: Hit; corner: LatticePoint } | undefined;
   for (const corner of corners) {
-    const hit = nearestHit([corner[0] + delta[0], corner[1] + delta[1]], candidates, options.radius);
+    // Along a wall the corner moves by whole grid steps, which must keep it on the wall.
+    const staysOnEdge = (source: Hit["source"]) => {
+      if (source.kind !== "edge") return true;
+      const along = fixedAxis(source.edge) === 0 ? 1 : 0;
+      const [low, high] = alongRange(source.edge, along);
+      const movedTo = corner[along] + onGrid[along];
+      return movedTo >= low && movedTo <= high;
+    };
+    const hit = nearestHit([corner[0] + delta[0], corner[1] + delta[1]], candidates, options.radius, staysOnEdge);
     if (hit && (!best || hit.tier < best.hit.tier || (hit.tier === best.hit.tier && hit.distance < best.hit.distance))) {
       best = { hit, corner };
     }
   }
-  const onGrid: [number, number] = [toGrid(delta[0], options.gridUnits), toGrid(delta[1], options.gridUnits)];
   if (!best) return { delta: onGrid, source: { kind: "grid" } };
   const { hit, corner } = best;
   if (hit.source.kind === "corner") {

@@ -75,6 +75,8 @@ export class BoxInteraction {
   // The shape of a failed save, shown until it saves or the next draft replaces it.
   private _kept?: Polygon;
   private readonly _highlight: SnapHighlight;
+  // Alt was held during a move, so its release must not reach the browser either.
+  private _altInMove = false;
 
   constructor(
     private readonly _map: MapLibreMap,
@@ -192,8 +194,13 @@ export class BoxInteraction {
 
   private _key = (event: KeyboardEvent) => {
     if (event.composedPath()[0] instanceof HTMLInputElement) return;
-    // Firefox on Windows opens its menu bar when Alt is released alone.
-    if (event.key === "Alt" && (this._canDraw() || this._grab)) event.preventDefault();
+    // Firefox on Windows opens its menu bar when Alt is released alone; a move made with Alt keeps
+    // it from doing so until Alt is released, also after the mouse.
+    if (event.key === "Alt") {
+      if (this._grab && event.type === "keydown") this._altInMove = true;
+      if (this._canDraw() || this._grab || this._altInMove) event.preventDefault();
+      if (event.type === "keyup") this._altInMove = false;
+    }
     if (!this._canDraw()) return;
     if (event.key === "Escape") this.cancel();
     if (event.key !== " ") return;
@@ -231,6 +238,7 @@ export class BoxInteraction {
     this._pressCorner = { ...snapping, corner: this._cornerAt(event, snapping) };
     this._dragging = false;
     if (this._grab) {
+      if (event.originalEvent.altKey) this._altInMove = true;
       // Keeps MapLibre from panning the map under the room in Adjust.
       event.preventDefault();
       this._highlight.clear();
@@ -285,11 +293,15 @@ export class BoxInteraction {
   }
 
   // The pixel radius in lattice units at the pointer, which differ with zoom; Alt places freely.
+  // Measured across and down the screen, the larger of the two, so a pitched view in Adjust still
+  // snaps everything within the radius on screen, and a little more across.
   private _options(event: MapMouseEvent, { frame, radiusPx }: Snapping): SnapOptions {
     const { x, y } = event.point;
-    const [fromX, fromY] = frame.toLatticeUnits(this._map.unproject([x, y]).toArray());
-    const [toX, toY] = frame.toLatticeUnits(this._map.unproject([x + radiusPx, y]).toArray());
-    return { radius: Math.hypot(toX - fromX, toY - fromY), gridUnits: frame.unitsPerStep, free: event.originalEvent.altKey };
+    const at = (px: number, py: number) => frame.toLatticeUnits(this._map.unproject([px, py]).toArray());
+    const [fromX, fromY] = at(x, y);
+    const units = ([toX, toY]: [number, number]) => Math.hypot(toX - fromX, toY - fromY);
+    const radius = Math.max(units(at(x + radiusPx, y)), units(at(x, y + radiusPx)));
+    return { radius, gridUnits: frame.unitsPerStep, free: event.originalEvent.altKey };
   }
 
   private _cornerAt(event: MapMouseEvent, snapping: Snapping): LatticePoint {

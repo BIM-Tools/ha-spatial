@@ -185,6 +185,20 @@ test("snapMove onto a wall keeps whole grid steps along it", () => {
   });
 });
 
+test("snapMove ignores a wall the moved corner would pass the end of", () => {
+  const corners: LatticePoint[] = [
+    [1, 1],
+    [9, 1],
+    [9, 9],
+    [1, 9],
+  ];
+  const wall = [
+    [18, -40],
+    [18, 4],
+  ] as const;
+  expect(snapMove(corners, [7.5, 5.1], { ...NONE, roomEdges: [wall] }, OPTIONS)).toEqual({ delta: [8, 4], source: { kind: "grid" } });
+});
+
 test("snapLine prefers a parallel edge, then corners, then grid lines", () => {
   const wall = [
     [20, 0],
