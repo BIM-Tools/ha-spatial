@@ -42,6 +42,9 @@ class SpatialAreaStrip extends LitElement {
     hovered: { attribute: false },
     // All floors is a view only: the strip shows the building and a hint.
     allFloors: { type: Boolean },
+    // Home Assistant's location name; only an admin may rename it.
+    buildingName: { attribute: false },
+    buildingRenamable: { type: Boolean },
   };
 
   static styles = css`
@@ -193,6 +196,8 @@ class SpatialAreaStrip extends LitElement {
   declare renaming: string;
   declare hovered: string | undefined;
   declare allFloors: boolean;
+  declare buildingName: string;
+  declare buildingRenamable: boolean;
 
   private _pressTimer?: ReturnType<typeof setTimeout>;
   // A long press already renamed; the click that ends it must not select or rename again.
@@ -206,16 +211,19 @@ class SpatialAreaStrip extends LitElement {
     this.renaming = "";
     this.hovered = undefined;
     this.allFloors = false;
+    this.buildingName = "Building";
+    this.buildingRenamable = false;
   }
 
   render() {
     if (this.allFloors) {
       return html`<span class="pill" data-linked=${this.linked.has(BUILDING)}
-          ><span class="square"></span>Building</span
+          ><span class="square"></span>${this.buildingName}</span
         ><span class="hint">Choose a floor to edit its rooms</span>`;
     }
-    return html`${this._pill(BUILDING, "Building")}<span class="divider"></span>${this.order.map((area) =>
-        area.area_id === this.renaming ? this._renameField(area) : this._pill(area.area_id, area.name),
+    const building = { area_id: BUILDING, name: this.buildingName, floor_id: null };
+    return html`${this._pillOrField(building)}<span class="divider"></span>${this.order.map((area) =>
+        this._pillOrField(area),
       )}<button class="pill new" @click=${() => this._fire("area-create")} @keydown=${this._arrows}>
         <ha-svg-icon .path=${mdiPlus}></ha-svg-icon>New area
       </button>`;
@@ -233,6 +241,14 @@ class SpatialAreaStrip extends LitElement {
       input?.focus();
       input?.select();
     }
+  }
+
+  private _pillOrField(area: AreaEntry) {
+    return area.area_id === this.renaming ? this._renameField(area) : this._pill(area.area_id, area.name);
+  }
+
+  private _renamable(areaId: string) {
+    return areaId !== BUILDING || this.buildingRenamable;
   }
 
   private _pill(areaId: string, name: string) {
@@ -266,7 +282,7 @@ class SpatialAreaStrip extends LitElement {
     return html`<span class="pill rename" data-linked=${this.linked.has(area.area_id)}>
       <span class="square"></span>
       <input
-        aria-label="Area name"
+        aria-label=${area.area_id === BUILDING ? "Building name" : "Area name"}
         .value=${area.name}
         @keydown=${(event: KeyboardEvent) => {
           if (event.key === "Enter") save();
@@ -284,7 +300,7 @@ class SpatialAreaStrip extends LitElement {
       this._pressedLong = false;
       return;
     }
-    if (areaId === this.active && areaId !== BUILDING) this._fire("area-rename-start", { areaId });
+    if (areaId === this.active && this._renamable(areaId)) this._fire("area-rename-start", { areaId });
     else this._fire("area-select", { areaId });
   }
 
@@ -292,7 +308,7 @@ class SpatialAreaStrip extends LitElement {
   private _pressStart(event: PointerEvent, areaId: string) {
     this._pressEnd();
     this._pressedLong = false;
-    if (event.pointerType !== "touch" || areaId === BUILDING) return;
+    if (event.pointerType !== "touch" || !this._renamable(areaId)) return;
     this._pressTimer = setTimeout(() => {
       this._pressedLong = true;
       this._fire("area-rename-start", { areaId });

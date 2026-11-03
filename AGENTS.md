@@ -57,6 +57,7 @@ Change these only through an issue that names the reason.
 | Area | `area_m2` is net: the axial polygon inset by half walls, half a grid step (5 cm, 2 in) interior and 15 cm (3 in) along the outline |
 | Outdoor, facade | The outline is the exterior wall axis and a hard limit: an indoor room never extends beyond it; `is_external` means a room outside it (IFC `IsExternal`); `on_facade` is derived from sharing the outline, with an optional override |
 | Building, sub-spaces | Home Assistant labels; no code |
+| Building name | Home Assistant's location name (`location_name` in core config); renaming the building in the panel renames the location; no own building name |
 | Site anchor | One direction per installation; the centre follows all footprints, else the outline; aligns views only, so stored geometry never moves with it, except through the explicit, confirmed and undoable "Change alignment" (rotation reduced to a right angle, then snapped to the grid, in one write) |
 | Site grid | Stored as written in WGS84, read on a lattice of a quarter drawing grid step (2.5 cm or 1 in, from Home Assistant's unit system) in the frame of the site origin and bearing; drawing snaps to 10 cm (4 in); the integration publishes the frame in `spatial/site` and the panel draws in it; the first Align on an empty plan sets the origin to the left end of the picked wall |
 | Dependencies | Pure Python in the integration; no shapely or other compiled packages |

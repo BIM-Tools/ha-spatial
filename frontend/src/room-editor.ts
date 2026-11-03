@@ -51,6 +51,8 @@ export interface EditorHost {
   units(): HassUnits;
   selectTool(tool: Tool): void;
   toast(toast: Toast): void;
+  buildingName(): string;
+  canRenameBuilding(): boolean;
 }
 
 // A later save that succeeds closes the failure toast through this id.
@@ -252,6 +254,8 @@ export class RoomEditor {
       .active=${this._active}
       .renaming=${this._renaming}
       .hovered=${hovered}
+      .buildingName=${this._host.buildingName()}
+      ?buildingRenamable=${this._host.canRenameBuilding()}
       @area-select=${(event: CustomEvent<{ areaId: string }>) => this._choose(event.detail.areaId)}
       @area-rename-start=${(event: CustomEvent<{ areaId: string }>) => this._startRename(event.detail.areaId)}
       @area-rename=${(event: CustomEvent<{ areaId: string; name: string }>) => this._rename(event.detail)}
@@ -511,11 +515,12 @@ export class RoomEditor {
   private async _rename(change: { areaId: string; name: string }) {
     this._endRename();
     try {
-      await this._connection.sendMessagePromise({
-        type: "config/area_registry/update",
-        area_id: change.areaId,
-        name: change.name,
-      });
+      // The building's name is Home Assistant's location name.
+      await this._connection.sendMessagePromise(
+        change.areaId === BUILDING
+          ? { type: "config/core/update", location_name: change.name }
+          : { type: "config/area_registry/update", area_id: change.areaId, name: change.name },
+      );
     } catch (err) {
       console.error(err);
       this._saveFailed(() => this._rename(change));

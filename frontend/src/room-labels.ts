@@ -157,6 +157,7 @@ export class RoomLabels {
     private readonly _map: MapLibreMap,
     private readonly _withSize: boolean,
     private readonly _units: () => HassUnits,
+    private readonly _buildingName: () => string,
   ) {
     _map.on("move", this.update);
     _map.on("resize", this.update);
@@ -259,9 +260,12 @@ export class RoomLabels {
     const left = Math.min(...corners.map(([x]) => x)) + BUILDING_INSET[0];
     const top = Math.min(...corners.map(([, y]) => y)) + BUILDING_INSET[1];
     if (!this._building) {
-      const element = Object.assign(document.createElement("div"), { className: "building-label", textContent: "Building" });
+      const element = Object.assign(document.createElement("div"), { className: "building-label" });
       this._building = new Marker({ element, anchor: "top-left" }).setLngLat([0, 0]).addTo(this._map);
     }
+    const element = this._building.getElement();
+    const name = this._buildingName();
+    if (element.textContent !== name) element.textContent = name;
     this._building.setLngLat(this._map.unproject([left, top]));
   }
 }
