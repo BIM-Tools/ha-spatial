@@ -6,9 +6,10 @@ import type { FeatureCollection, Point, Polygon, Position } from "geojson";
 import { type GeoJSONSource, Marker, type MapMouseEvent, type Map as MapLibreMap } from "maplibre-gl";
 import type { LayerColours } from "./map-paint";
 import { mapBearing } from "./map-view";
-import { addToFootprint, areaLabel, boxFromCorners, centreOf, gridPoint, movePolygon, sideLabels } from "./plan";
+import { addToFootprint, areaLabel, boxFromCorners, centreOf, movePolygon, sideLabels } from "./plan";
 import type { Tool } from "./room-editor";
 import type { LatticePoint, PlanFrame } from "./site-frame";
+import { type SnapCandidates, type SnapOptions, snapMove, snapPoint } from "./snap";
 import { SnapHighlight } from "./snap-highlight";
 import type { HassUnits } from "./units";
 
@@ -29,37 +30,35 @@ export interface BoxInteractionCallbacks {
   readonly activeRoom: () => ActiveRoom | undefined;
   readonly siteBearing: () => number;
   readonly siteFrame: () => PlanFrame | undefined;
+  // Rooms on the current floor and the outline, without the shape `exclude` names.
+  readonly snapCandidates: (frame: PlanFrame, exclude?: string) => SnapCandidates;
   readonly units: () => HassUnits;
   readonly onBox: (box: Polygon, frame: PlanFrame) => void;
   readonly onMove: (room: ActiveRoom, moved: Polygon) => void;
   readonly onPickRoom: (areaId: string) => void;
 }
 
-// A gesture keeps the frame it started with.
-interface Grab {
-  room: ActiveRoom;
-  from: Position;
+// A gesture keeps the frame, the snap candidates and the pointer's radius it started with.
+interface Snapping {
   frame: PlanFrame;
+  candidates: SnapCandidates;
+  radiusPx: number;
 }
 
-interface Start {
+interface Grab extends Snapping {
+  room: ActiveRoom;
+  from: Position;
+}
+
+interface Start extends Snapping {
   corner: LatticePoint;
-  frame: PlanFrame;
 }
 
 const lngLatOf = (event: MapMouseEvent): Position => [event.lngLat.lng, event.lngLat.lat];
-// Alt places a corner on the lattice instead of the grid.
-const cornerAt = (event: MapMouseEvent, frame: PlanFrame): LatticePoint =>
-  event.originalEvent.altKey ? frame.toLattice(lngLatOf(event)) : gridPoint(frame, lngLatOf(event));
-// The pointer's travel in whole grid steps, so a moved room keeps its offset to the grid.
-const stepsBetween = (frame: PlanFrame, from: Position, to: Position): LatticePoint => {
-  const [fromX, fromY] = frame.toLatticeUnits(from);
-  const [toX, toY] = frame.toLatticeUnits(to);
-  const step = frame.unitsPerStep;
-  return [Math.round((toX - fromX) / step) * step, Math.round((toY - fromY) / step) * step];
-};
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 const DRAG_MIN_PX = 5;
+// A finger covers more of the map than a mouse pointer.
+const snapRadiusPx = () => (window.matchMedia("(pointer: coarse)").matches ? 12 : 8);
 const LABEL_STYLE =
   "font: 12px sans-serif; background: color-mix(in srgb, var(--card-background-color) 85%, transparent); color: var(--primary-text-color); padding: 0 3px; border-radius: 3px; pointer-events: none";
 
@@ -86,6 +85,7 @@ export class BoxInteraction {
     _map.on("mousemove", this._move);
     _map.on("mouseup", this._up);
     _map.on("click", this._click);
+    _map.on("mouseout", this._out);
     this.toolChanged();
   }
 
@@ -96,6 +96,7 @@ export class BoxInteraction {
     this._map.off("mousemove", this._move);
     this._map.off("mouseup", this._up);
     this._map.off("click", this._click);
+    this._map.off("mouseout", this._out);
   }
 
   addLayers(colours: LayerColours) {
@@ -127,6 +128,7 @@ export class BoxInteraction {
     this._dragging = false;
     this._grab = undefined;
     this._preview(undefined);
+    this._highlight.clear();
   }
 
   keepShape(shape: Polygon) {
@@ -140,12 +142,12 @@ export class BoxInteraction {
     if (this._kept) this._preview(undefined);
   }
 
-  // Space pans and Escape cancels only in Draw on a floor; elsewhere the keys keep their usual meaning.
-  // Also called on a floor change, since All does not draw.
+  // Space pans and Escape cancels only in Draw on a floor; elsewhere the keys keep their usual meaning,
+  // apart from Alt during a move. Also called on a floor change, since All does not draw.
   toolChanged() {
     this.cancel();
     this._spaceHeld = false;
-    this._listenToKeys(this._canDraw());
+    this._listenToKeys(this._toolOnFloor() !== undefined);
     this.applyInput();
   }
 
@@ -189,8 +191,10 @@ export class BoxInteraction {
   }
 
   private _key = (event: KeyboardEvent) => {
-    if (!this._canDraw()) return;
     if (event.composedPath()[0] instanceof HTMLInputElement) return;
+    // Firefox on Windows opens its menu bar when Alt is released alone.
+    if (event.key === "Alt" && (this._canDraw() || this._grab)) event.preventDefault();
+    if (!this._canDraw()) return;
     if (event.key === "Escape") this.cancel();
     if (event.key !== " ") return;
     // Keeps Space from pressing the focused toolbar button.
@@ -199,6 +203,7 @@ export class BoxInteraction {
     if (held === this._spaceHeld) return;
     this._spaceHeld = held;
     if (held && this._grab) this.cancel();
+    if (held) this._highlight.clear();
     this.applyInput(false);
   };
 
@@ -217,13 +222,19 @@ export class BoxInteraction {
     if (!frame) return;
     const at = lngLatOf(event);
     const room = this._callbacks.activeRoom();
-    this._grab = room && booleanPointInPolygon(at, room.footprint) ? { room, from: at, frame } : undefined;
-    if (!this._grab && !this._canDraw()) return;
-    // Keeps MapLibre from panning the map under the room in Adjust.
-    if (this._grab) event.preventDefault();
+    const grabbed = room && booleanPointInPolygon(at, room.footprint) ? room : undefined;
+    if (!grabbed && !this._canDraw()) return;
+    // A moved shape does not snap to itself.
+    const snapping = this._snapping(frame, grabbed?.areaId);
+    this._grab = grabbed && { ...snapping, room: grabbed, from: at };
     this._press = event.point;
-    this._pressCorner = { corner: cornerAt(event, frame), frame };
+    this._pressCorner = { ...snapping, corner: this._cornerAt(event, snapping) };
     this._dragging = false;
+    if (this._grab) {
+      // Keeps MapLibre from panning the map under the room in Adjust.
+      event.preventDefault();
+      this._highlight.clear();
+    }
   };
 
   private _move = (event: MapMouseEvent) => {
@@ -235,11 +246,12 @@ export class BoxInteraction {
       this._corner = undefined;
     }
     if (grab) {
-      if (this._dragging) this._preview(this._moved(grab, lngLatOf(event)), grab.frame);
+      if (this._dragging) this._preview(movePolygon(grab.frame, grab.room.footprint, this._moved(grab, event)), grab.frame);
       return;
     }
     const start = this._dragging ? this._pressCorner : this._corner;
-    if (start) this._draft(start, cornerAt(event, start.frame));
+    if (start) this._draft(start, this._cornerAt(event, start));
+    else if (!press && !this._spaceHeld) this._hover(event);
   };
 
   private _up = (event: MapMouseEvent) => {
@@ -250,10 +262,42 @@ export class BoxInteraction {
     this._pressCorner = undefined;
     this._dragging = false;
     this._grab = undefined;
-    if (!start || !dragged) return;
-    if (grab) this._drop(grab, lngLatOf(event));
-    else this._finish(start, cornerAt(event, start.frame));
+    if (start && dragged) {
+      if (grab) this._drop(grab, event);
+      else this._finish(start, this._cornerAt(event, start));
+    }
+    this._highlight.clear();
   };
+
+  // Leaving the map ends a hover, not a box or a move in progress.
+  private _out = () => {
+    if (!this._press && !this._corner) this._highlight.clear();
+  };
+
+  // Before the first corner the highlight shows where a press would land.
+  private _hover(event: MapMouseEvent) {
+    const frame = this._callbacks.siteFrame();
+    if (frame) this._cornerAt(event, this._snapping(frame));
+  }
+
+  private _snapping(frame: PlanFrame, exclude?: string): Snapping {
+    return { frame, candidates: this._callbacks.snapCandidates(frame, exclude), radiusPx: snapRadiusPx() };
+  }
+
+  // The pixel radius in lattice units at the pointer, which differ with zoom; Alt places freely.
+  private _options(event: MapMouseEvent, { frame, radiusPx }: Snapping): SnapOptions {
+    const { x, y } = event.point;
+    const [fromX, fromY] = frame.toLatticeUnits(this._map.unproject([x, y]).toArray());
+    const [toX, toY] = frame.toLatticeUnits(this._map.unproject([x + radiusPx, y]).toArray());
+    return { radius: Math.hypot(toX - fromX, toY - fromY), gridUnits: frame.unitsPerStep, free: event.originalEvent.altKey };
+  }
+
+  private _cornerAt(event: MapMouseEvent, snapping: Snapping): LatticePoint {
+    const pointer = snapping.frame.toLatticeUnits(lngLatOf(event));
+    const { point, source } = snapPoint(pointer, snapping.candidates, this._options(event, snapping));
+    this._highlight.show(snapping.frame, source);
+    return point;
+  }
 
   // MapLibre fires `click` for a tap too, so two taps draw a box on a phone.
   private _click = (event: MapMouseEvent) => {
@@ -267,12 +311,14 @@ export class BoxInteraction {
     if (!start) {
       const frame = this._callbacks.siteFrame();
       if (!frame) return;
-      this._corner = { corner: cornerAt(event, frame), frame };
+      const snapping = this._snapping(frame);
+      this._corner = { ...snapping, corner: this._cornerAt(event, snapping) };
       this._draft(this._corner, this._corner.corner);
       return;
     }
     this._corner = undefined;
-    this._finish(start, cornerAt(event, start.frame));
+    this._finish(start, this._cornerAt(event, start));
+    this._highlight.clear();
   };
 
   // A box under one grid step shows only its start, as a dot.
@@ -282,8 +328,15 @@ export class BoxInteraction {
     else this._preview({ type: "Point", coordinates: frame.fromLattice(corner) }, frame);
   }
 
-  private _moved({ room, from, frame }: Grab, to: Position): Polygon {
-    return movePolygon(frame, room.footprint, stepsBetween(frame, from, to));
+  // The lattice delta of a move, snapped by the moved shape's corners.
+  private _moved(grab: Grab, event: MapMouseEvent): LatticePoint {
+    const { frame, room, from } = grab;
+    const [fromX, fromY] = frame.toLatticeUnits(from);
+    const [toX, toY] = frame.toLatticeUnits(lngLatOf(event));
+    const corners = room.footprint.coordinates.flatMap((ring) => ring.slice(0, -1).map((corner) => frame.toLattice(corner)));
+    const { delta, source } = snapMove(corners, [toX - fromX, toY - fromY], grab.candidates, this._options(event, grab));
+    this._highlight.show(frame, source);
+    return delta;
   }
 
   // A box the active footprint cannot join is refused on release, so it shows in the warning colour while drawn.
@@ -323,10 +376,10 @@ export class BoxInteraction {
     if (box) this._callbacks.onBox(box, frame);
   }
 
-  // A drag that rounds to no grid step saves nothing, so it adds no undo step.
-  private _drop(grab: Grab, to: Position) {
+  // A drag that lands where it started saves nothing, so it adds no undo step.
+  private _drop(grab: Grab, event: MapMouseEvent) {
     this._preview(undefined);
-    const [x, y] = stepsBetween(grab.frame, grab.from, to);
+    const [x, y] = this._moved(grab, event);
     if (x || y) this._callbacks.onMove(grab.room, movePolygon(grab.frame, grab.room.footprint, [x, y]));
   }
 }

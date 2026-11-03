@@ -305,7 +305,8 @@ test("a box being drawn is marked apart while it cannot join the active footprin
   handlers.mousedown(mouse(200, 200));
   handlers.mousemove(mouse(240, 240));
   expect(draftApart()).toBe(true);
-  handlers.mousemove(mouse(45, 45));
+  // Clear of the snap radius of the corner at (50, 50), which would only touch.
+  handlers.mousemove(mouse(40, 40));
   expect(draftApart()).toBe(false);
 });
 
@@ -408,6 +409,43 @@ test("a move shifts the room by whole grid steps", async () => {
     const [fromX, fromY] = FRAME.toLattice(KITCHEN.coordinates[0][index]);
     expect([x - fromX, y - fromY]).toEqual([80, 0]);
   });
+});
+
+const snapPoint = () => {
+  const [feature] = (sources["spatial-snap"].data as { features: Feature<Point>[] }).features;
+  return feature && FRAME.toLattice(feature.geometry.coordinates);
+};
+
+test("rooms on other floors are not candidates, rooms on this floor and the outline are", async () => {
+  const { panel, setFeed } = mountEditor();
+  setFeed([
+    { type: "Feature", id: "kitchen", geometry: KITCHEN, properties: { floor_id: "ground", level: 0 } },
+    { type: "Feature", id: "attic", geometry: pixelBox(200, 0, 250, 50), properties: { floor_id: "loft", level: 1 } },
+  ]);
+  await startDrawing(panel);
+  handlers.mousemove(mouse(203, 2));
+  expect(snapPoint()).toBeUndefined();
+  handlers.mousemove(mouse(53, 2));
+  expect(snapPoint()).toEqual(FRAME.toLattice(unprojectPixel([50, 0], 300)));
+  handlers.mousemove(mouse(103, 102));
+  expect(snapPoint()).toEqual(FRAME.toLattice(unprojectPixel([100, 100], 300)));
+});
+
+test("a moved room shares its neighbour's edge", async () => {
+  const { panel, connection, setFeed } = mountEditor();
+  const bath = pixelBox(60, 0, 100, 50);
+  setFeed([
+    { type: "Feature", id: "kitchen", geometry: KITCHEN, properties: { floor_id: "ground", level: 0 } },
+    { type: "Feature", id: "bath", geometry: bath, properties: { floor_id: "ground", level: 0 } },
+  ]);
+  await startDrawing(panel);
+  await activateKitchen(panel);
+  drag([25, 25], [31.3, 26]);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  const moved = saves(connection)[0].areas.kitchen.coordinates[0].map((corner) => FRAME.toLattice(corner));
+  const neighbour = bath.coordinates[0].map((corner) => FRAME.toLattice(corner));
+  expect(moved[1]).toEqual(neighbour[0]);
+  expect(moved[2]).toEqual(neighbour[3]);
 });
 
 test("in Draw a drag inside the active room moves it in one batch, and undo puts it back", async () => {

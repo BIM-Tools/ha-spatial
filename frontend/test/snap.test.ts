@@ -141,6 +141,8 @@ test("the outline counts after rooms", () => {
 test("out of range falls back to the grid", () => {
   const candidates = { ...NONE, roomCorners: [[10, 0] as const] };
   expect(snapPoint([5.9, 1.9], candidates, OPTIONS)).toEqual({ point: [4, 0], source: { kind: "grid" } });
+  expect(snapPoint([-6.1, 10.2], candidates, OPTIONS).point).toEqual([-8, 12]);
+  expect(snapPoint([-0.4, -1.9], candidates, OPTIONS).point).toEqual([0, 0]);
 });
 
 test("free lands on the lattice and ignores candidates", () => {
