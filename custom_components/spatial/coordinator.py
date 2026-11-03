@@ -20,6 +20,7 @@ from .const import (
     EVENT_SPATIAL_UPDATED,
     JSONFG_CORE,
     JSONFG_TYPES_SCHEMAS,
+    LATTICE_UNITS_PER_STEP,
     METRIC_GRID,
     MIN_SHARED_EDGE_M,
     REV_LENGTH,
@@ -41,8 +42,18 @@ from .geometry import (
 from .store import AreaSpatial, Site, SpatialStore, default_origin, new_area
 
 
+class SiteFrameView(TypedDict):
+    """The frame a site is read on, as published: origin, bearing, lattice unit and matrix."""
+
+    origin: list[float]
+    bearing_deg: float
+    unit_m: float
+    units_per_step: int
+    to_lattice: list[list[float]]
+
+
 class SiteView(TypedDict):
-    """The site as clients read it: the stored fields plus the derived centre and rev."""
+    """The site as clients read it: the stored fields plus the derived centre, rev and frame."""
 
     lon: float
     lat: float
@@ -50,6 +61,7 @@ class SiteView(TypedDict):
     origin: list[float] | None
     outline: dict[str, Any] | None
     rev: str
+    frame: SiteFrameView
 
 
 class _SiteGeometry(NamedTuple):
@@ -337,6 +349,7 @@ class SpatialCoordinator:
         """
         site = self._site_geometry(self.store.site)
         outline = site.frame.to_polygon(site.outline) if site.outline else None
+        origin, to_lattice = site.frame.lattice_transform()
         rings = [
             self._footprint(area_id).geometry["coordinates"][0] for area_id in self.store.areas
         ]
@@ -355,6 +368,13 @@ class SpatialCoordinator:
             "origin": self.store.site["origin"],
             "outline": outline,
             "rev": self.site_rev(),
+            "frame": {
+                "origin": origin,
+                "bearing_deg": site.frame.bearing_deg,
+                "unit_m": float(site.grid.lattice_unit_m),
+                "units_per_step": LATTICE_UNITS_PER_STEP,
+                "to_lattice": to_lattice,
+            },
         }
 
     def _floor_of(self, area_id: str) -> str | None:
