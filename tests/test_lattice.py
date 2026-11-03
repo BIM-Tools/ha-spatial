@@ -383,3 +383,49 @@ async def test_area_named_outline_is_checked_too(
         "code": "invalid_format",
         "message": "A corner must be between 45 and 315 degrees (outline)",
     }
+
+
+def notched(stub: float) -> dict[str, Any]:
+    """Return a 4 m x 3 m room whose top left corner has a stub of two edges of `stub` metres."""
+    return polygon((0, 0), (4, 0), (4, 3), (stub, 3), (stub, 3 - stub), (0, 3 - stub))
+
+
+async def test_an_edge_under_one_grid_step_is_refused(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test a room with an edge of 7.5 cm is refused on the 10 cm grid."""
+    client = await hass_ws_client(hass)
+    msg = await _write(client, site=FRAME, areas={"kitchen": notched(0.075)})
+    assert msg["error"]["code"] == "invalid_format"
+    assert msg["error"]["message"] == "An edge must be at least one grid step (kitchen)"
+
+
+async def test_an_edge_of_one_grid_step_is_accepted(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test an edge of exactly one grid step is kept."""
+    client = await hass_ws_client(hass)
+    msg = await _write(client, site=FRAME, areas={"kitchen": notched(0.1)})
+    assert msg["success"], msg
+
+
+async def test_a_short_outline_edge_is_refused(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test the outline is held to the same minimum edge."""
+    client = await hass_ws_client(hass)
+    msg = await _write(client, site={**FRAME, "outline": rect(0, 0, 0.075, 10)})
+    assert msg["error"]["code"] == "invalid_format"
+    assert msg["error"]["message"] == "An edge must be at least one grid step (outline)"
+
+
+async def test_us_customary_minimum_edge(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test the minimum is 4 in on the inch lattice: 3 in is refused, 0.1016 m is kept."""
+    client = await hass_ws_client(hass)
+    await hass.config.async_update(unit_system="us_customary")
+    msg = await _write(client, site=FRAME, areas={"kitchen": notched(3 * 0.0254)})
+    assert msg["error"]["code"] == "invalid_format"
+    msg = await _write(client, site=FRAME, areas={"kitchen": notched(0.1016)})
+    assert msg["success"], msg

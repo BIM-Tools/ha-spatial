@@ -14,6 +14,8 @@ from itertools import combinations, pairwise
 from numbers import Real
 from typing import Any, Literal
 
+from .const import LATTICE_UNITS_PER_STEP
+
 type Point = tuple[float, float]
 type Ring = list[Point]
 type Segment = tuple[Point, Point]
@@ -369,7 +371,8 @@ def validate_lattice_polygon(ring_corners: list[Ring]) -> None:
     Custom. On top of validate_rings: every corner has an interior angle from 45
     to 315 degrees, so there are no spikes, compared in whole numbers: the turn at a corner
     is beyond 135 degrees exactly when the dot product u.w of its edges is negative
-    and 2 (u.w)² > |u|² |w|².
+    and 2 (u.w)² > |u|² |w|². Every edge is at least one grid step long
+    (LATTICE_UNITS_PER_STEP lattice units), also compared in whole numbers.
     """
     validate_rings(ring_corners)
     for corners in ring_corners:
@@ -378,6 +381,8 @@ def validate_lattice_polygon(ring_corners: list[Ring]) -> None:
         ):
             ux, uy = corner[0] - previous[0], corner[1] - previous[1]
             wx, wy = following[0] - corner[0], following[1] - corner[1]
+            if ux * ux + uy * uy < LATTICE_UNITS_PER_STEP**2:
+                raise ValueError("An edge must be at least one grid step")
             dot = ux * wx + uy * wy
             if dot < 0 and 2 * dot * dot > (ux * ux + uy * uy) * (wx * wx + wy * wy):
                 raise ValueError("A corner must be between 45 and 315 degrees")
