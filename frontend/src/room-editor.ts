@@ -9,15 +9,9 @@ import { type ActiveRoom, BoxInteraction } from "./box-interaction";
 import { type Change, type FootprintBatch, History } from "./history";
 import type { LayerColours } from "./map-paint";
 import { byLevel } from "./map-view";
-import {
-  MIN_SIDE_M,
-  addToFootprint,
-  edgeLengths,
-  isAxisRectangle,
-  resizeSide,
-  sideLabels,
-} from "./plan";
-import { type HassUnits, formatLength, parseLength, typedLength } from "./units";
+import { addToFootprint, edgeLengths, isAxisRectangle, resizeSide, sideLabels } from "./plan";
+import type { PlanFrame } from "./site-frame";
+import { type HassUnits, isUsCustomary, parseLength, typedLength } from "./units";
 
 interface Connection {
   sendMessagePromise<T>(message: { type: string; [key: string]: unknown }): Promise<T>;
@@ -53,6 +47,7 @@ export interface EditorHost {
   requestUpdate(): void;
   reloadRooms(): Promise<void>;
   siteBearing(): number;
+  siteFrame(): PlanFrame | undefined;
   units(): HassUnits;
   selectTool(tool: Tool): void;
   toast(toast: Toast): void;
@@ -98,6 +93,11 @@ export class RoomEditor {
     return !this._saving && this._history.canRedo;
   }
 
+  /** Any room footprint on any floor, or the outline. */
+  get hasShapes() {
+    return this._footprints.size > 0;
+  }
+
   /** While aligning, what to click; with an area without a shape active, that it is next and how far the floor is. */
   get guide(): Guide | undefined {
     if (this.tool === "align") return { text: "Click the wall your rooms follow" };
@@ -119,8 +119,9 @@ export class RoomEditor {
         return footprint && { areaId: this._active, footprint };
       },
       siteBearing: () => this._host.siteBearing(),
+      siteFrame: () => this._host.siteFrame(),
       units: () => this._host.units(),
-      onBox: (box) => this._finishBox(box),
+      onBox: (box, frame) => this._finishBox(box, frame),
       onMove: (room, moved) => this._saveMove(room, moved),
       onPickRoom: (areaId) => this._select(areaId),
     });
@@ -357,11 +358,12 @@ export class RoomEditor {
     const areaId = this._active;
     const footprint = this._footprints.get(areaId);
     if (!map || this.tool !== "adjust" || this._floor === "all" || !footprint) return;
-    if (!isAxisRectangle(footprint, this._host.siteBearing())) return;
+    const frame = this._host.siteFrame();
+    if (!frame || !isAxisRectangle(frame, footprint)) return;
     const units = this._host.units();
-    const lengths = edgeLengths(footprint);
+    const lengths = edgeLengths(frame, footprint);
     let field: HTMLInputElement | undefined;
-    this._sides.push(...sideLabels(footprint, units).map(({ at, edgeIndex, text }) => {
+    this._sides.push(...sideLabels(frame, footprint, units).map(({ at, edgeIndex, text }) => {
       let control: HTMLElement;
       if (edgeIndex === this._editingSide) {
         const prefilled = typedLength(lengths[edgeIndex], units);
@@ -370,7 +372,8 @@ export class RoomEditor {
         typed.addEventListener("keydown", (event) => {
           // An unchanged field leaves the edit: saving its rounded length would shift the side and add an undo step.
           if (event.key === "Escape" || (event.key === "Enter" && typed.value === prefilled)) this._select(areaId);
-          else if (event.key === "Enter") this._resize(areaId, footprint, edgeIndex, parseLength(typed.value, units));
+          // The frame the field was built in, so a refresh still in flight cannot pair it with another one.
+          else if (event.key === "Enter") this._resize(frame, areaId, footprint, edgeIndex, parseLength(typed.value, units));
         });
         control = typed;
       } else {
@@ -391,21 +394,22 @@ export class RoomEditor {
     field?.select();
   }
 
-  private _resize(areaId: string, footprint: Polygon, edgeIndex: number, lengthM: number | undefined) {
-    if (lengthM === undefined || lengthM < MIN_SIDE_M) {
-      this._host.toast({ message: `A side is at least ${formatLength(MIN_SIDE_M, this._host.units())}` });
+  private _resize(frame: PlanFrame, areaId: string, footprint: Polygon, edgeIndex: number, lengthM: number | undefined) {
+    const after = lengthM === undefined ? undefined : resizeSide(frame, footprint, edgeIndex, lengthM);
+    if (!after) {
+      const step = isUsCustomary(this._host.units()) ? "4 in" : "10 cm";
+      this._host.toast({ message: `Too small: every side needs at least ${step}` });
       return;
     }
-    const after = resizeSide(footprint, edgeIndex, lengthM);
     this._editingSide = undefined;
     this._whileSaving(() => this._apply({ before: { [areaId]: footprint }, after: { [areaId]: after } }));
   }
 
-  private async _finishBox(box: Polygon) {
+  private async _finishBox(box: Polygon, frame: PlanFrame) {
     const areaId = this._active;
     const floor = this._floor;
     const current = this._footprints.get(areaId);
-    const footprint = addToFootprint(current, box);
+    const footprint = addToFootprint(frame, current, box);
     if (!footprint) {
       this._host.toast({ message: "A room is one shape: draw against it" });
       return;

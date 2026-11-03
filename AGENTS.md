@@ -58,7 +58,7 @@ Change these only through an issue that names the reason.
 | Outdoor, facade | The outline is the exterior wall axis and a hard limit: an indoor room never extends beyond it; `is_external` means a room outside it (IFC `IsExternal`); `on_facade` is derived from sharing the outline, with an optional override |
 | Building, sub-spaces | Home Assistant labels; no code |
 | Site anchor | One direction per installation; the centre follows all footprints, else the outline; aligns views only, so stored geometry never moves with it, except through the explicit, confirmed and undoable "Change alignment" (rotation reduced to a right angle, then snapped to the grid, in one write) |
-| Site grid | Stored as written in WGS84, read on a lattice of a quarter drawing grid step (2.5 cm or 1 in, from Home Assistant's unit system) in the frame of the site origin and bearing; drawing snaps to 10 cm (4 in) |
+| Site grid | Stored as written in WGS84, read on a lattice of a quarter drawing grid step (2.5 cm or 1 in, from Home Assistant's unit system) in the frame of the site origin and bearing; drawing snaps to 10 cm (4 in); the integration publishes the frame in `spatial/site` and the panel draws in it; the first Align on an empty plan sets the origin to the left end of the picked wall |
 | Dependencies | Pure Python in the integration; no shapely or other compiled packages |
 | Finding the building | OSM buildings in Home Assistant's map tiles set the axis only, and may act as an unstored snap guide while the outline is drawn on the map |
 | Frontend packages | Packages shared with Home Assistant's frontend use the exact version that frontend ships |
@@ -82,8 +82,10 @@ way".
 
 ## Single implementations
 
-- All measurement geometry is in `custom_components/spatial/geometry.py`. The panel's drawing geometry is turf in
-  `frontend/src/plan.ts`; the Align pick is in `frontend/src/outline.ts`.
+- All measurement geometry is in `custom_components/spatial/geometry.py`; the panel applies the frame
+  the integration publishes (`frontend/src/site-frame.ts`) and does its drawing geometry on lattice
+  integers in `frontend/src/plan.ts`, with turf only to join boxes; the Align pick is in
+  `frontend/src/outline.ts`.
 - Tools, bridges and frontends use only the websocket API; nothing else reads
   `.storage/spatial` or imports the integration.
 - Home Assistant owns areas and floors. Data is keyed by `area_id` and `floor_id`; names,

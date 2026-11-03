@@ -10,7 +10,7 @@ const METRES_PER_INCH = 0.0254;
 const SQUARE_METRES_PER_SQUARE_FOOT = METRES_PER_INCH * METRES_PER_INCH * 144;
 const INCHES_PER_FOOT = 12;
 
-const isUsCustomary = (hass: HassUnits): boolean => hass.config.unit_system.length === "mi";
+export const isUsCustomary =(hass: HassUnits): boolean => hass.config.unit_system.length === "mi";
 
 /*!
  * numberFormatToLocale and formatNumber are ported from home-assistant/frontend
@@ -46,17 +46,33 @@ const formatNumber = (value: number, hass: HassUnits, fractionDigits: number): s
   }).format(value);
 };
 
-/** Metres with two decimals, or feet and inches to the nearest inch. */
-export function formatLength(metres: number, hass: HassUnits): string {
-  if (!isUsCustomary(hass)) return `${formatNumber(metres, hass, 2)} m`;
+// The integration's metric lattice unit; labels and toasts have no site frame to read it from.
+export const METRIC_LATTICE_M = 0.025;
+
+// The nearest metric lattice point, and the fewest decimals (at least two) that state it exactly.
+const metricLattice = (metres: number): { value: number; digits: number } => {
+  const units = Math.round(metres / METRIC_LATTICE_M);
+  return { value: (units * 25) / 1000, digits: units % 2 === 0 ? 2 : 3 };
+};
+
+const feetAndInches = (metres: number): string => {
   const inches = Math.round(metres / METRES_PER_INCH);
-  const feet = Math.floor(inches / INCHES_PER_FOOT);
-  return feet ? `${feet}' ${inches % INCHES_PER_FOOT}"` : `${inches}"`;
+  return `${Math.floor(inches / INCHES_PER_FOOT)}′ ${inches % INCHES_PER_FOOT}″`;
+};
+
+/** Metres on the lattice as stored, or feet and inches with primes to the nearest inch. */
+export function formatLength(metres: number, hass: HassUnits): string {
+  if (isUsCustomary(hass)) return feetAndInches(metres);
+  const { value, digits } = metricLattice(metres);
+  return `${formatNumber(value, hass, digits)} m`;
 }
 
 /** A length as a field starts with it: in ASCII digits with a dot, which parseLength reads in every number format. */
-export const typedLength = (metres: number, hass: HassUnits): string =>
-  isUsCustomary(hass) ? formatLength(metres, hass) : `${metres.toFixed(2)} m`;
+export function typedLength(metres: number, hass: HassUnits): string {
+  if (isUsCustomary(hass)) return feetAndInches(metres);
+  const { value, digits } = metricLattice(metres);
+  return `${value.toFixed(digits)} m`;
+}
 
 /** Square metres with one decimal, or whole square feet. */
 export const formatArea = (squareMetres: number, hass: HassUnits): string =>

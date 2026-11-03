@@ -3,6 +3,8 @@ import bearing from "@turf/bearing";
 import destination from "@turf/destination";
 import distance from "@turf/distance";
 import { vi } from "vitest";
+import type { SiteFrameData } from "../src/site-frame";
+import { siteFrameData } from "./site-frame-fixture";
 import { METRIC_UNITS } from "./units-fixture";
 
 export const mapCreated = vi.fn();
@@ -190,11 +192,17 @@ export const fakeMapLibre = {
 
 export const EMPTY = { type: "FeatureCollection", features: [] };
 
+/** A `spatial/site` reply at the site centre; its frame has its origin there and follows the bearing (null faces north). */
+export const siteReply = (fields: { bearing_deg?: number | null; outline?: unknown; frame?: SiteFrameData } = {}) => {
+  const bearing = fields.bearing_deg === undefined ? 0 : fields.bearing_deg;
+  return { lon: 5, lat: 52, origin: null, outline: null, frame: siteFrameData(SITE, bearing ?? 0), ...fields, bearing_deg: bearing };
+};
+
 export type Reply = (message: { type: string; [key: string]: unknown }) => Promise<unknown>;
 
 export const answer: Reply = async ({ type }) => {
   if (type === "map_tiles/access_token") return { token: "t" };
-  if (type === "spatial/site") return { lon: 5, lat: 52, bearing_deg: 0, outline: null };
+  if (type === "spatial/site") return siteReply();
   if (type === "spatial/site/update") return null;
   if (type === "spatial/geojson") return EMPTY;
   if (type === "config/area_registry/list" || type === "config/floor_registry/list") return [];

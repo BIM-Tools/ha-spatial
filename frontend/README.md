@@ -40,14 +40,15 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/room-labels.ts` | Room labels: area icon, name and (in the panel) net area, placed and stepped by the room's size on screen |
 | `src/styles.ts` | The floating card, pill buttons and phone bar shared by the controls, from Home Assistant's theme tokens |
 | `src/room-editor.ts` | The space editor controller: the area strip, side length fields, undo and redo, saving each action, area creation and rename |
-| `src/box-interaction.ts` | Pointer and keyboard drafting input on the map, screen-rectangle projection, Space pan, draft preview |
+| `src/box-interaction.ts` | Pointer and keyboard drafting input on the map, corners and moves on the site grid, Space pan, draft preview |
 | `src/area-strip.ts` | The strip of pills, Building first: order, next area, new area names, rename field, long press, arrow keys |
 | `src/history.ts` | Session undo and redo of footprint changes |
 | `src/spatial-card.ts` | The card: wraps the panel element, without the header and tools; loads the panel bundle when created |
 | `src/map-view.ts` | Pure helpers: map bearing, style URL, map tiles token, floor order, room bounds |
 | `src/outline.ts` | The OSM building under a click and the bearing of its nearest wall, with turf |
-| `src/plan.ts` | Box from screen corners, side lengths, resizing, moving and joining footprints, all with turf |
-| `src/units.ts` | Lengths and areas shown in Home Assistant's unit system and number format, and typed lengths read back in metres |
+| `src/site-frame.ts` | Applies the site frame from `spatial/site`: lon/lat to lattice units and back |
+| `src/plan.ts` | Boxes, side lengths, resizing and moving on the site lattice; joining with turf |
+| `src/units.ts` | Lengths and areas shown in Home Assistant's unit system and number format (metric at lattice precision, US feet and inches with primes), and typed lengths read back in metres |
 | `test/` | Unit tests (vitest) |
 
 ### Serving
@@ -64,20 +65,24 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
   `ha-svg-icon`), as `hass-subpage`, its toggle groups and Home Assistant's dialog are undefined on a
   deep link; the help sheet is a native `<dialog>`. Icons are
   `@mdi/js` named imports. Below 600 px the panel switches to the phone layout.
-- Uses only the public websocket API and Home Assistant's area and floor registry commands. Its
-  geometry (the wall bearing, boxes, joining a box to a footprint) is done with turf; lengths and m²
-  shown while drawing are previews, a saved room's `area_m2` comes from the integration.
-- A box is a screen rectangle, unprojected corner by corner, on the flat map turned to the site
-  axis, so its sides follow the picked wall. Draw turns the map back to that axis and disables
-  rotating and tilting until it ends.
+- Uses only the public websocket API and Home Assistant's area and floor registry commands. Plan
+  geometry (boxes, side lengths, resizing, moving) works on lattice integers in the site frame that
+  `spatial/site` publishes, rebuilt on every site load, so a unit system change reaches the next
+  gesture; turf finds the wall bearing and joins a box to a footprint. Lengths and m² shown while
+  drawing are previews, a saved room's `area_m2` comes from the integration.
+- A box runs between two corners on the 10 cm (4 in) grid (Alt: on the lattice), along the site
+  axes; a move shifts a room by whole grid steps. A box with a side under one grid step shows only
+  its start dot and is not created. Draw turns the map to the site axis and disables rotating and
+  tilting until it ends.
 - Every box, move, resize, removal, undo and redo is one save, one at a time: `spatial/site/update`
   with `outline` for the building, else one `spatial/area/update_geometries` batch; boxes, moves,
   resizes and removals are recorded in the session history. A rejected save reloads the rooms,
   fires a "Could not save" toast with Retry (`hass-notification`, `duration: -1`, closed by the next
   save that succeeds) and keeps the history position. Side lengths are MapLibre Markers holding a
   native number field.
-- Align sends only `bearing_deg`: the direction of the OSM building's outer edge nearest the
-  click, with the building on its left.
+- Align sends `bearing_deg`: the direction of the OSM building's outer edge nearest the click, with
+  the building on its left. On an empty plan (no footprint and no outline) it also sends `origin`,
+  that edge's left end in the aligned view, so the grid starts on the wall.
 - The OSM building is the `buildings` part under the click, as MapLibre renders it from one
   tile: a building cut by a tile border gives only the part in that tile.
 
