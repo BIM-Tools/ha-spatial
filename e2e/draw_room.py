@@ -141,7 +141,7 @@ def wait_for_larger(websocket, name, area_m2):
 
 
 def resize_kitchen(page, panel, websocket, kitchen):
-    """In Adjust drags Kitchen's left edge 40 px left, then its top right corner 30 px out."""
+    """In Adjust drags Kitchen's left edge 40 px left, then its top left corner 30 px out."""
     panel.get_by_role("button", name="Adjust", exact=True).click()
     panel.get_by_role("button", name="Kitchen", exact=True).click()
     left_corners = sorted(corners_on_screen(panel, kitchen["geometry"]["coordinates"][0]))[:2]
@@ -149,8 +149,12 @@ def resize_kitchen(page, panel, websocket, kitchen):
     y = (left_corners[0][1] + left_corners[1][1]) / 2
     drag(page, (x, y), (x - 40, y))
     stretched = wait_for_larger(websocket, "Kitchen", kitchen["properties"]["area_m2"])
-    corner_x, corner_y = top_right_on_screen(panel, stretched["geometry"]["coordinates"][0])
-    drag(page, (corner_x, corner_y), (corner_x + 30, corner_y - 30))
+    # The top left corner faces free space; Bedroom lies to the right.
+    corner_x, corner_y = min(
+        corners_on_screen(panel, stretched["geometry"]["coordinates"][0]),
+        key=lambda corner: corner[0] + corner[1],
+    )
+    drag(page, (corner_x, corner_y), (corner_x - 30, corner_y - 30))
     cornered = wait_for_larger(websocket, "Kitchen", stretched["properties"]["area_m2"])
     return stretched, cornered
 
