@@ -1,7 +1,7 @@
 // Gives the panel Home Assistant's subpage header, built here because `hass-subpage` is lazy loaded and undefined on a deep link.
 
 import { mdiArrowLeft, mdiArrowRight, mdiClose, mdiHelpCircleOutline } from "@mdi/js";
-import { LitElement, css, html } from "lit";
+import { LitElement, css, html, nothing } from "lit";
 import manifest from "../../custom_components/spatial/manifest.json";
 import { shapeFill } from "./styles";
 
@@ -167,6 +167,9 @@ class SpatialPanelHeader extends LitElement {
       border: 1px solid var(--divider-color);
       border-radius: 4px;
     }
+    .hint {
+      margin: var(--ha-space-3) 0 0;
+    }
     .docs {
       display: inline-block;
       margin-top: var(--ha-space-5);
@@ -216,6 +219,7 @@ class SpatialPanelHeader extends LitElement {
         <ul>
           ${KEYS.map(([key, does]) => html`<li><kbd><span>${key}</span></kbd>${does}</li>`)}
         </ul>
+        ${window.matchMedia("(pointer: coarse)").matches ? nothing : html`<p class="hint">Hold Alt to place without snapping</p>`}
         <a class="docs" href=${manifest.documentation} target="_blank" rel="noreferrer">Documentation</a>
       </dialog>
     `;

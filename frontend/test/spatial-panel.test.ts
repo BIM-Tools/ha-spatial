@@ -457,6 +457,26 @@ test("the header's Help opens a sheet of symbols and keys that Escape closes, gi
   expect(focus).toHaveBeenCalledTimes(2);
 });
 
+test.each([
+  [false, true],
+  [true, false],
+])("Help on a coarse pointer (%s) names Alt for placing without snapping: %s", async (coarse, named) => {
+  const query = vi.spyOn(window, "matchMedia").mockImplementation(
+    (media: string) =>
+      ({
+        matches: coarse && media === "(pointer: coarse)",
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }) as unknown as MediaQueryList,
+  );
+  const { panel } = mountPanel();
+  await vi.waitFor(() => expect(panel.shadowRoot?.querySelector("spatial-panel-header")).not.toBeNull());
+  await settle(panel);
+  const dialog = panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!.querySelector("dialog")!;
+  expect(dialog.textContent?.includes("Hold Alt to place without snapping")).toBe(named);
+  query.mockRestore();
+});
+
 test("Align turns the map before the save is answered", async () => {
   let answerSave = () => {};
   const { panel } = mountPanel(async (message) => {
