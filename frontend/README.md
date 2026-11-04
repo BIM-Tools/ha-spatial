@@ -74,8 +74,8 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
   that `spatial/site` publishes, rebuilt on every site load, so a unit system change reaches the
   next gesture; turf finds the wall bearing and joins a box to a footprint.
 - In Adjust a press on the active axis rectangle is hit-tested on its projected corners, then its
-  edges, within the snap radius, before a move, so it follows the room on a turned map. A side
-  button lets its mousedown reach the map, so the edge under it drags too. On a coarse pointer
+  edges, within the snap radius, before a move, so it follows the room on a turned map. A press on
+  a side button drags its own edge. On a coarse pointer
   each edge gets a grab handle Marker turned with the map and each corner a round target, both
   feeding the same drags through pointer capture; the side buttons move outward along the edge's
   screen normal, and again when the map turns.

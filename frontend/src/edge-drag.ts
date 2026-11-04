@@ -5,7 +5,8 @@ import { boxFromCorners } from "./plan";
 import type { LatticePoint, PlanFrame } from "./site-frame";
 import { type SnapCandidates, type SnapOptions, type SnapSource, snapLine, snapPoint } from "./snap";
 
-interface Pixel {
+/** A point on the map's canvas, in pixels from its top left. */
+export interface Pixel {
   x: number;
   y: number;
 }

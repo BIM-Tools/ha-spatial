@@ -5,7 +5,8 @@ import type { FeatureCollection, Polygon, Position } from "geojson";
 import { html } from "lit";
 import { type GeoJSONSource, Marker, type Map as MapLibreMap } from "maplibre-gl";
 import { type AreaEntry, BUILDING, newAreaName, nextActive, stripOrder } from "./area-strip";
-import { type ActiveRoom, BoxInteraction, type ResizeTarget } from "./box-interaction";
+import { type ActiveRoom, BoxInteraction, type ResizeTarget, coarsePointer } from "./box-interaction";
+import type { Pixel } from "./edge-drag";
 import { type Change, type FootprintBatch, History } from "./history";
 import type { LayerColours } from "./map-paint";
 import { byLevel } from "./map-view";
@@ -69,7 +70,11 @@ const EDGE_GRIP_STYLE =
 const CORNER_GRIP_STYLE = "width: 44px; height: 44px; border-radius: 50%; touch-action: none";
 // Half the grab handle's 20 px thickness and a 4 px gap.
 const GRIP_CLEARANCE_PX = 14;
-const coarsePointer = () => window.matchMedia("(pointer: coarse)").matches;
+// Where a DOM event on a Marker falls on the map.
+const pixelOn = (map: MapLibreMap, event: MouseEvent): Pixel => {
+  const box = map.getContainer().getBoundingClientRect();
+  return { x: event.clientX - box.left, y: event.clientY - box.top };
+};
 
 export class RoomEditor {
   floors: FloorEntry[] = [];
@@ -89,6 +94,7 @@ export class RoomEditor {
   // Touch screens only: edge grab handles, then corner targets.
   private _grips: Marker[] = [];
   private _heldGrip?: HTMLElement;
+  private _resizeLive = false;
   private _editingSide?: number;
   // Counts acknowledged saves and started refreshes, so an older refresh cannot undo a newer save.
   private _changes = 0;
@@ -381,6 +387,8 @@ export class RoomEditor {
 
   // In Adjust each side of the active room, when it is a rectangle on the site axis, is a button that opens a length field.
   private _showSides() {
+    // A held handle would lose its pointer capture, and the draft shows the lengths; `_resizing` rebuilds after.
+    if (this._resizeLive) return;
     for (const marker of [...this._sides, ...this._grips]) marker.remove();
     this._sides = [];
     this._grips = [];
@@ -414,12 +422,14 @@ export class RoomEditor {
           this._editingSide = edgeIndex;
           this._showSides();
         });
+        // A button sits on its edge and covers part of it, so a press on it drags that edge; a click without a drag still opens the field.
+        control.addEventListener("mousedown", (event) => {
+          if (event.button === 0) this._interaction?.startResize({ kind: "edge", index: edgeIndex }, pixelOn(map, event), event.altKey, true);
+        });
       }
       control.style.cssText = SIDE_STYLE;
       if (control === field) control.style.width = "6em";
-      // A button sits on its edge, so a press on it reaches the map and can drag the edge; a click without a drag still opens the field.
-      const own = control === field ? MAP_EVENTS : MAP_EVENTS.filter((type) => type !== "mousedown");
-      for (const type of own) control.addEventListener(type, (event) => event.stopPropagation());
+      for (const type of MAP_EVENTS) control.addEventListener(type, (event) => event.stopPropagation());
       const element = document.createElement("span");
       element.append(control);
       return new Marker({ element }).setLngLat(at as [number, number]).addTo(map);
@@ -448,10 +458,7 @@ export class RoomEditor {
     const element = Object.assign(document.createElement("div"), { className: `${target.kind}-grip` });
     element.style.cssText = style;
     element.setAttribute("aria-hidden", "true");
-    const pixel = (event: PointerEvent) => {
-      const box = map.getContainer().getBoundingClientRect();
-      return { x: event.clientX - box.left, y: event.clientY - box.top };
-    };
+    const pixel = (event: PointerEvent) => pixelOn(map, event);
     element.addEventListener("pointerdown", (event) => {
       event.stopPropagation();
       if (!this._interaction?.startResize(target, pixel(event), false)) return;
@@ -460,7 +467,8 @@ export class RoomEditor {
     });
     element.addEventListener("pointermove", (event) => this._interaction?.resizeTo(pixel(event), false));
     element.addEventListener("pointerup", (event) => this._interaction?.endResize(pixel(event), false));
-    element.addEventListener("pointercancel", () => this._interaction?.cancel());
+    // Capture lost before the release, say to a system gesture, leaves no drag behind for later mouse events.
+    for (const type of ["pointercancel", "lostpointercapture"]) element.addEventListener(type, () => this._interaction?.cancelResize());
     for (const type of MAP_EVENTS) element.addEventListener(type, (event) => event.stopPropagation());
     return new Marker({ element, rotationAlignment: "map", rotation }).setLngLat(at as [number, number]).addTo(map);
   }
@@ -518,6 +526,7 @@ export class RoomEditor {
   // While an edge or corner is dragged the draft shows its lengths, so the side buttons hide; a
   // save shows them again when it settles.
   private _resizing(resizing: boolean) {
+    this._resizeLive = resizing;
     if (!resizing) {
       if (!this._saving) this._showSides();
       return;

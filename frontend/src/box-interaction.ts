@@ -4,7 +4,7 @@ import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
 import { feature } from "@turf/helpers";
 import type { FeatureCollection, Point, Polygon, Position } from "geojson";
 import { type GeoJSONSource, Marker, type MapMouseEvent, type Map as MapLibreMap } from "maplibre-gl";
-import { CornerDrag, EdgeDrag, cornerAt, edgeAt } from "./edge-drag";
+import { CornerDrag, EdgeDrag, type Pixel, cornerAt, edgeAt } from "./edge-drag";
 import type { LayerColours } from "./map-paint";
 import { mapBearing } from "./map-view";
 import { addToFootprint, areaLabel, boxFromCorners, centreOf, isAxisRectangle, movePolygon, sideLabels } from "./plan";
@@ -13,11 +13,6 @@ import type { LatticePoint, PlanFrame } from "./site-frame";
 import { type SnapCandidates, type SnapOptions, snapMove, snapPoint } from "./snap";
 import { SnapHighlight } from "./snap-highlight";
 import type { HassUnits } from "./units";
-
-export interface Pixel {
-  x: number;
-  y: number;
-}
 
 /** An edge of the active rectangle by its start corner, or one of its corners. */
 export interface ResizeTarget {
@@ -71,13 +66,16 @@ interface Resize extends Snapping {
   offset: [number, number];
   press: Pixel;
   moved: boolean;
+  // Started by the mouse, so map mouse events drive it; a touch handle drives its own.
+  byMouse: boolean;
 }
 
 const lngLatOf = (event: MapMouseEvent): Position => [event.lngLat.lng, event.lngLat.lat];
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 const DRAG_MIN_PX = 5;
+export const coarsePointer = () => window.matchMedia("(pointer: coarse)").matches;
 // A finger covers more of the map than a mouse pointer.
-const snapRadiusPx = () => (window.matchMedia("(pointer: coarse)").matches ? 12 : 8);
+const snapRadiusPx = () => (coarsePointer() ? 12 : 8);
 const LABEL_STYLE =
   "font: 12px sans-serif; background: color-mix(in srgb, var(--card-background-color) 85%, transparent); color: var(--primary-text-color); padding: 0 3px; border-radius: 3px; pointer-events: none";
 
@@ -256,7 +254,7 @@ export class BoxInteraction {
     // Until the first site reply there is no lattice to draw on.
     if (!frame) return;
     const target = this.resizeTarget(event.point);
-    if (target && this.startResize(target, event.point, event.originalEvent.altKey)) {
+    if (target && this.startResize(target, event.point, event.originalEvent.altKey, true)) {
       // Keeps MapLibre from panning the map under the edge.
       event.preventDefault();
       return;
@@ -280,8 +278,9 @@ export class BoxInteraction {
   };
 
   private _move = (event: MapMouseEvent) => {
+    // A browser makes mouse events up from a touch; a touch handle's drag ignores them.
     if (this._resize) {
-      this.resizeTo(event.point, event.originalEvent.altKey);
+      if (this._resize.byMouse) this.resizeTo(event.point, event.originalEvent.altKey);
       return;
     }
     const grab = this._grab;
@@ -306,7 +305,7 @@ export class BoxInteraction {
 
   private _up = (event: MapMouseEvent) => {
     if (this._resize) {
-      this.endResize(event.point, event.originalEvent.altKey);
+      if (this._resize.byMouse) this.endResize(event.point, event.originalEvent.altKey);
       return;
     }
     const start = this._pressCorner;
@@ -343,7 +342,7 @@ export class BoxInteraction {
   }
 
   /** Grabs an edge or a corner of the active axis rectangle at a pixel; false when there is none to grab. */
-  startResize(target: ResizeTarget, pixel: Pixel, free: boolean): boolean {
+  startResize(target: ResizeTarget, pixel: Pixel, free: boolean, byMouse = false): boolean {
     const room = this._resizable();
     const frame = this._callbacks.siteFrame();
     if (!room || !frame) return false;
@@ -357,10 +356,16 @@ export class BoxInteraction {
       offset: [anchorX - x, anchorY - y],
       press: pixel,
       moved: false,
+      byMouse,
     };
     this._setCursor(this._cursorOf(target));
     if (free) this._altInMove = true;
     return true;
+  }
+
+  /** Ends a drag of an edge or a corner without a save, if one is going on. */
+  cancelResize() {
+    if (this._resize) this.cancel();
   }
 
   /** Follows the pointer once it is a few pixels from the press, with the draft and its lengths. */

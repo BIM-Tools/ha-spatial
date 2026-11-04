@@ -1683,18 +1683,27 @@ test("in Adjust a press on an edge of the active rectangle drags that edge, with
   expect(cornerSet(saves(connection)[1].areas.kitchen)).toEqual(KITCHEN_BOX);
 });
 
-test("a press on a side button reaches the map, so the edge under it drags, while its click stays its own", async () => {
-  const { panel } = mountEditor();
+test("a press on the inner end of a side button drags its own edge, not the room, and its click still opens the field", async () => {
+  const { panel, connection } = mountEditor();
   await startAdjusting(panel);
   await tapRoom(panel, "kitchen");
+  // The left edge's button, pressed 15 px inside the room: beyond the edge's snap radius.
+  const button = sideButtons()[3];
   const reached: string[] = [];
-  const button = sideButtons()[0];
-  // The map listens on the Marker's element and above it.
-  for (const type of ["mousedown", "click"]) button.parentElement!.addEventListener(type, () => reached.push(type));
-  button.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-  button.click();
-  expect(reached).toEqual(["mousedown"]);
+  button.parentElement!.addEventListener("mousedown", () => reached.push("mousedown"));
+  button.dispatchEvent(new MouseEvent("mousedown", { clientX: 15, clientY: 25, button: 0, bubbles: true }));
+  expect(reached).toEqual([]);
+  handlers.mousemove(mouse(5, 25));
+  handlers.mousemove(mouse(-5, 25));
+  handlers.mouseup(mouse(-5, 25));
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  expect(cornerSet(saves(connection)[0].areas.kitchen)).toEqual(latticeBox(-80, -200, 200, 0));
+  await vi.waitFor(() => expect(sidesVisible()).toEqual([true, true, true, true]));
+  sideButtons()[0].dispatchEvent(new MouseEvent("mousedown", { clientX: 25, clientY: 0, button: 0, bubbles: true }));
+  handlers.mouseup(mouse(25, 0));
+  sideButtons()[0].click();
   expect(sideField()).toBeDefined();
+  expect(saves(connection)).toHaveLength(1);
 });
 
 test("an edge drag released where it started saves nothing and records no undo step", async () => {
@@ -1891,6 +1900,50 @@ test("each side chip sits outward of its grab handle, clear of it", async () => 
   expect(right[0]).toBeGreaterThan(13.9);
   expect(bottom[1]).toBeGreaterThan(13.9);
   expect(left[0]).toBeLessThan(-13.9);
+  vi.restoreAllMocks();
+});
+
+test("a refresh during a handle drag keeps the handles and hidden chips, and only the handle's release saves", async () => {
+  coarsePointer(true);
+  const { panel, connection } = mountEditor();
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  const grip = edgeGrips()[3].element;
+  const at = (type: string, [clientX, clientY]: [number, number]) =>
+    grip.dispatchEvent(new PointerEvent(type, { clientX, clientY, pointerId: 1, bubbles: true, cancelable: true }));
+  at("pointerdown", [0, 25]);
+  at("pointermove", [-12, 25]);
+  await onUpdateOf(connection)();
+  await settle(panel);
+  expect(edgeGrips()[3].element).toBe(grip);
+  expect(sideChips().map(({ element }) => element.style.visibility)).toEqual(["hidden", "hidden", "hidden", "hidden"]);
+  // The mouse events a browser makes up from a touch do not end a handle's drag.
+  handlers.mouseup(mouse(-30, 25));
+  await settle(panel);
+  expect(saves(connection)).toEqual([]);
+  at("pointerup", [-19.2, 25]);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  expect(cornerSet(saves(connection)[0].areas.kitchen)).toEqual(latticeBox(-76, -200, 200, 0));
+  vi.restoreAllMocks();
+});
+
+test("a handle that loses its pointer capture cancels its drag without a save", async () => {
+  coarsePointer(true);
+  const { panel, connection } = mountEditor();
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  const grip = edgeGrips()[3].element;
+  const at = (type: string, [clientX, clientY]: [number, number]) =>
+    grip.dispatchEvent(new PointerEvent(type, { clientX, clientY, pointerId: 1, bubbles: true, cancelable: true }));
+  at("pointerdown", [0, 25]);
+  at("pointermove", [-12, 25]);
+  at("lostpointercapture", [-12, 25]);
+  expect(sources["spatial-draft"].data).toEqual(EMPTY);
+  at("pointerup", [-19.2, 25]);
+  handlers.mouseup(mouse(-19.2, 25));
+  await settle(panel);
+  expect(saves(connection)).toEqual([]);
+  expect(sideChips().map(({ element }) => element.style.visibility)).toEqual(["", "", "", ""]);
   vi.restoreAllMocks();
 });
 
