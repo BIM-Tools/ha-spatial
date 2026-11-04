@@ -112,13 +112,6 @@ export function movePolygon(frame: PlanFrame, shape: Polygon, delta: LatticePoin
   return { type: "Polygon", coordinates: moved };
 }
 
-/** The nearest grid point, in lattice units. */
-export function gridPoint(frame: PlanFrame, lonLat: Position): LatticePoint {
-  const step = frame.unitsPerStep;
-  const [x, y] = frame.toLatticeUnits(lonLat);
-  return [Math.round(x / step) * step + 0, Math.round(y / step) * step + 0];
-}
-
 /**
  * The footprint with the box added, or undefined when the result is not one Polygon. Joined on
  * lattice units, where shared walls are exact; in lon/lat a partly shared edge can open a gap.

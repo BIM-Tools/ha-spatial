@@ -487,6 +487,17 @@ def draw_box_apart(shot: Shot) -> None:
     shot.start_drag((left + width * 0.1, bottom + 20), (left + width * 0.4, bottom + 80))
 
 
+def snap_highlight(shot: Shot) -> None:
+    draw_active(shot)
+    # Without a shape, so a press inside the house draws rather than moves.
+    shot.activate_pill("Utility")
+    left, top, _, _ = shot.floor_screen_box("Ground floor")
+    corners = [shot.screen_point(*point) for point in shot.house.floor_points("Ground floor")]
+    x, y = min(corners, key=lambda corner: (corner[0] - left) ** 2 + (corner[1] - top) ** 2)
+    # From above the house to 5 px off its top left corner, which lights up.
+    shot.start_drag((x + 80, y - 60), (x + 4, y + 3))
+
+
 def adjust_room_active(shot: Shot) -> None:
     floor_plan(shot)
     shot.click(*shot.room_centre("Living room"))
@@ -635,6 +646,12 @@ STATES = [
         "drawing",
         "A box apart from the active kitchen, in the warning look",
         draw_box_apart,
+    ),
+    State(
+        "snap-highlight",
+        "drawing",
+        "Drawing a box onto the house's corner: the corner it snaps to lights up",
+        snap_highlight,
     ),
     State(
         "toast-apart-box",
