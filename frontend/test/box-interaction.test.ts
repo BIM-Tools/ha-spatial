@@ -60,6 +60,8 @@ const mountInteraction = (
   const onBox = vi.fn();
   const onMove = vi.fn();
   const onPickRoom = vi.fn();
+  const onResize = vi.fn();
+  const onResizing = vi.fn();
   mounted = new BoxInteraction(map, {
     tool: () => tool,
     floorPicked: () => true,
@@ -76,10 +78,12 @@ const mountInteraction = (
     units: () => METRIC_UNITS,
     onBox,
     onMove,
+    onResize,
+    onResizing,
     onPickRoom,
   });
   mounted.addLayers(layerColours(readMapPaint(document.body, false)));
-  return { onBox, onMove, onPickRoom };
+  return { onBox, onMove, onPickRoom, onResize, onResizing };
 };
 
 const pointEvent = (x: number, y: number, button = 0, altKey = false) => {
@@ -337,6 +341,32 @@ test("in adjust mode a click on a room picks it", () => {
 
   handlers.click(pointEvent(10, 10));
   expect(onPickRoom).toHaveBeenCalledWith("living_room");
+});
+
+test("in Adjust a press on an edge of the active rectangle resizes it instead of moving it, and says when it starts and ends", () => {
+  const { onMove, onResize, onResizing } = mountInteraction("adjust", { areaId: "room", footprint: ROOM });
+  const press = pointEvent(48, 25);
+  handlers.mousedown(press);
+  expect(press.preventDefault).toHaveBeenCalled();
+  handlers.mousemove(pointEvent(50, 25));
+  expect(onResizing).not.toHaveBeenCalled();
+  handlers.mousemove(pointEvent(60, 25));
+  expect(onResizing).toHaveBeenLastCalledWith(true);
+  handlers.mouseup(pointEvent(70, 25));
+  expect(onMove).not.toHaveBeenCalled();
+  expect(onResizing).toHaveBeenLastCalledWith(false);
+  const corners = boxCorners(onResize.mock.calls[0][1]);
+  expect(corners).toContainEqual(cornerAt(72, 0));
+  expect(corners).toContainEqual(cornerAt(0, 50));
+});
+
+test("in Draw an edge press of the active room moves it, as edges resize only in Adjust", () => {
+  const { onMove, onResize } = mountInteraction("draw", { areaId: "room", footprint: ROOM });
+  handlers.mousedown(pointEvent(48, 25));
+  handlers.mousemove(pointEvent(60, 25));
+  handlers.mouseup(pointEvent(60, 25));
+  expect(onResize).not.toHaveBeenCalled();
+  expect(onMove).toHaveBeenCalledTimes(1);
 });
 
 test("Escape cancels an in-progress draft", () => {

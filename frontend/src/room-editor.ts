@@ -126,7 +126,9 @@ export class RoomEditor {
       snapCandidates: (frame, exclude) => this._snapCandidates(frame, exclude),
       units: () => this._host.units(),
       onBox: (box, frame) => this._finishBox(box, frame),
-      onMove: (room, moved) => this._saveMove(room, moved),
+      onMove: (room, moved) => this._saveShape(room, moved),
+      onResize: (room, resized) => this._saveShape(room, resized),
+      onResizing: (resizing) => this._resizing(resizing),
       onPickRoom: (areaId) => this._select(areaId),
     });
     window.addEventListener("keydown", this._keys);
@@ -436,8 +438,18 @@ export class RoomEditor {
     }, current ? undefined : footprint);
   }
 
-  private _saveMove({ areaId, footprint }: ActiveRoom, moved: Polygon) {
-    this._whileSaving(() => this._apply({ before: { [areaId]: footprint }, after: { [areaId]: moved } }));
+  private _saveShape({ areaId, footprint }: ActiveRoom, changed: Polygon) {
+    this._whileSaving(() => this._apply({ before: { [areaId]: footprint }, after: { [areaId]: changed } }));
+  }
+
+  // While an edge or corner is dragged the draft shows its lengths, so the side buttons hide; a
+  // save shows them again when it settles.
+  private _resizing(resizing: boolean) {
+    if (!resizing) {
+      if (!this._saving) this._showSides();
+      return;
+    }
+    for (const side of this._sides) side.getElement().style.visibility = "hidden";
   }
 
   private async _apply(change: Change) {

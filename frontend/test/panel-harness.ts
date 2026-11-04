@@ -27,6 +27,8 @@ export let layers: {
   paint?: Record<string, unknown>;
 }[] = [];
 export let mapBearingNow = 0;
+// The canvas of the latest map, whose style carries the cursor.
+export let mapCanvas = document.createElement("canvas");
 
 export interface FakeMarker {
   removed: boolean;
@@ -98,6 +100,7 @@ export const fakeMapLibre = {
     dragRotate = dragRotate;
     touchZoomRotate = touchZoomRotate;
     touchPitch = handler();
+    canvas = (mapCanvas = document.createElement("canvas"));
     constructor(options: { bearing?: number }) {
       mapCreated(options);
       handlers = {};
@@ -116,6 +119,9 @@ export const fakeMapLibre = {
     remove() {}
     getContainer() {
       return document.body;
+    }
+    getCanvas() {
+      return this.canvas;
     }
     addSource(id: string, source: { data: unknown }) {
       sources[id] = { data: source.data };

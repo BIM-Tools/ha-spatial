@@ -2,7 +2,7 @@
 // Checks drawing, adjusting and undoing rooms in the panel against a fake MapLibre and a scripted Home Assistant connection.
 import area from "@turf/area";
 import distance from "@turf/distance";
-import type { Feature, Point, Polygon } from "geojson";
+import type { Feature, Point, Polygon, Position } from "geojson";
 import { afterEach, expect, test, vi } from "vitest";
 import {
   EMPTY,
@@ -16,6 +16,7 @@ import {
   floorButtonNames,
   liveMarkers,
   layers,
+  mapCanvas,
   mapCreated,
   guideText,
   partsText,
@@ -147,9 +148,9 @@ const startDrawing = async (panel: HTMLElement, floor = "Ground floor") => {
   await settle(panel);
 };
 
-const mouse = (x: number, y: number) => {
+const mouse = (x: number, y: number, altKey = false) => {
   const [lng, lat] = unprojectPixel([x, y]);
-  return { point: { x, y }, lngLat: { lng, lat }, originalEvent: { button: 0 }, preventDefault: vi.fn() };
+  return { point: { x, y }, lngLat: { lng, lat }, originalEvent: { button: 0, altKey }, preventDefault: vi.fn() };
 };
 
 const tap = (x: number, y: number) => {
@@ -1627,4 +1628,187 @@ test("two quick taps on New area create one area", async () => {
   chip(panel, "New area").click();
   await vi.waitFor(() => expect(renameField(panel)?.value).toBe("Room 1"));
   expect(sent(connection, "config/area_registry/create")).toHaveLength(1);
+});
+
+// The lattice corners of a shape, in a fixed order, whatever corner its ring starts at.
+const cornerSet = (shape: Polygon, frame = FRAME) =>
+  shape.coordinates[0]
+    .slice(0, -1)
+    .map((corner) => frame.toLattice(corner))
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+const latticeBox = (left: number, bottom: number, right: number, top: number) =>
+  [
+    [left, bottom],
+    [left, top],
+    [right, bottom],
+    [right, top],
+  ].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+// KITCHEN in lattice units: a pixel is 4 units, and lattice y runs up the screen.
+const KITCHEN_BOX = latticeBox(0, -200, 200, 0);
+
+// The draft's own chips: plain labels, not the editor's side buttons or the room labels.
+const draftLabels = () =>
+  liveMarkers()
+    .filter((marker) => !marker.element.firstElementChild && !marker.element.matches(".room-label, .building-label"))
+    .map((marker) => marker.element.textContent);
+const sidesVisible = () => sideButtons().map((button) => button.parentElement!.style.visibility !== "hidden");
+
+const dragThrough = (points: [number, number][], altKey = false) => {
+  handlers.mousedown(mouse(...points[0], altKey));
+  for (const point of points.slice(1)) handlers.mousemove(mouse(...point, altKey));
+  handlers.mouseup(mouse(...points[points.length - 1], altKey));
+};
+
+test("in Adjust a press on an edge of the active rectangle drags that edge, with counting chips, in one save and one undo step", async () => {
+  const { panel, connection } = mountEditor();
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  const press = mouse(1, 25);
+  handlers.mousedown(press);
+  expect(press.preventDefault).toHaveBeenCalled();
+  handlers.mousemove(mouse(-12, 25));
+  expect(draftLabels()).toContain("6.30 m");
+  handlers.mousemove(mouse(-19.2, 25));
+  expect(draftLabels()).toContain("7.00 m");
+  expect(sidesVisible()).toEqual([false, false, false, false]);
+  handlers.mouseup(mouse(-19.2, 25));
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  expect(cornerSet(saves(connection)[0].areas.kitchen)).toEqual(latticeBox(-80, -200, 200, 0));
+  await vi.waitFor(() => expect(sidesVisible()).toEqual([true, true, true, true]));
+  expect(sideButtons().map((button) => button.textContent)).toContain("7.00 m");
+  sideButtons()[0].click();
+  expect(sideField()).toBeDefined();
+  buttonNamed(panel, "Undo")!.click();
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
+  expect(cornerSet(saves(connection)[1].areas.kitchen)).toEqual(KITCHEN_BOX);
+});
+
+test("an edge drag released where it started saves nothing and records no undo step", async () => {
+  const { panel, connection } = mountEditor();
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  dragThrough([
+    [1, 25],
+    [-10, 25],
+    [0.6, 25],
+  ]);
+  await settle(panel);
+  expect(saves(connection)).toEqual([]);
+  expect(buttonNamed(panel, "Undo")!.disabled).toBe(true);
+  expect(sidesVisible()).toEqual([true, true, true, true]);
+});
+
+test("hovering an edge or a corner of the active rectangle shows the resize cursor along it", async () => {
+  const { panel } = mountEditor();
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  const cursorAt = (x: number, y: number) => {
+    handlers.mousemove(mouse(x, y));
+    return mapCanvas.style.cursor;
+  };
+  expect(cursorAt(1, 25)).toBe("ew-resize");
+  expect(cursorAt(25, 49)).toBe("ns-resize");
+  expect(cursorAt(1, 1)).toBe("nwse-resize");
+  expect(cursorAt(49, 1)).toBe("nesw-resize");
+  expect(cursorAt(25, 25)).toBe("");
+});
+
+test("with the map turned 40 degrees off the site axis the edge drag follows the room's edges", async () => {
+  const { panel, connection } = mountEditor();
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  const map = (panel as unknown as { _map: { setBearing(bearing: number): void; project(at: Position): { x: number; y: number } } })
+    ._map;
+  map.setBearing(340);
+  const screenOf = (point: [number, number]): [number, number] => {
+    const { x, y } = map.project(FRAME.fromLattice(point));
+    return [x, y];
+  };
+  handlers.mousemove(mouse(...screenOf([2, -100])));
+  expect(mapCanvas.style.cursor).toBe("ew-resize");
+  dragThrough([screenOf([4, -100]), screenOf([-30, -100]), screenOf([-76.8, -100])]);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  expect(cornerSet(saves(connection)[0].areas.kitchen)).toEqual(latticeBox(-80, -200, 200, 0));
+});
+
+test("an edge drag of the Building rectangle saves the outline", async () => {
+  const { panel, connection } = mountEditor();
+  await startAdjusting(panel);
+  chip(panel, "Building").click();
+  await settle(panel);
+  dragThrough([
+    [99, 150],
+    [110, 150],
+    [120, 150],
+  ]);
+  await vi.waitFor(() => expect(siteSaves(connection)).toHaveLength(1));
+  expect(cornerSet(siteSaves(connection)[0].outline!)).toEqual(latticeBox(0, -800, 484, -400));
+  expect(saves(connection)).toEqual([]);
+});
+
+// Bath's bottom right corner sits at pixel (-10, -10), lattice (-40, 40).
+const withBathUpLeft = async () => {
+  const mounted = mountEditor();
+  await startAdjusting(mounted.panel);
+  mounted.setFeed([feature("kitchen", KITCHEN), feature("bath", pixelBox(-30, -30, -10, -10))]);
+  await onUpdateOf(mounted.connection)();
+  await tapRoom(mounted.panel, "kitchen");
+  return mounted;
+};
+
+test("a press near a corner drags the corner, not an edge: the opposite corner stays", async () => {
+  const { panel, connection } = mountEditor();
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  dragThrough([
+    [1, 1],
+    [-5, -5],
+    [-10.3, -10.3],
+  ]);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  expect(cornerSet(saves(connection)[0].areas.kitchen)).toEqual(latticeBox(-44, -200, 200, 44));
+});
+
+test("a dragged corner snaps to a neighbour's corner and lights it, in one save and one undo step", async () => {
+  const { panel, connection } = await withBathUpLeft();
+  handlers.mousedown(mouse(1, 1));
+  handlers.mousemove(mouse(-5, -5));
+  handlers.mousemove(mouse(-11.5, -11));
+  expect(snapPoint()).toEqual([-40, 40]);
+  handlers.mouseup(mouse(-11.5, -11));
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  expect(cornerSet(saves(connection)[0].areas.kitchen)).toEqual(latticeBox(-40, -200, 200, 40));
+  expect(snapPoint()).toBeUndefined();
+  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
+  buttonNamed(panel, "Undo")!.click();
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
+  expect(cornerSet(saves(connection)[1].areas.kitchen)).toEqual(KITCHEN_BOX);
+});
+
+test("Alt keeps a dragged corner off the snap, on the lattice", async () => {
+  const { connection } = await withBathUpLeft();
+  dragThrough(
+    [
+      [1, 1],
+      [-5, -5],
+      [-11.5, -11],
+    ],
+    true,
+  );
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  expect(cornerSet(saves(connection)[0].areas.kitchen)).toEqual(latticeBox(-50, -200, 200, 48));
+});
+
+test("Escape cancels an edge drag in Adjust without a save", async () => {
+  const { panel, connection } = mountEditor();
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  handlers.mousedown(mouse(1, 25));
+  handlers.mousemove(mouse(-19.2, 25));
+  key("keydown", "Escape");
+  expect(sources["spatial-draft"].data).toEqual(EMPTY);
+  handlers.mouseup(mouse(-19.2, 25));
+  await settle(panel);
+  expect(saves(connection)).toEqual([]);
+  expect(sidesVisible()).toEqual([true, true, true, true]);
 });
