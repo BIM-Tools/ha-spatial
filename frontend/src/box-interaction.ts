@@ -4,7 +4,7 @@ import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
 import { feature } from "@turf/helpers";
 import type { FeatureCollection, Point, Polygon, Position } from "geojson";
 import { type GeoJSONSource, Marker, type MapMouseEvent, type Map as MapLibreMap } from "maplibre-gl";
-import { CornerDrag, EdgeDrag, type Pixel, cornerAt, edgeAt } from "./edge-drag";
+import { type Pixel, type ResizeTarget, resizeCursor, resizeRectangle, resizeTargetAt } from "./edge-drag";
 import type { LayerColours } from "./map-paint";
 import { mapBearing } from "./map-view";
 import { addToFootprint, areaLabel, boxFromCorners, centreOf, isAxisRectangle, movePolygon, sideLabels } from "./plan";
@@ -14,11 +14,6 @@ import { type SnapCandidates, type SnapOptions, snapMove, snapPoint } from "./sn
 import { SnapHighlight } from "./snap-highlight";
 import type { HassUnits } from "./units";
 
-/** An edge of the active rectangle by its start corner, or one of its corners. */
-export interface ResizeTarget {
-  kind: "edge" | "corner";
-  index: number;
-}
 
 export interface ActiveRoom {
   areaId: string;
@@ -61,21 +56,18 @@ interface Start extends Snapping {
 
 interface Resize extends Snapping {
   room: ActiveRoom;
-  drag: EdgeDrag | CornerDrag;
+  target: ResizeTarget;
   // From the pointer to the grabbed edge or corner, so it does not jump to the pointer.
   offset: [number, number];
   press: Pixel;
   moved: boolean;
-  // Started by the mouse, so map mouse events drive it; a touch handle drives its own.
-  byMouse: boolean;
 }
 
 const lngLatOf = (event: MapMouseEvent): Position => [event.lngLat.lng, event.lngLat.lat];
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 const DRAG_MIN_PX = 5;
-export const coarsePointer = () => window.matchMedia("(pointer: coarse)").matches;
 // A finger covers more of the map than a mouse pointer.
-const snapRadiusPx = () => (coarsePointer() ? 12 : 8);
+const snapRadiusPx = () => (window.matchMedia("(pointer: coarse)").matches ? 12 : 8);
 const LABEL_STYLE =
   "font: 12px sans-serif; background: color-mix(in srgb, var(--card-background-color) 85%, transparent); color: var(--primary-text-color); padding: 0 3px; border-radius: 3px; pointer-events: none";
 
@@ -253,8 +245,8 @@ export class BoxInteraction {
     const frame = this._callbacks.siteFrame();
     // Until the first site reply there is no lattice to draw on.
     if (!frame) return;
-    const target = this.resizeTarget(event.point);
-    if (target && this.startResize(target, event.point, event.originalEvent.altKey, true)) {
+    const target = this._resizeTarget(event.point);
+    if (target && this.startResize(target, event.point, event.originalEvent.altKey)) {
       // Keeps MapLibre from panning the map under the edge.
       event.preventDefault();
       return;
@@ -278,14 +270,13 @@ export class BoxInteraction {
   };
 
   private _move = (event: MapMouseEvent) => {
-    // A browser makes mouse events up from a touch; a touch handle's drag ignores them.
     if (this._resize) {
-      if (this._resize.byMouse) this.resizeTo(event.point, event.originalEvent.altKey);
+      this._resizeTo(this._resize, event.point, event.originalEvent.altKey);
       return;
     }
     const grab = this._grab;
     if (!this._canDraw() && !grab) {
-      const target = this._press ? undefined : this.resizeTarget(event.point);
+      const target = this._press ? undefined : this._resizeTarget(event.point);
       this._setCursor(target ? this._cursorOf(target) : "");
       return;
     }
@@ -305,7 +296,7 @@ export class BoxInteraction {
 
   private _up = (event: MapMouseEvent) => {
     if (this._resize) {
-      if (this._resize.byMouse) this.endResize(event.point, event.originalEvent.altKey);
+      this._endResize(this._resize, event.point, event.originalEvent.altKey);
       return;
     }
     const start = this._pressCorner;
@@ -329,49 +320,40 @@ export class BoxInteraction {
     this._setCursor("");
   };
 
-  /** The corner, else the edge, of the active axis rectangle within the snap radius of a pixel; in Adjust only. */
-  resizeTarget(pixel: Pixel): ResizeTarget | undefined {
-    const room = this._resizable();
-    if (!room) return undefined;
-    const project = (position: Position) => this._map.project(position as [number, number]);
-    const radiusPx = snapRadiusPx();
-    const corner = cornerAt(pixel, room.footprint, project, radiusPx);
-    if (corner !== undefined) return { kind: "corner", index: corner };
-    const edge = edgeAt(pixel, room.footprint, project, radiusPx);
-    return edge === undefined ? undefined : { kind: "edge", index: edge };
+  /** Whether an edge or a corner is held, from its press to its release. */
+  get resizing() {
+    return Boolean(this._resize);
   }
 
   /** Grabs an edge or a corner of the active axis rectangle at a pixel; false when there is none to grab. */
-  startResize(target: ResizeTarget, pixel: Pixel, free: boolean, byMouse = false): boolean {
+  startResize(target: ResizeTarget, pixel: Pixel, free: boolean): boolean {
     const room = this._resizable();
     const frame = this._callbacks.siteFrame();
     if (!room || !frame) return false;
-    const Drag = target.kind === "edge" ? EdgeDrag : CornerDrag;
     const [anchorX, anchorY] = frame.toLattice(room.footprint.coordinates[0][target.index]);
     const [x, y] = this._latticeAt(pixel, frame);
     this._resize = {
       ...this._snapping(frame, room.areaId),
       room,
-      drag: new Drag(frame, room.footprint, target.index),
+      target,
       offset: [anchorX - x, anchorY - y],
       press: pixel,
       moved: false,
-      byMouse,
     };
     this._setCursor(this._cursorOf(target));
     if (free) this._altInMove = true;
     return true;
   }
 
-  /** Ends a drag of an edge or a corner without a save, if one is going on. */
-  cancelResize() {
-    if (this._resize) this.cancel();
+  // The corner, else the edge, of the active axis rectangle within the snap radius of a pixel; in Adjust only.
+  private _resizeTarget(pixel: Pixel): ResizeTarget | undefined {
+    const room = this._resizable();
+    const project = (position: Position) => this._map.project(position as [number, number]);
+    return room && resizeTargetAt(pixel, room.footprint, project, snapRadiusPx());
   }
 
-  /** Follows the pointer once it is a few pixels from the press, with the draft and its lengths. */
-  resizeTo(pixel: Pixel, free: boolean) {
-    const resize = this._resize;
-    if (!resize) return;
+  // Follows the pointer once it is a few pixels from the press, with the draft and its lengths.
+  private _resizeTo(resize: Resize, pixel: Pixel, free: boolean) {
     if (!resize.moved) {
       if (Math.hypot(pixel.x - resize.press.x, pixel.y - resize.press.y) < DRAG_MIN_PX) return;
       resize.moved = true;
@@ -382,15 +364,14 @@ export class BoxInteraction {
     this._highlight.show(resize.frame, source);
   }
 
-  /** Saves a changed shape as one action; a press that did not move, or a drag back to the start, saves nothing. */
-  endResize(pixel: Pixel, free: boolean) {
-    const resize = this._resize;
+  // A press that did not move, or a drag back to the start, saves nothing.
+  private _endResize(resize: Resize, pixel: Pixel, free: boolean) {
     this._resize = undefined;
-    if (!resize?.moved) return;
-    const { shape } = this._resized(resize, pixel, free);
+    if (!resize.moved) return;
+    const { shape, changed } = this._resized(resize, pixel, free);
     this._preview(undefined);
     this._highlight.clear();
-    if (resize.drag.changed) this._callbacks.onResize(resize.room, shape);
+    if (changed) this._callbacks.onResize(resize.room, shape);
     this._callbacks.onResizing(false);
   }
 
@@ -405,23 +386,16 @@ export class BoxInteraction {
   private _resized(resize: Resize, pixel: Pixel, free: boolean) {
     const [x, y] = this._latticeAt(pixel, resize.frame);
     const pointer: [number, number] = [x + resize.offset[0], y + resize.offset[1]];
-    return resize.drag.drag(pointer, resize.candidates, this._options(pixel, free, resize));
+    return resizeRectangle(resize.frame, resize.room.footprint, resize.target, pointer, resize.candidates, this._options(pixel, free, resize));
   }
 
   private _latticeAt(pixel: Pixel, frame: PlanFrame): [number, number] {
     return frame.toLatticeUnits(this._map.unproject([pixel.x, pixel.y]).toArray());
   }
 
-  // Across an edge that runs along the screen or down it; corner to corner on a screen diagonal.
-  private _cursorOf({ kind, index }: ResizeTarget): string {
+  private _cursorOf(target: ResizeTarget): string {
     const corners = this._callbacks.activeRoom()!.footprint.coordinates[0].map((corner) => this._map.project(corner as [number, number]));
-    const from = corners[index];
-    if (kind === "edge") {
-      const to = corners[(index + 1) % 4];
-      return Math.abs(to.x - from.x) >= Math.abs(to.y - from.y) ? "ns-resize" : "ew-resize";
-    }
-    const opposite = corners[(index + 2) % 4];
-    return (from.x - opposite.x) * (from.y - opposite.y) > 0 ? "nwse-resize" : "nesw-resize";
+    return resizeCursor(target, corners);
   }
 
   private _setCursor(cursor: string) {

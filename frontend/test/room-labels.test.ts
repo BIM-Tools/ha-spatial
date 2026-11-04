@@ -91,6 +91,15 @@ test("an icon-only room names itself in a chip while pointed at", () => {
   expect(shown("wc")?.chip).toBeUndefined();
 });
 
+test("a hidden room has no label until it is shown again, and the others keep theirs", () => {
+  const labels = mountLabels([pixelRoom("living", [0, 0], [200, 120]), pixelRoom("hall", [300, 0], [380, 50])], true, AREAS);
+  labels.hide(["living"]);
+  expect(shown("living")).toBeUndefined();
+  expect(shown("hall")?.name).toBe("Hall");
+  labels.hide([]);
+  expect(shown("living")?.name).toBe("Living room");
+});
+
 test("the outline is labelled Building only while the floor has no rooms", () => {
   const outline = pixelRoom("building", [0, 0], [400, 300]).geometry;
   const labels = mountLabels([], true, AREAS, outline);

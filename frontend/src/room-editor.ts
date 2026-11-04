@@ -1,11 +1,11 @@
 // Keeps the panel's room edits in step with Home Assistant: the area strip, side lengths, and each edit saved at once with undo and redo.
 
 import { point } from "@turf/helpers";
-import type { FeatureCollection, Polygon, Position } from "geojson";
+import type { FeatureCollection, Polygon } from "geojson";
 import { html } from "lit";
 import { type GeoJSONSource, Marker, type Map as MapLibreMap } from "maplibre-gl";
 import { type AreaEntry, BUILDING, newAreaName, nextActive, stripOrder } from "./area-strip";
-import { type ActiveRoom, BoxInteraction, type ResizeTarget, coarsePointer } from "./box-interaction";
+import { type ActiveRoom, BoxInteraction } from "./box-interaction";
 import type { Pixel } from "./edge-drag";
 import { type Change, type FootprintBatch, History } from "./history";
 import type { LayerColours } from "./map-paint";
@@ -55,6 +55,8 @@ export interface EditorHost {
   toast(toast: Toast): void;
   buildingName(): string;
   canRenameBuilding(): boolean;
+  // The rooms whose labels hide while a resize draft over them shows its lengths and area.
+  hideLabels(areaIds: string[]): void;
 }
 
 // A later save that succeeds closes the failure toast through this id.
@@ -64,12 +66,7 @@ const SIDE_STYLE =
   "font: 12px sans-serif; background: var(--card-background-color); color: var(--primary-text-color); border: 1px solid var(--primary-color); border-radius: 3px";
 // A side button or field sits on the map, inside a Marker that would block focus; its presses and keys stay its own.
 const MAP_EVENTS = ["mousedown", "touchstart", "click", "dblclick", "keydown"];
-const EDGE_GRIP_STYLE =
-  "box-sizing: border-box; width: 44px; height: 20px; border-radius: 9999px; background: var(--card-background-color); border: 2px solid var(--primary-color); touch-action: none";
-// Invisible over the corner's handle dot, which the map draws.
-const CORNER_GRIP_STYLE = "width: 44px; height: 44px; border-radius: 50%; touch-action: none";
-// Half the grab handle's 20 px thickness and a 4 px gap.
-const GRIP_CLEARANCE_PX = 14;
+
 // Where a DOM event on a Marker falls on the map.
 const pixelOn = (map: MapLibreMap, event: MouseEvent): Pixel => {
   const box = map.getContainer().getBoundingClientRect();
@@ -91,10 +88,8 @@ export class RoomEditor {
   private _saving = false;
   private _saveFailedShown = false;
   private _sides: Marker[] = [];
-  // Touch screens only: edge grab handles, then corner targets.
-  private _grips: Marker[] = [];
-  private _heldGrip?: HTMLElement;
   private _resizeLive = false;
+
   private _editingSide?: number;
   // Counts acknowledged saves and started refreshes, so an older refresh cannot undo a newer save.
   private _changes = 0;
@@ -148,7 +143,6 @@ export class RoomEditor {
       onPickRoom: (areaId) => this._select(areaId),
     });
     window.addEventListener("keydown", this._keys);
-    map.on("rotate", this._placeChips);
     this._showSides();
   }
 
@@ -197,7 +191,6 @@ export class RoomEditor {
     // Adjust leaves the map's own panning and rotating on.
     this.setTool("adjust");
     window.removeEventListener("keydown", this._keys);
-    this._map?.off("rotate", this._placeChips);
     this._interaction?.destroy();
     this._interaction = undefined;
     this._map = undefined;
@@ -368,6 +361,8 @@ export class RoomEditor {
     // All floors is a view only, as its disabled Undo and Redo buttons show.
     if (this._floor === "all") return;
     if (event.composedPath()[0] instanceof HTMLInputElement) return;
+    // A held edge or corner saves against the room as grabbed, which these would change under it.
+    if (this._interaction?.resizing) return;
     if (event.key === "Delete") {
       this._removeActiveShape();
       return;
@@ -387,12 +382,10 @@ export class RoomEditor {
 
   // In Adjust each side of the active room, when it is a rectangle on the site axis, is a button that opens a length field.
   private _showSides() {
-    // A held handle would lose its pointer capture, and the draft shows the lengths; `_resizing` rebuilds after.
+    // The draft shows the lengths until the resize ends; `_resizing` rebuilds them then.
     if (this._resizeLive) return;
-    for (const marker of [...this._sides, ...this._grips]) marker.remove();
+    for (const side of this._sides) side.remove();
     this._sides = [];
-    this._grips = [];
-    this._heldGrip = undefined;
     const map = this._map;
     const areaId = this._active;
     const footprint = this._footprints.get(areaId);
@@ -402,8 +395,7 @@ export class RoomEditor {
     const units = this._host.units();
     const lengths = edgeLengths(frame, footprint);
     let field: HTMLInputElement | undefined;
-    const labels = sideLabels(frame, footprint, units);
-    this._sides.push(...labels.map(({ at, edgeIndex, text }) => {
+    this._sides.push(...sideLabels(frame, footprint, units).map(({ at, edgeIndex, text }) => {
       let control: HTMLElement;
       if (edgeIndex === this._editingSide) {
         const prefilled = typedLength(lengths[edgeIndex], units);
@@ -419,12 +411,14 @@ export class RoomEditor {
       } else {
         control = Object.assign(document.createElement("button"), { textContent: text });
         control.addEventListener("click", () => {
+          // The click that ends a drag from this button comes while that drag saves.
+          if (this._saving) return;
           this._editingSide = edgeIndex;
           this._showSides();
         });
         // A button sits on its edge and covers part of it, so a press on it drags that edge; a click without a drag still opens the field.
         control.addEventListener("mousedown", (event) => {
-          if (event.button === 0) this._interaction?.startResize({ kind: "edge", index: edgeIndex }, pixelOn(map, event), event.altKey, true);
+          if (event.button === 0) this._interaction?.startResize({ kind: "edge", index: edgeIndex }, pixelOn(map, event), event.altKey);
         });
       }
       control.style.cssText = SIDE_STYLE;
@@ -434,63 +428,9 @@ export class RoomEditor {
       element.append(control);
       return new Marker({ element }).setLngLat(at as [number, number]).addTo(map);
     }));
-    if (coarsePointer()) this._showGrips(map, footprint, labels.map(({ at }) => at));
     field?.focus();
     field?.select();
   }
-
-  // A finger cannot find a thin edge or a corner dot, so on a touch screen each edge gets a grab
-  // handle along it and each corner a round target over its dot; the side chips move outward.
-  private _showGrips(map: MapLibreMap, footprint: Polygon, middles: Position[]) {
-    const corners = footprint.coordinates[0].slice(0, 4);
-    const screen = corners.map((corner) => map.project(corner as [number, number]));
-    const edges = middles.map((middle, index) => {
-      const [from, to] = [screen[index], screen[(index + 1) % 4]];
-      const rotation = (Math.atan2(to.y - from.y, to.x - from.x) * 180) / Math.PI + map.getBearing();
-      return this._grip(map, middle, { kind: "edge", index }, EDGE_GRIP_STYLE, rotation);
-    });
-    const targets = corners.map((corner, index) => this._grip(map, corner, { kind: "corner", index }, CORNER_GRIP_STYLE));
-    this._grips = [...edges, ...targets];
-    this._placeChips();
-  }
-
-  private _grip(map: MapLibreMap, at: Position, target: ResizeTarget, style: string, rotation?: number): Marker {
-    const element = Object.assign(document.createElement("div"), { className: `${target.kind}-grip` });
-    element.style.cssText = style;
-    element.setAttribute("aria-hidden", "true");
-    const pixel = (event: PointerEvent) => pixelOn(map, event);
-    element.addEventListener("pointerdown", (event) => {
-      event.stopPropagation();
-      if (!this._interaction?.startResize(target, pixel(event), false)) return;
-      this._heldGrip = element;
-      element.setPointerCapture?.(event.pointerId);
-    });
-    element.addEventListener("pointermove", (event) => this._interaction?.resizeTo(pixel(event), false));
-    element.addEventListener("pointerup", (event) => this._interaction?.endResize(pixel(event), false));
-    // Capture lost before the release, say to a system gesture, leaves no drag behind for later mouse events.
-    for (const type of ["pointercancel", "lostpointercapture"]) element.addEventListener(type, () => this._interaction?.cancelResize());
-    for (const type of MAP_EVENTS) element.addEventListener(type, (event) => event.stopPropagation());
-    return new Marker({ element, rotationAlignment: "map", rotation }).setLngLat(at as [number, number]).addTo(map);
-  }
-
-  // Each side chip outward of its edge's grab handle along the edge's normal on screen, clear of it
-  // by its own half size; again after the map turns.
-  private _placeChips = () => {
-    const map = this._map;
-    const footprint = this._footprints.get(this._active);
-    if (!map || !footprint || !this._grips.length) return;
-    const screen = footprint.coordinates[0].slice(0, 4).map((corner) => map.project(corner as [number, number]));
-    const centre = { x: screen.reduce((sum, { x }) => sum + x, 0) / 4, y: screen.reduce((sum, { y }) => sum + y, 0) / 4 };
-    this._sides.forEach((side, index) => {
-      const [from, to] = [screen[index], screen[(index + 1) % 4]];
-      const [outX, outY] = [(from.x + to.x) / 2 - centre.x, (from.y + to.y) / 2 - centre.y];
-      const length = Math.hypot(outX, outY) || 1;
-      const [normalX, normalY] = [outX / length, outY / length];
-      const { width, height } = side.getElement().getBoundingClientRect();
-      const distance = GRIP_CLEARANCE_PX + (Math.abs(normalX) * width + Math.abs(normalY) * height) / 2;
-      side.setOffset([normalX * distance, normalY * distance]);
-    });
-  };
 
   private _resize(frame: PlanFrame, areaId: string, footprint: Polygon, edgeIndex: number, lengthM: number | undefined) {
     const after = lengthM === undefined ? undefined : resizeSide(frame, footprint, edgeIndex, lengthM);
@@ -523,18 +463,18 @@ export class RoomEditor {
     this._whileSaving(() => this._apply({ before: { [areaId]: footprint }, after: { [areaId]: changed } }));
   }
 
-  // While an edge or corner is dragged the draft shows its lengths, so the side buttons hide; a
-  // save shows them again when it settles.
+  // While an edge or corner is dragged the draft shows its lengths and area, so the side buttons and
+  // the labels under it hide; a save shows the buttons again when it settles.
   private _resizing(resizing: boolean) {
     this._resizeLive = resizing;
+    // The building's draft covers every room on the floor.
+    const covered = this._active === BUILDING ? this._order().map((area) => area.area_id) : [this._active];
+    this._host.hideLabels(resizing ? covered : []);
     if (!resizing) {
       if (!this._saving) this._showSides();
       return;
     }
-    for (const marker of [...this._sides, ...this._grips]) {
-      // The held handle keeps its pointer capture, so it stays.
-      if (marker.getElement() !== this._heldGrip) marker.getElement().style.visibility = "hidden";
-    }
+    for (const side of this._sides) side.getElement().style.visibility = "hidden";
   }
 
   private async _apply(change: Change) {

@@ -33,7 +33,6 @@ export let mapCanvas = document.createElement("canvas");
 export interface FakeMarker {
   removed: boolean;
   element: HTMLElement;
-  options: { offset?: [number, number]; rotation?: number; rotationAlignment?: string };
 }
 export let markers: FakeMarker[] = [];
 export const liveMarkers = () => markers.filter((marker) => !marker.removed);
@@ -78,17 +77,11 @@ export const fakeMapLibre = {
   Marker: class implements FakeMarker {
     removed = false;
     element: HTMLElement;
-    options: FakeMarker["options"];
-    constructor({ element, ...options }: { element?: HTMLElement } & FakeMarker["options"] = {}) {
-      this.element = element ?? document.createElement("div");
-      this.options = options;
+    constructor(options: { element?: HTMLElement } = {}) {
+      this.element = options.element ?? document.createElement("div");
       markers.push(this);
     }
     setLngLat() {
-      return this;
-    }
-    setOffset(offset: [number, number]) {
-      this.options.offset = offset;
       return this;
     }
     getElement() {

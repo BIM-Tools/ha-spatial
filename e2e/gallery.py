@@ -503,33 +503,42 @@ def adjust_room_active(shot: Shot) -> None:
     shot.click(*shot.room_centre("Living room"))
 
 
+def edge_middle(corners: list[tuple[float, float]], side: str) -> tuple[float, float]:
+    """The middle of a screen-aligned rectangle's left or right edge, in page pixels."""
+    ordered = sorted(corners)
+    (x1, y1), (x2, y2) = ordered[:2] if side == "left" else ordered[2:]
+    return (x1 + x2) / 2, (y1 + y2) / 2
+
+
 def edge_drag(shot: Shot) -> None:
     adjust_room_active(shot)
-    (x1, y1), (x2, y2) = sorted(shot.room_corners("Living room"))[:2]
-    # From the middle of its left edge, 40 px further out.
-    shot.start_drag(((x1 + x2) / 2, (y1 + y2) / 2), ((x1 + x2) / 2 - 40, (y1 + y2) / 2))
+    x, y = edge_middle(shot.room_corners("Living room"), "left")
+    # Its left edge lies on the outline, so it is dragged 40 px in.
+    shot.start_drag((x, y), (x + 40, y))
 
 
 def corner_drag(shot: Shot) -> None:
     adjust_room_active(shot)
     x, y = min(shot.room_corners("Living room"), key=lambda corner: corner[1] - corner[0])
-    # Its top right corner, 30 px out to the right and up.
+    # Its top right corner, 30 px out to the right and up: the top stops at the outline.
     shot.start_drag((x, y), (x + 30, y - 30))
 
 
-def edge_handles(shot: Shot) -> None:
-    if not shot.phone:
-        raise Skip("the grab handles are for touch screens")
-    # Touch emulation makes the pointer coarse, which the panel reads when it shows the handles.
-    session = shot.page.context.new_cdp_session(shot.page)
-    session.send("Emulation.setTouchEmulationEnabled", {"enabled": True, "maxTouchPoints": 1})
+def resize_snapped(shot: Shot) -> None:
+    floor_plan(shot)
+    shot.click(*shot.room_centre("Toilet"))
+    x, y = edge_middle(shot.room_corners("Toilet"), "right")
+    right = max(x for x, _ in shot.room_corners("Kitchen"))
+    # The toilet's right edge to 3 px short of the kitchen's right wall, which it snaps to.
+    shot.start_drag((x, y), (right - 3, y))
 
-    def stop_touch() -> None:
-        session.send("Emulation.setTouchEmulationEnabled", {"enabled": False})
-        session.detach()
 
-    shot.cleanups.append(stop_touch)
-    adjust_room_active(shot)
+def outline_drag(shot: Shot) -> None:
+    floor_plan(shot)
+    shot.activate_pill("Building")
+    left, top, _, bottom = shot.floor_screen_box("Ground floor")
+    # The outline's left edge, 40 px out.
+    shot.start_drag((left, (top + bottom) / 2), (left - 40, (top + bottom) / 2))
 
 
 def labels_fit(shot: Shot) -> None:
@@ -632,22 +641,30 @@ STATES = [
     State(
         "edge-drag",
         "tools",
-        "Dragging the living room's left edge out: the draft counts its lengths",
+        "Dragging the living room's left edge in: the draft counts its lengths",
         edge_drag,
         phone=False,
     ),
     State(
         "corner-drag",
         "tools",
-        "Dragging the living room's top right corner out: the opposite corner stays",
+        "Dragging the living room's top right corner out: the top stops at the outline",
         corner_drag,
         phone=False,
     ),
     State(
-        "edge-handles",
+        "resize-snapped",
         "tools",
-        "On a touch screen: a grab handle on each edge, the side lengths outward of them",
-        edge_handles,
+        "Dragging the toilet's right edge onto the kitchen's right wall, which lights up",
+        resize_snapped,
+        phone=False,
+    ),
+    State(
+        "outline-drag",
+        "tools",
+        "Dragging the building outline's left edge out",
+        outline_drag,
+        phone=False,
     ),
     State(
         "strip-pills",

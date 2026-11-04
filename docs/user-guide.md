@@ -133,13 +133,14 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
 - **Stretch a side:** on such a rectangle, drag an edge anywhere along it. Only that edge moves,
   straight out or in, onto the 10 cm (4 in) grid, and rests on a parallel wall or a corner of
   another room or the outline nearby, which lights up. The draft counts its lengths and area as
-  it goes. An edge stops one grid step from the opposite one.
+  it goes. An edge stops one grid step from the opposite one, and at the outline: a room inside
+  it stays inside, one outside stays outside, and the wall it stops at lights up. While a side
+  or corner is dragged, the side lengths and the room labels under it make way for the draft's.
 - **Drag a corner:** drag a corner of such a rectangle; the opposite corner stays. The corner
   snaps like a drawn box corner and lights up what it snaps to; each side stays at least one
   grid step. With Alt held an edge or corner lands on the 2.5 cm (1 in) lattice without
-  snapping. The pointer turns into a resize arrow over an edge or a corner. **Escape** cancels.
-- On a touch screen each edge has a grab handle and each corner a round target; the side
-  lengths move outward to make room.
+  snapping. The pointer turns into a resize arrow over an edge or a corner. **Escape** cancels;
+  undo, redo and **Delete** do nothing while a side or corner is held.
 - A stretched side or dragged corner is one save and one undo step; one that ends where it
   started saves nothing.
 - Lengths and areas follow Home Assistant's unit system and number format. Metric lengths show
@@ -168,7 +169,7 @@ a touch screen), and a link to this documentation.
 | --- | --- |
 | Space + drag | Pan |
 | Ctrl Z, Ctrl Shift Z | Undo, redo |
-| Esc | Cancel the box |
+| Esc | Cancel the box, or a side or corner drag |
 | Delete | Remove the active shape |
 
 ### Map controls
@@ -251,8 +252,8 @@ each one means, and the [importer](../tools/README.md) sets floor heights.
 - Boxes follow the site direction; walls at other angles cannot be drawn.
 - Side lengths can only be typed, and sides and corners only dragged, for a rectangle along the
   site direction. A change arriving from elsewhere while a side field is open resets the field.
-- A dragged side or corner may pass a neighbouring room or the outline; a room that would then
-  extend beyond the outline is refused as "Could not save".
+- A dragged side or corner may pass a neighbouring room. It stops at a diagonal outline wall
+  only at that wall's corners, so a room that would cross it is refused as "Could not save".
 - Snapping uses the rooms on this floor and the outline: not the floor below, diagonal walls or
   buildings on the map. A moved room lines up its corners with others, not its walls with their
   corners.

@@ -150,6 +150,7 @@ export class RoomLabels {
   private _outline?: Polygon;
   private _areas: Record<string, AreaInfo> = {};
   private _pointed?: string;
+  private _hidden = new Set<string>();
   private _labels = new Map<string, Label>();
   private _building?: Marker;
 
@@ -184,10 +185,17 @@ export class RoomLabels {
     this.update();
   }
 
+  /** The rooms whose labels step aside while a draft over them shows its own numbers; none shows them all. */
+  hide(areaIds: readonly string[]) {
+    this._hidden = new Set(areaIds);
+    this.update();
+  }
+
   update = () => {
     const kept = new Set<string>();
     for (const room of this._rooms) {
       const areaId = String(room.properties?.area_id ?? room.id);
+      if (this._hidden.has(areaId)) continue;
       const rings = room.geometry.coordinates.map((ring) => ring.map((position) => this._toScreen(position)));
       const space = labelSpace(rings);
       const step = labelStep(rings, space.at, this._withSize);
