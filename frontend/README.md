@@ -39,10 +39,11 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/map-paint.ts` | The map layers' colours, read from Home Assistant's theme at style load and on a theme change |
 | `src/room-labels.ts` | Room labels: area icon, name and (in the panel) net area, placed and stepped by the room's size on screen |
 | `src/styles.ts` | The floating card, pill buttons and phone bar shared by the controls, from Home Assistant's theme tokens |
-| `src/room-editor.ts` | The space editor controller: the area strip, side length fields, undo and redo, saving each action, area creation and rename |
-| `src/box-interaction.ts` | Pointer and keyboard drafting input on the map, snapped corners and moves, Alt to place freely, Space pan, draft preview |
+| `src/room-editor.ts` | The space editor controller: the area strip, side length fields, touch grab handles, undo and redo, saving each action, area creation and rename |
+| `src/box-interaction.ts` | Pointer and keyboard drafting input on the map, snapped corners, moves, edge and corner drags, Alt to place freely, Space pan, draft preview |
 | `src/snap.ts` | The snap engine, pure and in lattice units: room corners, then room axis edges, then the outline, else the grid |
 | `src/snap-highlight.ts` | The map layer that lights up what a point snaps to: a dot on a corner, a line on an edge |
+| `src/edge-drag.ts` | Edge and corner drag of an axis rectangle, pure and in lattice units: where the dragged edge or corner lands, and which one a pointer grabs |
 | `src/area-strip.ts` | The strip of pills, Building first: order, next area, new area names, rename field, long press, arrow keys |
 | `src/history.ts` | Session undo and redo of footprint changes |
 | `src/spatial-card.ts` | The card: wraps the panel element, without the header and tools; loads the panel bundle when created |
@@ -72,6 +73,12 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 - Plan geometry (boxes, side lengths, resizing, moving) works on lattice integers in the site frame
   that `spatial/site` publishes, rebuilt on every site load, so a unit system change reaches the
   next gesture; turf finds the wall bearing and joins a box to a footprint.
+- In Adjust a press on the active axis rectangle is hit-tested on its projected corners, then its
+  edges, within the snap radius, before a move, so it follows the room on a turned map. A side
+  button lets its mousedown reach the map, so the edge under it drags too. On a coarse pointer
+  each edge gets a grab handle Marker turned with the map and each corner a round target, both
+  feeding the same drags through pointer capture; the side buttons move outward along the edge's
+  screen normal, and again when the map turns.
 - Every box, move, resize, removal, undo and redo is one save, one at a time: `spatial/site/update`
   with `outline` for the building, else one `spatial/area/update_geometries` batch; boxes, moves,
   resizes and removals are recorded in the session history. A refused save reloads the rooms and

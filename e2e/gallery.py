@@ -503,6 +503,35 @@ def adjust_room_active(shot: Shot) -> None:
     shot.click(*shot.room_centre("Living room"))
 
 
+def edge_drag(shot: Shot) -> None:
+    adjust_room_active(shot)
+    (x1, y1), (x2, y2) = sorted(shot.room_corners("Living room"))[:2]
+    # From the middle of its left edge, 40 px further out.
+    shot.start_drag(((x1 + x2) / 2, (y1 + y2) / 2), ((x1 + x2) / 2 - 40, (y1 + y2) / 2))
+
+
+def corner_drag(shot: Shot) -> None:
+    adjust_room_active(shot)
+    x, y = min(shot.room_corners("Living room"), key=lambda corner: corner[1] - corner[0])
+    # Its top right corner, 30 px out to the right and up.
+    shot.start_drag((x, y), (x + 30, y - 30))
+
+
+def edge_handles(shot: Shot) -> None:
+    if not shot.phone:
+        raise Skip("the grab handles are for touch screens")
+    # Touch emulation makes the pointer coarse, which the panel reads when it shows the handles.
+    session = shot.page.context.new_cdp_session(shot.page)
+    session.send("Emulation.setTouchEmulationEnabled", {"enabled": True, "maxTouchPoints": 1})
+
+    def stop_touch() -> None:
+        session.send("Emulation.setTouchEmulationEnabled", {"enabled": False})
+        session.detach()
+
+    shot.cleanups.append(stop_touch)
+    adjust_room_active(shot)
+
+
 def labels_fit(shot: Shot) -> None:
     floor_plan(shot)
 
@@ -599,6 +628,26 @@ STATES = [
         "tools",
         "Adjust with the living room active: corner handles and side lengths",
         adjust_room_active,
+    ),
+    State(
+        "edge-drag",
+        "tools",
+        "Dragging the living room's left edge out: the draft counts its lengths",
+        edge_drag,
+        phone=False,
+    ),
+    State(
+        "corner-drag",
+        "tools",
+        "Dragging the living room's top right corner out: the opposite corner stays",
+        corner_drag,
+        phone=False,
+    ),
+    State(
+        "edge-handles",
+        "tools",
+        "On a touch screen: a grab handle on each edge, the side lengths outward of them",
+        edge_handles,
     ),
     State(
         "strip-pills",
