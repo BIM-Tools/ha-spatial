@@ -44,7 +44,7 @@
 | `spatial/geojson` | no | `floor_id`? (the areas occupying that floor) | FeatureCollection of footprints, JSON-FG conformant (`conformsTo`), each feature with `featureType` `https://w3id.org/bot#Space` |
 | `spatial/query_point` | no | `lon`, `lat`, `floor_id`? (among the areas occupying that floor) | `{area_id}` (smallest match, or null) |
 | `spatial/area/adjacent` | no | `area_id` | `{area_ids}` |
-| `spatial/site` | no | - | `{lon, lat, bearing_deg, origin, outline, rev, frame}` (the outline on the lattice; `frame` is the site frame as published, see Site frame; `bearing_deg` null until the first Align; centre derived from the footprints, else the outline, else the home location) |
+| `spatial/site` | no | - | `{lon, lat, bearing_deg, origin, outline, rev, frame}`: `lon` and `lat` are the site centre, the outline is on the lattice, `frame` is the site frame as published (see Data) |
 | `spatial/subscribe` | no | - | An empty event message on every change, until `unsubscribe_events` |
 | `spatial/area/update_geometries` | yes | `areas`?: `{area_id: polygon or null}` (null removes); `properties`?: `{area_id: {floors_up?, on_facade_override?}}` (for areas with a footprint after the change; omitted ones are kept); `site`?: `{bearing_deg?, origin?, outline?}` (null removes one); `expected_rev`?: `{area_id: rev or null}` (null: expect no footprint); `expected_site_rev`?; areas, properties and/or site | `{area_m2: {area_id: m²}, rev: {area_id: rev or null}, site_rev}` (`rev` of every area in areas or properties) |
 | `spatial/floor/update` | yes | `floor_id`, `elevation_m`?, `height_m`? (null clears one; omitted ones are kept) | - |
@@ -58,7 +58,7 @@
   | `floor_id`, `level` | Its Home Assistant floor, the lowest one it occupies (null for a site-level area) |
   | `area_m2` | Net area in m² |
   | `base_m`, `top_m` | Bottom of its floor and top of the highest floor it occupies (ready for MapLibre `fill-extrusion`) |
-  | `floors_up` | Stored: floors it reaches above its own |
+  | `floors_up` | Stored: floors it reaches above its own, such as a stairwell or a double-height living room |
   | `floor_ids` | Derived: the floors it occupies, lowest first (empty without a floor) |
   | `on_facade_override` | Stored: null, or the value that replaces the derived `on_facade` |
   | `on_facade` | Derived: the room shares at least 0.3 m of the outline, unless overridden |
@@ -81,13 +81,10 @@
 
 ### Panel and card
 
-The admin-only panel at `/spatial` has no sidebar entry and Spatial has no options: **Open
-Spaces** on the success step after adding Spatial, or Settings > Devices & services > Spatial >
-**Configure**, opens it, and its Back always leads to the integration page. The
-card `custom:spatial-map-card` puts the same map on dashboards. Their use is in the
-[user guide](../../docs/user-guide.md), their source and the commands each action sends in the
-[frontend README](../../frontend/README.md). The bundles are built into `frontend/` here; they
-are not in git, the release zip contains them.
+The integration serves the admin-only panel at `/spatial` and the dashboard card
+`custom:spatial-map-card`. How to open and use them is in the
+[user guide](../../docs/user-guide.md); their source, build and the commands each action sends
+are in the [frontend README](../../frontend/README.md).
 
 ### Rules
 
