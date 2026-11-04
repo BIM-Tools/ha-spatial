@@ -394,7 +394,8 @@ export class RoomEditor {
     const units = this._host.units();
     const lengths = edgeLengths(frame, footprint);
     let field: HTMLInputElement | undefined;
-    this._sides.push(...sideLabels(frame, footprint, units).map(({ at, edgeIndex, text }) => {
+    const labels = sideLabels(frame, footprint, units);
+    this._sides.push(...labels.map(({ at, edgeIndex, text }) => {
       let control: HTMLElement;
       if (edgeIndex === this._editingSide) {
         const prefilled = typedLength(lengths[edgeIndex], units);
@@ -416,12 +417,14 @@ export class RoomEditor {
       }
       control.style.cssText = SIDE_STYLE;
       if (control === field) control.style.width = "6em";
-      for (const type of MAP_EVENTS) control.addEventListener(type, (event) => event.stopPropagation());
+      // A button sits on its edge, so a press on it reaches the map and can drag the edge; a click without a drag still opens the field.
+      const own = control === field ? MAP_EVENTS : MAP_EVENTS.filter((type) => type !== "mousedown");
+      for (const type of own) control.addEventListener(type, (event) => event.stopPropagation());
       const element = document.createElement("span");
       element.append(control);
       return new Marker({ element }).setLngLat(at as [number, number]).addTo(map);
     }));
-    if (coarsePointer()) this._showGrips(map, footprint, sideLabels(frame, footprint, units).map(({ at }) => at));
+    if (coarsePointer()) this._showGrips(map, footprint, labels.map(({ at }) => at));
     field?.focus();
     field?.select();
   }

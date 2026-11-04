@@ -1683,6 +1683,20 @@ test("in Adjust a press on an edge of the active rectangle drags that edge, with
   expect(cornerSet(saves(connection)[1].areas.kitchen)).toEqual(KITCHEN_BOX);
 });
 
+test("a press on a side button reaches the map, so the edge under it drags, while its click stays its own", async () => {
+  const { panel } = mountEditor();
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  const reached: string[] = [];
+  const button = sideButtons()[0];
+  // The map listens on the Marker's element and above it.
+  for (const type of ["mousedown", "click"]) button.parentElement!.addEventListener(type, () => reached.push(type));
+  button.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  button.click();
+  expect(reached).toEqual(["mousedown"]);
+  expect(sideField()).toBeDefined();
+});
+
 test("an edge drag released where it started saves nothing and records no undo step", async () => {
   const { panel, connection } = mountEditor();
   await startAdjusting(panel);
