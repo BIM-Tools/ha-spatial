@@ -76,7 +76,7 @@ In this order:
 3. A canonical algorithm, ported line for line with its licence notice and source link
    (see `_pnpoly` in `geometry.py`). Copied Home Assistant code names its source path
    (see `normalize_name` in `tools/import_geojson.py`).
-4. Only then custom code, marked as custom in its docstring (see `shared_edge_length_m`).
+4. Only then custom code, marked as custom in its docstring (see `shared_edge_length`).
 
 State known limits in the docstring, for example "a point exactly on an edge may fall either
 way".
@@ -135,8 +135,22 @@ The panel and the card should look as if they were always part of Home Assistant
 
 ## Tests
 
-- A bug fix starts with a failing test.
+- A test guards a public input or output: a websocket command, an exported function, a
+  component's events and attributes, a callback a class calls. Never private fields, layer ids
+  or call order inside a module.
+- One rule, one test, at the lowest layer that owns it. Pure rules (geometry, lattice, snapping,
+  parsing, ordering) are tested as pure functions; a stateful shell (panel, editor, coordinator)
+  is tested only for its wiring: what it sends, records, reloads and shows.
+- Cases of one rule go in one `test.each` or `pytest.mark.parametrize` table, not in copies.
+- Stable modules keep only their API guards; a change touches a module's tests only where its
+  inputs or outputs changed.
+- A bug fix starts with a failing test, at the layer where the bug was.
 - No tests that read back what they just set, or that assert a mock's return value.
+- Logic sits in pure functions with plain input and output; classes hold state and call them.
+  A rule testable only through the panel harness is a reason to extract it.
+- An exported function's parameters or return shape, a callback interface, or a command's schema
+  or result changes only with a reason in the pull request body; tests of the old shape are
+  replaced, not added to.
 
 ## Changes and removals
 
@@ -172,6 +186,27 @@ The panel and the card should look as if they were always part of Home Assistant
 - No AI attribution in commits, pull requests or files: no `Co-Authored-By` trailers or
   "generated with" lines. The author is accountable for every line, however it was written.
 
+## Review checklist
+
+Run on every pull request before merge, item by item:
+
+1. One change; no unrelated edits, screenshots or polish.
+2. Tests follow "Tests": a bug fix has a test that failed before it; no rule tested twice or
+   through internals; tests of replaced code are gone.
+3. Every changed export, callback interface, command schema or result shape has a reason in the
+   body; callers, READMEs and `tools/` are updated.
+4. New logic is a pure function or sits in one; no new class state where a parameter would do.
+5. "Reuse before writing" and "Single implementations" hold; no second implementation of a rule.
+6. Every write command validates its input and requires admin; unknown references return
+   `not_found`, bad input `invalid_format`.
+7. No real location, address, footprint, token or search in code, fixtures, images or text.
+8. Each code file has its why header; names carry the meaning; comments only for a why; no em or
+   en dashes.
+9. UI changes use Home Assistant's theme and always-loaded components, are checked in light and
+   dark, and update `docs/user-guide.md`.
+10. Title is a conventional commit of at most 72 characters; body is plain text with only the
+    why; no AI attribution; required checks green; threads resolved.
+
 ## Real gates
 
 What is and is not checked automatically:
@@ -187,7 +222,11 @@ What is and is not checked automatically:
   the tag-push version is untested until the next release, check that release then.
 - `main` is protected by a ruleset: pull request required, review threads resolved, squash
   merge only, checks `test`, `hassfest`, `ruff`, `agents-file` and `hacs` required and up to
-  date with `main`, no force pushes or deletion. Copilot reviews every pull request.
+  date with `main`, no force pushes or deletion.
+- No automated review: the review checklist is run by hand or by a review agent on every pull
+  request; nothing checks that it was.
+- The frontend has no coverage floor, by choice: its tests are judged by the "Tests" rules, not
+  by covered lines.
 - `tools/sync_frontend_versions.py` has unit tests; `tools/import_geojson.py` has none, verify
   changes to it against a real Home Assistant.
 - Ruff reports `EXE002` on every file through the Windows bind mount; it is an artefact of the
