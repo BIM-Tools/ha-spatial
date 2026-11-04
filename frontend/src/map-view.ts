@@ -2,6 +2,13 @@
 
 import type { Feature, FeatureCollection, Polygon } from "geojson";
 
+/** MapLibre's worker next to the panel bundle, with the bundle's `?v=`, which covers the worker. */
+export const workerUrl = (panelUrl: string): string => {
+  const url = new URL("maplibre-gl-worker.js", panelUrl);
+  url.search = new URL(panelUrl).search;
+  return url.href;
+};
+
 /** MapLibre bearing that puts the site's x-axis (the picked wall) horizontal, pointing right. */
 export const mapBearing = (bearingDeg: number): number => (((bearingDeg - 90) % 360) + 360) % 360;
 

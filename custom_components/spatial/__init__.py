@@ -21,7 +21,7 @@ from .websocket_api import async_register_websocket_commands
 _LOGGER = logging.getLogger(__name__)
 
 FRONTEND_PATH = Path(__file__).parent / "frontend"
-BUNDLES = ("spatial-card.js", "spatial-panel.js")
+BUNDLES = ("spatial-card.js", "spatial-panel.js", "maplibre-gl-worker.js")
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -29,9 +29,10 @@ type SpatialConfigEntry = ConfigEntry[SpatialCoordinator]
 
 
 def _bundles_version(fallback: str) -> str:
-    """Return a short hash of both bundles, or the fallback before the first build.
+    """Return a short hash of the bundles, or the fallback before the first build.
 
-    One version for both, because the card imports the panel with its own `?v=`.
+    One version for all: the card imports the panel with its own `?v=`, and the panel
+    loads the worker with it.
     """
     digest = hashlib.sha256()
     for name in BUNDLES:
