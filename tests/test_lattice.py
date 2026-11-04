@@ -294,3 +294,18 @@ async def test_us_customary_minimum_edge(
     }
     msg = await _write(client, site=FRAME, areas={"kitchen": notched(0.1016)})
     assert msg["success"], msg
+
+
+async def test_corners_on_a_straight_line_are_not_read(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Test a room written with a corner halfway along a side reads and measures without it."""
+    client = await hass_ws_client(hass)
+    written = await _write(
+        client, site=FRAME, areas={"kitchen": polygon((0, 0), (2, 0), (4, 0), (4, 3), (0, 3))}
+    )
+    written_read = (await _features(client))["kitchen"]
+    clean = await _write(client, areas={"kitchen": polygon((0, 0), (4, 0), (4, 3), (0, 3))})
+
+    assert written_read["geometry"] == (await _features(client))["kitchen"]["geometry"]
+    assert written["result"]["area_m2"] == clean["result"]["area_m2"]
