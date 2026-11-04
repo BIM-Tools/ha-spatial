@@ -40,7 +40,9 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/room-labels.ts` | Room labels: area icon, name and (in the panel) net area, placed and stepped by the room's size on screen |
 | `src/styles.ts` | The floating card, pill buttons and phone bar shared by the controls, from Home Assistant's theme tokens |
 | `src/room-editor.ts` | The space editor controller: the area strip, side length fields, undo and redo, saving each action, area creation and rename |
-| `src/box-interaction.ts` | Pointer and keyboard drafting input on the map, corners and moves on the site grid, Space pan, draft preview |
+| `src/box-interaction.ts` | Pointer and keyboard drafting input on the map, snapped corners and moves, Alt to place freely, Space pan, draft preview |
+| `src/snap.ts` | The snap engine, pure and in lattice units: room corners, then room axis edges, then the outline, else the grid |
+| `src/snap-highlight.ts` | The map layer that lights up what a point snaps to: a dot on a corner, a line on an edge |
 | `src/area-strip.ts` | The strip of pills, Building first: order, next area, new area names, rename field, long press, arrow keys |
 | `src/history.ts` | Session undo and redo of footprint changes |
 | `src/spatial-card.ts` | The card: wraps the panel element, without the header and tools; loads the panel bundle when created |

@@ -81,7 +81,7 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
 | Tool | Does |
 | --- | --- |
 | Align | One click on a building on the map, near a wall, saves that wall's direction as the site direction. Without a building under the click a toast says "No building here"; when Spatial refuses the new direction, the toast gives its reason. On an empty plan, with no room and no outline drawn, it also puts the grid origin on the left end of that wall. The map stays on while Align is active |
-| Draw | Draws boxes along the site direction (north up before any Align) for the highlighted pill. Corners land on the 10 cm (4 in) grid, or with Alt held on the 2.5 cm (1 in) lattice; while a side is shorter than one grid step only the start dot shows, and such a box is not drawn |
+| Draw | Draws boxes along the site direction (north up before any Align) for the highlighted pill. Corners snap to nearby room corners and walls on this floor and to the outline, else land on the 10 cm (4 in) grid; with Alt held they land on the 2.5 cm (1 in) lattice without snapping. While a side is shorter than one grid step only the start dot shows, and such a box is not drawn |
 | Adjust | A tap on a room makes it active: it is filled, edged and gets round handles on its corners. Drag the active room to move it. Type exact side lengths (below) |
 
 ### The area strip
@@ -110,8 +110,14 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
   boxes. A box apart from it is refused with the toast "A room is one shape: draw against it".
   After a space's first shape the next one is highlighted, so choose the space again before
   adding a box to it.
+- **Snap:** a corner within 8 px (12 px on a touch screen) of a room corner on this floor lands
+  on it; near a room wall that runs along the site direction it lands on that wall; the outline
+  comes after the rooms, the grid last. What it snaps to lights up: a dot on a corner, a thick
+  line on a wall. So rooms drawn side by side share their wall and count as adjacent. Walls at
+  other angles do not snap, their corners do.
+- **Alt:** hold Alt to place without snapping, on the 2.5 cm (1 in) lattice. Phones always snap.
 - **Move:** a drag that starts inside the active shape moves it; a click there still sets a
-  corner.
+  corner. A moved shape snaps by its corners in the same way, else moves by whole grid steps.
 - **Pan:** hold Space and drag. **Escape** cancels a box. **Delete** removes the active shape.
 - Draw turns the map back to the site direction and keeps it flat until another tool is picked.
 
@@ -125,7 +131,7 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
   button. Tap one, type the length and press Enter (at least 10 cm or 4 in; an unchanged length
   saves nothing). The length is rounded to the 2.5 cm (1 in) lattice, so 3.47 m becomes 3.475 m.
   The side's start corner stays, the opposite side follows. Escape closes the field.
-- Moving a room shifts it by whole grid steps.
+- Moving a room snaps it to its neighbours as in Draw, else shifts it by whole grid steps.
 - Lengths and areas follow Home Assistant's unit system and number format. Metric lengths show
   the stored value exactly, such as 3.40 m or 3.475 m. In US customary units a length shows as
   feet and inches, such as 11′ 4″, and is typed as 12' 6", 12 6, 150" or 12.5'.
@@ -145,7 +151,8 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
 ### Help
 
 The help button in the header opens a short sheet: the symbols (filled and dashed squares, the
-corner handle, the look of a refused box), the keys, and a link to this documentation.
+corner handle, the look of a refused box), the keys, "Hold Alt to place without snapping" (not on
+a touch screen), and a link to this documentation.
 
 | Key | Does |
 | --- | --- |
@@ -231,6 +238,9 @@ The panel does not edit these; tools and scripts set them through the
 
 - Boxes follow the site direction; walls at other angles cannot be drawn.
 - Side lengths can only be typed for a rectangle along the site direction.
+- Snapping uses the rooms on this floor and the outline: not the floor below, diagonal walls or
+  buildings on the map. A moved room lines up its corners with others, not its walls with their
+  corners.
 - After the first room or the outline, a new Align keeps the grid origin, so the grid turns
   around the old origin.
 - Align needs a building in the map tiles. A building cut by a tile border gives only the part

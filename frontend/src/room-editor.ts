@@ -11,6 +11,7 @@ import type { LayerColours } from "./map-paint";
 import { byLevel } from "./map-view";
 import { addToFootprint, edgeLengths, isAxisRectangle, resizeSide, sideLabels } from "./plan";
 import type { PlanFrame } from "./site-frame";
+import { type SnapCandidates, candidatesOf } from "./snap";
 import { type HassUnits, isUsCustomary, parseLength, typedLength } from "./units";
 
 interface Connection {
@@ -122,6 +123,7 @@ export class RoomEditor {
       },
       siteBearing: () => this._host.siteBearing(),
       siteFrame: () => this._host.siteFrame(),
+      snapCandidates: (frame, exclude) => this._snapCandidates(frame, exclude),
       units: () => this._host.units(),
       onBox: (box, frame) => this._finishBox(box, frame),
       onMove: (room, moved) => this._saveMove(room, moved),
@@ -266,6 +268,15 @@ export class RoomEditor {
 
   private _linked() {
     return new Set(this._footprints.keys());
+  }
+
+  // The footprints on this floor and the outline, without the shape being moved.
+  private _snapCandidates(frame: PlanFrame, exclude?: string): SnapCandidates {
+    const rooms = this._order()
+      .filter((area) => area.area_id !== exclude)
+      .flatMap((area) => this._footprints.get(area.area_id) ?? []);
+    const outline = exclude === BUILDING ? undefined : this._footprints.get(BUILDING);
+    return candidatesOf(frame, rooms, outline);
   }
 
   private _order() {

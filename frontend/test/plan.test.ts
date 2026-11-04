@@ -10,7 +10,6 @@ import {
   boxFromCorners,
   centreOf,
   edgeLengths,
-  gridPoint,
   isAxisRectangle,
   movePolygon,
   resizeSide,
@@ -98,11 +97,6 @@ test("movePolygon moves every corner by a lattice delta", () => {
     [8, 116],
     [8, -4],
   ]);
-});
-
-test("gridPoint rounds to the nearest grid point", () => {
-  expect(gridPoint(METRIC, METRIC.fromLattice([5.9, 1.9]))).toEqual([4, 0]);
-  expect(gridPoint(METRIC, METRIC.fromLattice([-6.1, 10.2]))).toEqual([-8, 12]);
 });
 
 test("centreOf is the middle of the box on the plan", () => {
