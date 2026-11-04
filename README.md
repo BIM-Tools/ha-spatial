@@ -34,7 +34,7 @@ Without HACS: download `spatial.zip` from the
 | Document | For |
 | --- | --- |
 | [User guide](docs/user-guide.md) | Drawing your house, the panel and the dashboard card |
-| [Architecture](docs/architecture.md) | Developers: parts, data model, design rules, development |
+| [Architecture](docs/architecture.md) | Developers: how the parts fit together, repository layout, development |
 | [Integration](custom_components/spatial/README.md) | Websocket API, storage and geometry rules |
 | [Frontend](frontend/README.md) | Panel and card source, build and serving |
 | [Tools](tools/README.md) | GeoJSON importer, example house, version sync |

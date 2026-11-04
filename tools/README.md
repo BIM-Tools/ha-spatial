@@ -5,6 +5,7 @@ Development tools. Not part of the integration.
 ## Why
 
 - Get footprints drawn elsewhere into Home Assistant in one go.
+- Keep the frontend's packages at the versions Home Assistant's frontend ships.
 - Try the panel, the card and the state gallery on an example house without drawing one.
 
 ## How to use
@@ -13,6 +14,7 @@ Development tools. Not part of the integration.
 | --- | --- |
 | Start Home Assistant | `docker compose up homeassistant` (finish onboarding, add Spatial, create a token) |
 | Import the example | `docker compose run --rm test python tools/import_geojson.py tools/example_house.geojson --url http://host.docker.internal:8123 --token <token>` |
+| Sync frontend package versions with Home Assistant | `python tools/sync_frontend_versions.py`, or with `--check` to only compare |
 
 ## Architecture
 
