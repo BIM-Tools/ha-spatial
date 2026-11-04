@@ -12,15 +12,13 @@ boxes along one wall. Every action saves at once and can be undone.
 | Footprint | One polygon per area, drawn on the wall axes (the middle of each wall), so neighbouring rooms share edges | Spatial |
 | Building | The outline on the axis of the exterior walls, one per installation; indoor rooms stay inside it. Its name is Home Assistant's location name | Spatial; the name from Home Assistant's core config |
 | Site direction | The direction of one wall of your house; the map turns so that wall is horizontal, and boxes follow it | Spatial |
-| Floor height | Elevation and height per floor, for the 3D view; without them floors stack 3 m per level | Spatial |
+| Floor height | Elevation and height per floor, for the 3D view | Spatial |
 
-- Home Assistant owns areas and floors. Names, icons, levels and floor assignment are always
-  read from its registries; rename or move an area in Home Assistant and the map follows. The
-  building carries Home Assistant's location name ("Home" unless you changed it).
-- Deleting an area or floor in Home Assistant deletes its footprint or heights.
-- Spatial stores coordinates in WGS84, the same world as Home Assistant's zones, exactly as
-  drawn. It reads them on a lattice of 2.5 cm (1 in with US customary units) in one site frame,
-  from the grid origin along the site direction, so shared walls and areas come out exact.
+- Home Assistant owns areas and floors: rename or move an area in Home Assistant and the map
+  follows. The building carries Home Assistant's location name ("Home" unless you changed it).
+- Spatial reads every corner on a lattice of 2.5 cm (1 in with US customary units) from the grid
+  origin along the site direction, so shared walls and areas come out exact. What is stored and
+  how it is measured is in the [integration README](../custom_components/spatial/README.md#data).
 
 ## First run
 
@@ -210,34 +208,37 @@ cards:
 
 ## What Spatial computes
 
-| Value | How | Where you see it |
-| --- | --- | --- |
-| Net area | The footprint moved in by half a wall: 15 cm (3 in) along the outline, 5 cm (2 in) elsewhere; read on the lattice in the site frame | Room labels in the panel; `area_m2` in the API |
-| Neighbours | Rooms sharing at least 0.3 m of wall axis, exactly on the lattice, on every floor both occupy | The API (`spatial/area/adjacent`) |
-| On the facade | A room sharing at least 0.3 m of the outline, unless overridden | The API (`on_facade`) |
-| Outdoor | A room outside the outline, touching allowed | The API (`is_external`) |
-| Room at a point | The smallest footprint containing it | The API (`spatial/query_point`) |
-| 3D | Base of each room's floor up to the top of the highest floor it occupies | All, and the card |
+| Value | Where you see it |
+| --- | --- |
+| Net area: the footprint moved in by half a wall | Room labels in the panel; `area_m2` in the API |
+| Neighbours: rooms sharing a wall axis | The API (`spatial/area/adjacent`) |
+| On the facade: a room sharing the outline | The API (`on_facade`) |
+| Outdoor: a room outside the outline | The API (`is_external`) |
+| Room at a point | The API (`spatial/query_point`) |
+| 3D: each room from the base of its floor to the top of the highest floor it occupies | All, and the card |
 
-The sizes shown while drawing are previews; the saved net area comes from the integration.
+The sizes shown while drawing are previews; the saved net area comes from the integration. The
+exact rules, and where they are approximate, are in the
+[integration README](../custom_components/spatial/README.md#rules).
 
 ## Set through the API only
 
 The panel does not edit these; tools and scripts set them through the
-[websocket API](../custom_components/spatial/README.md#websocket-api), and the
-[importer](../tools/README.md) sets floor heights.
+[websocket API](../custom_components/spatial/README.md#websocket-api), which also says what
+each one means, and the [importer](../tools/README.md) sets floor heights.
 
-| Setting | Effect |
+| Setting | In the panel |
 | --- | --- |
-| Floor elevation and height | Where each floor sits in 3D (`spatial/floor/update`) |
-| `floors_up` | A room that reaches the floors above its own, such as a stairwell or a double-height living room; it then counts on each of those floors for neighbours and the 3D view |
-| `on_facade_override` | Replaces the derived `on_facade` with true or false |
-| Grid origin | The site's `origin`, where the site frame and its 10 cm (4 in) drawing grid start; Align on an empty plan sets it to the left end of the picked wall; without one, the first save stores the first corner of the outline, else of the first footprint, else the home location. The panel draws on this grid |
+| Floor elevation and height (`spatial/floor/update`) | Where each floor sits in 3D |
+| `floors_up` | The room counts on each of those floors for neighbours and the 3D view |
+| `on_facade_override` | Not shown |
+| Grid origin (the site's `origin`) | Where the 10 cm (4 in) drawing grid starts; only Align on an empty plan sets it from the panel |
 
 ## Known limits
 
 - Boxes follow the site direction; walls at other angles cannot be drawn.
-- Side lengths can only be typed for a rectangle along the site direction.
+- Side lengths can only be typed for a rectangle along the site direction. A change arriving
+  from elsewhere while a side field is open resets the field.
 - Snapping uses the rooms on this floor and the outline: not the floor below, diagonal walls or
   buildings on the map. A moved room lines up its corners with others, not its walls with their
   corners.
@@ -248,5 +249,3 @@ The panel does not edit these; tools and scripts set them through the
 - Undo covers this session only, and overwrites changes made elsewhere in the meantime. An undo
   for an area deleted in Home Assistant keeps failing; reload the panel to clear the history.
 - A fixed card frames the footprints, so tall floors in its 3D view can reach past the frame.
-- The net area is exact for right angles; a diagonal corner between a 15 cm and a 5 cm inset is
-  approximated.
