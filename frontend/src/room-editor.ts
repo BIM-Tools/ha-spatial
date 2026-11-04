@@ -1,11 +1,11 @@
 // Keeps the panel's room edits in step with Home Assistant: the area strip, side lengths, and each edit saved at once with undo and redo.
 
 import { point } from "@turf/helpers";
-import type { FeatureCollection, Polygon } from "geojson";
+import type { FeatureCollection, Polygon, Position } from "geojson";
 import { html } from "lit";
 import { type GeoJSONSource, Marker, type Map as MapLibreMap } from "maplibre-gl";
 import { type AreaEntry, BUILDING, newAreaName, nextActive, stripOrder } from "./area-strip";
-import { type ActiveRoom, BoxInteraction } from "./box-interaction";
+import { type ActiveRoom, BoxInteraction, type ResizeTarget } from "./box-interaction";
 import { type Change, type FootprintBatch, History } from "./history";
 import type { LayerColours } from "./map-paint";
 import { byLevel } from "./map-view";
@@ -63,6 +63,13 @@ const SIDE_STYLE =
   "font: 12px sans-serif; background: var(--card-background-color); color: var(--primary-text-color); border: 1px solid var(--primary-color); border-radius: 3px";
 // A side button or field sits on the map, inside a Marker that would block focus; its presses and keys stay its own.
 const MAP_EVENTS = ["mousedown", "touchstart", "click", "dblclick", "keydown"];
+const EDGE_GRIP_STYLE =
+  "box-sizing: border-box; width: 44px; height: 20px; border-radius: 9999px; background: var(--card-background-color); border: 2px solid var(--primary-color); touch-action: none";
+// Invisible over the corner's handle dot, which the map draws.
+const CORNER_GRIP_STYLE = "width: 44px; height: 44px; border-radius: 50%; touch-action: none";
+// Half the grab handle's 20 px thickness and a 4 px gap.
+const GRIP_CLEARANCE_PX = 14;
+const coarsePointer = () => window.matchMedia("(pointer: coarse)").matches;
 
 export class RoomEditor {
   floors: FloorEntry[] = [];
@@ -79,6 +86,9 @@ export class RoomEditor {
   private _saving = false;
   private _saveFailedShown = false;
   private _sides: Marker[] = [];
+  // Touch screens only: edge grab handles, then corner targets.
+  private _grips: Marker[] = [];
+  private _heldGrip?: HTMLElement;
   private _editingSide?: number;
   // Counts acknowledged saves and started refreshes, so an older refresh cannot undo a newer save.
   private _changes = 0;
@@ -132,6 +142,7 @@ export class RoomEditor {
       onPickRoom: (areaId) => this._select(areaId),
     });
     window.addEventListener("keydown", this._keys);
+    map.on("rotate", this._placeChips);
     this._showSides();
   }
 
@@ -180,6 +191,7 @@ export class RoomEditor {
     // Adjust leaves the map's own panning and rotating on.
     this.setTool("adjust");
     window.removeEventListener("keydown", this._keys);
+    this._map?.off("rotate", this._placeChips);
     this._interaction?.destroy();
     this._interaction = undefined;
     this._map = undefined;
@@ -369,8 +381,10 @@ export class RoomEditor {
 
   // In Adjust each side of the active room, when it is a rectangle on the site axis, is a button that opens a length field.
   private _showSides() {
-    for (const side of this._sides) side.remove();
+    for (const marker of [...this._sides, ...this._grips]) marker.remove();
     this._sides = [];
+    this._grips = [];
+    this._heldGrip = undefined;
     const map = this._map;
     const areaId = this._active;
     const footprint = this._footprints.get(areaId);
@@ -407,9 +421,65 @@ export class RoomEditor {
       element.append(control);
       return new Marker({ element }).setLngLat(at as [number, number]).addTo(map);
     }));
+    if (coarsePointer()) this._showGrips(map, footprint, sideLabels(frame, footprint, units).map(({ at }) => at));
     field?.focus();
     field?.select();
   }
+
+  // A finger cannot find a thin edge or a corner dot, so on a touch screen each edge gets a grab
+  // handle along it and each corner a round target over its dot; the side chips move outward.
+  private _showGrips(map: MapLibreMap, footprint: Polygon, middles: Position[]) {
+    const corners = footprint.coordinates[0].slice(0, 4);
+    const screen = corners.map((corner) => map.project(corner as [number, number]));
+    const edges = middles.map((middle, index) => {
+      const [from, to] = [screen[index], screen[(index + 1) % 4]];
+      const rotation = (Math.atan2(to.y - from.y, to.x - from.x) * 180) / Math.PI + map.getBearing();
+      return this._grip(map, middle, { kind: "edge", index }, EDGE_GRIP_STYLE, rotation);
+    });
+    const targets = corners.map((corner, index) => this._grip(map, corner, { kind: "corner", index }, CORNER_GRIP_STYLE));
+    this._grips = [...edges, ...targets];
+    this._placeChips();
+  }
+
+  private _grip(map: MapLibreMap, at: Position, target: ResizeTarget, style: string, rotation?: number): Marker {
+    const element = Object.assign(document.createElement("div"), { className: `${target.kind}-grip` });
+    element.style.cssText = style;
+    element.setAttribute("aria-hidden", "true");
+    const pixel = (event: PointerEvent) => {
+      const box = map.getContainer().getBoundingClientRect();
+      return { x: event.clientX - box.left, y: event.clientY - box.top };
+    };
+    element.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+      if (!this._interaction?.startResize(target, pixel(event), false)) return;
+      this._heldGrip = element;
+      element.setPointerCapture?.(event.pointerId);
+    });
+    element.addEventListener("pointermove", (event) => this._interaction?.resizeTo(pixel(event), false));
+    element.addEventListener("pointerup", (event) => this._interaction?.endResize(pixel(event), false));
+    element.addEventListener("pointercancel", () => this._interaction?.cancel());
+    for (const type of MAP_EVENTS) element.addEventListener(type, (event) => event.stopPropagation());
+    return new Marker({ element, rotationAlignment: "map", rotation }).setLngLat(at as [number, number]).addTo(map);
+  }
+
+  // Each side chip outward of its edge's grab handle along the edge's normal on screen, clear of it
+  // by its own half size; again after the map turns.
+  private _placeChips = () => {
+    const map = this._map;
+    const footprint = this._footprints.get(this._active);
+    if (!map || !footprint || !this._grips.length) return;
+    const screen = footprint.coordinates[0].slice(0, 4).map((corner) => map.project(corner as [number, number]));
+    const centre = { x: screen.reduce((sum, { x }) => sum + x, 0) / 4, y: screen.reduce((sum, { y }) => sum + y, 0) / 4 };
+    this._sides.forEach((side, index) => {
+      const [from, to] = [screen[index], screen[(index + 1) % 4]];
+      const [outX, outY] = [(from.x + to.x) / 2 - centre.x, (from.y + to.y) / 2 - centre.y];
+      const length = Math.hypot(outX, outY) || 1;
+      const [normalX, normalY] = [outX / length, outY / length];
+      const { width, height } = side.getElement().getBoundingClientRect();
+      const distance = GRIP_CLEARANCE_PX + (Math.abs(normalX) * width + Math.abs(normalY) * height) / 2;
+      side.setOffset([normalX * distance, normalY * distance]);
+    });
+  };
 
   private _resize(frame: PlanFrame, areaId: string, footprint: Polygon, edgeIndex: number, lengthM: number | undefined) {
     const after = lengthM === undefined ? undefined : resizeSide(frame, footprint, edgeIndex, lengthM);
@@ -449,7 +519,10 @@ export class RoomEditor {
       if (!this._saving) this._showSides();
       return;
     }
-    for (const side of this._sides) side.getElement().style.visibility = "hidden";
+    for (const marker of [...this._sides, ...this._grips]) {
+      // The held handle keeps its pointer capture, so it stays.
+      if (marker.getElement() !== this._heldGrip) marker.getElement().style.visibility = "hidden";
+    }
   }
 
   private async _apply(change: Change) {

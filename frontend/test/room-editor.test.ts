@@ -1812,3 +1812,103 @@ test("Escape cancels an edge drag in Adjust without a save", async () => {
   expect(saves(connection)).toEqual([]);
   expect(sidesVisible()).toEqual([true, true, true, true]);
 });
+
+const coarsePointer = (coarse: boolean) =>
+  vi.spyOn(window, "matchMedia").mockImplementation(
+    (media: string) =>
+      ({
+        matches: coarse && media === "(pointer: coarse)",
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }) as unknown as MediaQueryList,
+  );
+const edgeGrips = () => liveMarkers().filter((marker) => marker.element.matches(".edge-grip"));
+const cornerGrips = () => liveMarkers().filter((marker) => marker.element.matches(".corner-grip"));
+const sideChips = () => liveMarkers().filter((marker) => marker.element.firstElementChild instanceof HTMLButtonElement);
+
+// The map container sits at the page's origin, so client pixels are map pixels.
+const pointerDrag = (element: HTMLElement, points: [number, number][]) => {
+  const at = (type: string, [clientX, clientY]: [number, number]) =>
+    element.dispatchEvent(new PointerEvent(type, { clientX, clientY, pointerId: 1, bubbles: true, cancelable: true }));
+  at("pointerdown", points[0]);
+  for (const point of points.slice(1)) at("pointermove", point);
+  at("pointerup", points[points.length - 1]);
+};
+
+test("on a coarse pointer the active rectangle in Adjust has a 44 x 20 px grab handle on each edge and a 44 px target on each corner", async () => {
+  coarsePointer(true);
+  const { panel } = mountEditor();
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  expect(edgeGrips()).toHaveLength(4);
+  for (const { element, options } of edgeGrips()) {
+    expect([element.style.width, element.style.height]).toEqual(["44px", "20px"]);
+    expect(element.getAttribute("aria-hidden")).toBe("true");
+    expect(element.style.touchAction).toBe("none");
+    expect(options.rotationAlignment).toBe("map");
+  }
+  // Edge 0 runs left to right on the screen and edge 1 down it, at map bearing 300.
+  expect(edgeGrips().map(({ options }) => Math.round(options.rotation!) % 180)).toEqual([120, 30, 120, 30]);
+  expect(cornerGrips()).toHaveLength(4);
+  for (const { element } of cornerGrips()) {
+    expect([element.style.width, element.style.height]).toEqual(["44px", "44px"]);
+    expect(element.getAttribute("aria-hidden")).toBe("true");
+  }
+  vi.restoreAllMocks();
+});
+
+test("on a fine pointer there are no grab handles", async () => {
+  coarsePointer(false);
+  const { panel } = mountEditor();
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  expect(sideChips()).toHaveLength(4);
+  expect([...edgeGrips(), ...cornerGrips()]).toEqual([]);
+  vi.restoreAllMocks();
+});
+
+test("each side chip sits outward of its grab handle, clear of it", async () => {
+  coarsePointer(true);
+  const { panel } = mountEditor();
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  const [top, right, bottom, left] = sideChips().map(({ options }) => options.offset!);
+  expect(top[1]).toBeLessThan(-13.9);
+  expect(right[0]).toBeGreaterThan(13.9);
+  expect(bottom[1]).toBeGreaterThan(13.9);
+  expect(left[0]).toBeLessThan(-13.9);
+  vi.restoreAllMocks();
+});
+
+test("dragging an edge handle saves one resize, and the chips hide while it moves", async () => {
+  coarsePointer(true);
+  const { panel, connection } = mountEditor();
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  const grip = edgeGrips()[3].element;
+  const at = (type: string, [clientX, clientY]: [number, number]) =>
+    grip.dispatchEvent(new PointerEvent(type, { clientX, clientY, pointerId: 1, bubbles: true, cancelable: true }));
+  at("pointerdown", [0, 25]);
+  at("pointermove", [-12, 25]);
+  expect(sideChips().map(({ element }) => element.style.visibility)).toEqual(["hidden", "hidden", "hidden", "hidden"]);
+  at("pointermove", [-19.2, 25]);
+  at("pointerup", [-19.2, 25]);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  expect(cornerSet(saves(connection)[0].areas.kitchen)).toEqual(latticeBox(-76, -200, 200, 0));
+  vi.restoreAllMocks();
+});
+
+test("dragging a corner target moves that corner and keeps the opposite one", async () => {
+  coarsePointer(true);
+  const { panel, connection } = mountEditor();
+  await startAdjusting(panel);
+  await tapRoom(panel, "kitchen");
+  pointerDrag(cornerGrips()[2].element, [
+    [50, 50],
+    [56, 56],
+    [60.3, 60.3],
+  ]);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  expect(cornerSet(saves(connection)[0].areas.kitchen)).toEqual(latticeBox(0, -240, 240, 0));
+  vi.restoreAllMocks();
+});
