@@ -3,8 +3,9 @@
 import { polygon } from "@turf/helpers";
 import union from "@turf/union";
 import type { Polygon, Position } from "geojson";
+import type { Change } from "./history";
 import type { LatticePoint, PlanFrame } from "./site-frame";
-import { type HassUnits, formatArea, formatLength } from "./units";
+import { type HassUnits, formatArea, formatLength, isUsCustomary } from "./units";
 
 type Ring = LatticePoint[];
 
@@ -124,4 +125,33 @@ export function addToFootprint(frame: PlanFrame, existing: Polygon | undefined, 
   if (joined?.geometry.type !== "Polygon") return undefined;
   const rings = joined.geometry.coordinates.map((ring) => ring.map((corner) => frame.fromLattice([corner[0], corner[1]])));
   return { type: "Polygon", coordinates: rings };
+}
+
+/** What saving a gesture changes, or the toast that says why it saves nothing. */
+export type ChangeOrRefusal = { change: Change } | { refusal: string };
+
+const footprintChange = (areaId: string, before: Polygon | null, after: Polygon | null): Change => ({
+  before: { [areaId]: before },
+  after: { [areaId]: after },
+});
+
+/** A drawn box joins the area's footprint, or starts it; a box the footprint cannot join is refused. */
+export function boxChange(frame: PlanFrame, areaId: string, current: Polygon | undefined, box: Polygon): ChangeOrRefusal {
+  const footprint = addToFootprint(frame, current, box);
+  if (!footprint) return { refusal: "A room is one shape: draw against it" };
+  return { change: footprintChange(areaId, current ?? null, footprint) };
+}
+
+/** A typed side length resizes the rectangle; an unreadable length or one under a grid step is refused. */
+export function resizeChange(
+  frame: PlanFrame,
+  areaId: string,
+  rectangle: Polygon,
+  edgeIndex: number,
+  lengthM: number | undefined,
+  units: HassUnits,
+): ChangeOrRefusal {
+  const resized = lengthM === undefined ? undefined : resizeSide(frame, rectangle, edgeIndex, lengthM);
+  if (!resized) return { refusal: `Too small: every side needs at least ${isUsCustomary(units) ? "4 in" : "10 cm"}` };
+  return { change: footprintChange(areaId, rectangle, resized) };
 }

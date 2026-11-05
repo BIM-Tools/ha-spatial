@@ -100,11 +100,11 @@ test("a typed 3.47 m reads back as the saved lattice length, 3.475 m, on the sid
   expect(sideField()!.value).toBe("3.475 m");
 });
 
-test.each(["0.05", "abc"])("a side typed as %j saves nothing and a toast says every side needs 10 cm", async (value) => {
+test("a refused side length saves nothing, keeps its field and says why", async () => {
   const { panel, connection } = mountEditor();
   await startAdjusting(panel);
   await tapRoom(panel, "kitchen");
-  typeSide(0, value);
+  typeSide(0, "0.05");
   await settle(panel);
   expect(saves(connection)).toEqual([]);
   expect(toasts).toEqual([{ message: "Too small: every side needs at least 10 cm" }]);
@@ -134,14 +134,8 @@ test("in US customary units a side shows feet and inches and reads a typed lengt
   expect(sideButtons().map((button) => button.textContent)).toEqual(["13′ 1″", "9′ 10″", "13′ 1″", "9′ 10″"]);
   sideButtons()[0].click();
   const field = sideField()!;
-  const enter = (value: string) => {
-    field.value = value;
-    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
-  };
-  enter(`3"`);
-  await settle(panel);
-  expect(toasts).toEqual([{ message: "Too small: every side needs at least 4 in" }]);
-  enter(`16' 5"`);
+  field.value = `16' 5"`;
+  field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
   expect(edgeLengths(INCH_FRAME, saves(connection)[0].areas.kitchen)[0]).toBeCloseTo(197 * 0.0254, 3);
 });

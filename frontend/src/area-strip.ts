@@ -25,6 +25,10 @@ export const nextActive = (order: AreaEntry[], linkedAreaIds: Set<string>): stri
 // Same comparison as Home Assistant's normalize_name (homeassistant/helpers/normalized_name_base_registry.py).
 const normalize = (name: string) => name.toLowerCase().replace(/\s/g, "");
 
+/** The area to draw next: the outline first, as it frames the rooms, then the first area without a footprint; with every area drawn the outline. */
+export const firstToDraw = (order: AreaEntry[], linkedAreaIds: Set<string>): string =>
+  (linkedAreaIds.has(BUILDING) && nextActive(order, linkedAreaIds)) || BUILDING;
+
 export const newAreaName = (existingNames: string[]): string => {
   const taken = new Set(existingNames.map(normalize));
   let n = 1;

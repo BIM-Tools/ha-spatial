@@ -15,7 +15,6 @@ import { type ActiveRoom, BoxInteraction } from "../src/box-interaction";
 import { layerColours, readMapPaint } from "../src/map-paint";
 import type { Tool } from "../src/room-editor";
 import { PlanFrame } from "../src/site-frame";
-import { candidatesOf } from "../src/snap";
 
 let mounted: BoxInteraction | undefined;
 
@@ -42,19 +41,17 @@ const mountInteraction = (
   const onResize = vi.fn();
   const onResizing = vi.fn();
   mounted = new BoxInteraction(map, {
-    tool: () => tool,
-    floorPicked: () => true,
-    saving: () => false,
-    activeRoom: () => activeRoom,
-    siteBearing: () => 30,
-    siteFrame: () => (framed ? frame() : undefined),
-    snapCandidates: (snapFrame, exclude) =>
-      candidatesOf(
-        snapFrame,
-        neighbours.filter((_, index) => String(index) !== exclude),
-        undefined,
-      ),
-    units: () => METRIC_UNITS,
+    snapshot: () => ({
+      tool,
+      floorPicked: true,
+      saving: false,
+      activeRoom,
+      siteBearing: 30,
+      siteFrame: framed ? frame() : undefined,
+      units: METRIC_UNITS,
+      floorAreaIds: neighbours.map((_, index) => String(index)),
+      footprints: new Map(neighbours.map((neighbour, index) => [String(index), neighbour])),
+    }),
     onBox,
     onMove,
     onResize,

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // Checks the area strip's ordering helpers and how a user picks, renames and adds areas with its pills.
 import { afterEach, expect, test, vi } from "vitest";
-import { BUILDING, nextActive, newAreaName, stripOrder, type AreaEntry } from "../src/area-strip";
+import { BUILDING, firstToDraw, nextActive, newAreaName, stripOrder, type AreaEntry } from "../src/area-strip";
 
 const area = (area_id: string, name: string, floor_id: string | null = "f1"): AreaEntry => ({
   area_id,
@@ -29,6 +29,14 @@ test("nextActive is the first area without a footprint, and nothing once all hav
   const order = [area("a", "A"), area("b", "B")];
   expect(nextActive(order, new Set(["a"]))).toBe("b");
   expect(nextActive(order, new Set(["a", "b"]))).toBeUndefined();
+});
+
+test.each<[string, string[], string]>([
+  ["without an outline the outline", ["a"], BUILDING],
+  ["with an outline the first area without a footprint", [BUILDING, "a"], "b"],
+  ["with every area drawn the outline", [BUILDING, "a", "b"], BUILDING],
+])("firstToDraw is %s", (_name, linked, expected) => {
+  expect(firstToDraw([area("a", "A"), area("b", "B")], new Set(linked))).toBe(expected);
 });
 
 test("newAreaName takes the smallest free number, ignoring case and spaces", () => {
