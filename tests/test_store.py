@@ -11,7 +11,7 @@ from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
 from custom_components.spatial.const import DOMAIN, EVENT_SPATIAL_UPDATED
 
-from .common import lonlat, rect, set_frame
+from .common import call, lonlat, rect, set_frame, setup_entry
 
 
 @pytest.fixture(autouse=True)
@@ -23,18 +23,9 @@ async def setup_integration(
     areas = ar.async_get(hass)
     areas.async_create("Kitchen", floor_id=ground.floor_id)
     areas.async_create("Hallway", floor_id=ground.floor_id)
-    entry = MockConfigEntry(domain=DOMAIN, title="Spatial")
-    entry.add_to_hass(hass)
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    entry = await setup_entry(hass)
     await set_frame(hass, hass_ws_client)
     return entry
-
-
-async def _call(client: Any, **command: Any) -> dict[str, Any]:
-    """Send a command and return the response message."""
-    await client.send_json_auto_id(command)
-    return await client.receive_json()
 
 
 async def _reload_with(
@@ -53,15 +44,15 @@ async def _reload_with(
 
 async def _revs(client: Any) -> tuple[dict[str, str], str]:
     """Return the rev of every footprint and the rev of the site."""
-    features = (await _call(client, type="spatial/geojson"))["result"]["features"]
-    site = (await _call(client, type="spatial/site"))["result"]
+    features = (await call(client, type="spatial/geojson"))["result"]["features"]
+    site = (await call(client, type="spatial/site"))["result"]
     return {f["id"]: f["properties"]["rev"] for f in features}, site["rev"]
 
 
 async def _snapshot(client: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Return everything a client can read, to show that nothing changed."""
-    features = (await _call(client, type="spatial/geojson"))["result"]["features"]
-    site = (await _call(client, type="spatial/site"))["result"]
+    features = (await call(client, type="spatial/geojson"))["result"]["features"]
+    site = (await call(client, type="spatial/site"))["result"]
     return features, site
 
 
@@ -126,7 +117,7 @@ async def test_release_1_1_data_without_content_is_migrated(
         "onboarding": {"home_pin": None},
     }
     client = await hass_ws_client(hass)
-    site = (await _call(client, type="spatial/site"))["result"]
+    site = (await call(client, type="spatial/site"))["result"]
     assert site["bearing_deg"] is None
     assert site["origin"] == [hass.config.longitude, hass.config.latitude]
 
@@ -173,10 +164,10 @@ async def test_release_1_2_site_gets_an_origin(
     )
 
     client = await hass_ws_client(hass)
-    site = (await _call(client, type="spatial/site"))["result"]
+    site = (await call(client, type="spatial/site"))["result"]
     assert site["origin"] == (origin or [hass.config.longitude, hass.config.latitude])
     assert site["bearing_deg"] == bearing_deg
-    features = (await _call(client, type="spatial/geojson"))["result"]["features"]
+    features = (await call(client, type="spatial/geojson"))["result"]["features"]
     assert [f["properties"]["area_m2"] for f in features] == [11.31] * len(areas)
     assert hass_storage[DOMAIN]["data"]["areas"] == {
         area_id: {"polygon": polygon, "floors_up": 0, "on_facade_override": None}
@@ -192,7 +183,7 @@ async def test_new_writes_are_saved_complete(
 ) -> None:
     """Test a fresh install saves every key of the current version."""
     client = await hass_ws_client(hass)
-    msg = await _call(
+    msg = await call(
         client, type="spatial/area/update_geometries", areas={"kitchen": rect(0, 0, 4, 3)}
     )
     assert msg["success"], msg
@@ -216,7 +207,7 @@ async def test_rev_follows_content(
 ) -> None:
     """Test a rev changes with its own content only, and survives a reload."""
     client = await hass_ws_client(hass)
-    await _call(
+    await call(
         client,
         type="spatial/area/update_geometries",
         areas={"kitchen": rect(0, 0, 4, 3), "hallway": rect(4, 0, 6, 3)},
@@ -224,18 +215,18 @@ async def test_rev_follows_content(
     area_revs, site_rev = await _revs(client)
     assert all(len(rev) == 12 for rev in [*area_revs.values(), site_rev])
 
-    await _call(client, type="spatial/area/update_geometries", areas={"kitchen": rect(0, 0, 5, 3)})
+    await call(client, type="spatial/area/update_geometries", areas={"kitchen": rect(0, 0, 5, 3)})
     changed_area_revs, unchanged_site_rev = await _revs(client)
     assert changed_area_revs["kitchen"] != area_revs["kitchen"]
     assert changed_area_revs["hallway"] == area_revs["hallway"]
     assert unchanged_site_rev == site_rev
 
-    await _call(client, type="spatial/site/update", bearing_deg=15.0)
+    await call(client, type="spatial/site/update", bearing_deg=15.0)
     same_area_revs, changed_site_rev = await _revs(client)
     assert same_area_revs == changed_area_revs
     assert changed_site_rev != site_rev
 
-    await _call(client, type="spatial/area/update_geometries", areas={"kitchen": rect(0, 0, 4, 3)})
+    await call(client, type="spatial/area/update_geometries", areas={"kitchen": rect(0, 0, 4, 3)})
     assert (await _revs(client))[0] == area_revs
 
     revs_before_reload = await _revs(client)
@@ -249,10 +240,10 @@ async def test_write_with_matching_revs_returns_new_revs(
 ) -> None:
     """Test a write based on current revs succeeds and returns the revs a client reads next."""
     client = await hass_ws_client(hass)
-    await _call(client, type="spatial/area/update_geometries", areas={"kitchen": rect(0, 0, 4, 3)})
+    await call(client, type="spatial/area/update_geometries", areas={"kitchen": rect(0, 0, 4, 3)})
     area_revs, site_rev = await _revs(client)
 
-    msg = await _call(
+    msg = await call(
         client,
         type="spatial/area/update_geometries",
         areas={"kitchen": None, "hallway": rect(4, 0, 6, 3)},
@@ -286,11 +277,11 @@ async def test_write_with_stale_revs_changes_nothing(
 ) -> None:
     """Test a write based on old revs returns conflict, writes nothing and fires no event."""
     client = await hass_ws_client(hass)
-    await _call(client, type="spatial/area/update_geometries", areas={"kitchen": rect(0, 0, 4, 3)})
+    await call(client, type="spatial/area/update_geometries", areas={"kitchen": rect(0, 0, 4, 3)})
     before = await _snapshot(client)
     events = async_capture_events(hass, EVENT_SPATIAL_UPDATED)
 
-    msg = await _call(
+    msg = await call(
         client,
         type="spatial/area/update_geometries",
         areas={"kitchen": rect(0, 0, 8, 3), "hallway": rect(8, 0, 10, 3)},
@@ -322,7 +313,7 @@ async def test_unknown_area_rejects_the_site_change_too(
     client = await hass_ws_client(hass)
     before = await _snapshot(client)
 
-    msg = await _call(
+    msg = await call(
         client, type="spatial/area/update_geometries", site={"bearing_deg": 45.0}, **references
     )
 
@@ -337,7 +328,7 @@ async def test_site_only_write(hass: HomeAssistant, hass_ws_client: WebSocketGen
     events = async_capture_events(hass, EVENT_SPATIAL_UPDATED)
     origin = lonlat(0, 0)
 
-    msg = await _call(
+    msg = await call(
         client,
         type="spatial/area/update_geometries",
         site={"bearing_deg": 0.0, "origin": origin, "outline": rect(0, 0, 10, 8)},
@@ -348,7 +339,7 @@ async def test_site_only_write(hass: HomeAssistant, hass_ws_client: WebSocketGen
     assert msg["result"]["area_m2"] == {}
     assert msg["result"]["rev"] == {}
     assert len(events) == 1
-    site = (await _call(client, type="spatial/site"))["result"]
+    site = (await call(client, type="spatial/site"))["result"]
     assert (site["bearing_deg"], site["origin"], site["outline"]) == (
         0.0,
         origin,
@@ -356,11 +347,9 @@ async def test_site_only_write(hass: HomeAssistant, hass_ws_client: WebSocketGen
     )
     assert site["rev"] == msg["result"]["site_rev"]
 
-    msg = await _call(
-        client, type="spatial/area/update_geometries", areas={}, site={"origin": None}
-    )
+    msg = await call(client, type="spatial/area/update_geometries", areas={}, site={"origin": None})
     assert msg["success"], msg
-    site = (await _call(client, type="spatial/site"))["result"]
+    site = (await call(client, type="spatial/site"))["result"]
     assert site["origin"] is None
     assert site["bearing_deg"] == 0.0
 
@@ -393,32 +382,8 @@ async def test_update_geometries_validates_site_and_revs(
 ) -> None:
     """Test bad site fields and revs are rejected as invalid_format."""
     client = await hass_ws_client(hass)
-    msg = await _call(client, type="spatial/area/update_geometries", **command)
+    msg = await call(client, type="spatial/area/update_geometries", **command)
     assert msg["error"]["code"] == "invalid_format"
-
-
-CROSSED_RING = {
-    "type": "Polygon",
-    "coordinates": [[lonlat(0, 0), lonlat(4, 0), lonlat(0, 3), lonlat(4, 3), lonlat(0, 0)]],
-}
-
-
-@pytest.mark.parametrize(
-    "command",
-    [
-        {"type": "spatial/site/update", "outline": CROSSED_RING},
-        {"type": "spatial/area/update_geometries", "site": {"outline": CROSSED_RING}},
-    ],
-    ids=["site_update", "update_geometries"],
-)
-async def test_bad_outline_names_the_reason(
-    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, command: dict[str, Any]
-) -> None:
-    """Test a bad outline returns the same reason as a bad footprint."""
-    client = await hass_ws_client(hass)
-    msg = await _call(client, **command)
-    assert msg["error"]["code"] == "invalid_format"
-    assert msg["error"]["message"].startswith("A ring crosses itself")
 
 
 async def test_floor_update_keeps_omitted_fields(
@@ -426,18 +391,16 @@ async def test_floor_update_keeps_omitted_fields(
 ) -> None:
     """Test a floor update changes only the given fields; null clears one."""
     client = await hass_ws_client(hass)
-    await _call(client, type="spatial/area/update_geometries", areas={"kitchen": rect(0, 0, 4, 3)})
+    await call(client, type="spatial/area/update_geometries", areas={"kitchen": rect(0, 0, 4, 3)})
 
     async def bounds() -> tuple[float, float]:
-        [feature] = (await _call(client, type="spatial/geojson"))["result"]["features"]
+        [feature] = (await call(client, type="spatial/geojson"))["result"]["features"]
         return feature["properties"]["base_m"], feature["properties"]["top_m"]
 
-    await _call(client, type="spatial/floor/update", floor_id="ground_floor", elevation_m=-0.5)
-    await _call(client, type="spatial/floor/update", floor_id="ground_floor", height_m=2.5)
+    await call(client, type="spatial/floor/update", floor_id="ground_floor", elevation_m=-0.5)
+    await call(client, type="spatial/floor/update", floor_id="ground_floor", height_m=2.5)
     assert await bounds() == (-0.5, pytest.approx(2.0))
 
-    msg = await _call(
-        client, type="spatial/floor/update", floor_id="ground_floor", elevation_m=None
-    )
+    msg = await call(client, type="spatial/floor/update", floor_id="ground_floor", elevation_m=None)
     assert msg["success"], msg
     assert await bounds() == (0.0, 2.5)
