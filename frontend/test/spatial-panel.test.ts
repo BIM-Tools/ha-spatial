@@ -3,8 +3,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import {
   EMPTY,
-  type Reply,
-  answer,
   buttonNamed,
   buttonsIn,
   fitBounds,
@@ -19,6 +17,7 @@ import {
   mountPanel,
   queryRenderedFeatures,
   resetFakes,
+  rooms,
   setBearing,
   setStyle,
   settle,
@@ -27,7 +26,6 @@ import {
   easeTo,
   fakeMapLibre,
   SITE,
-  siteReply,
   sources,
   unprojectPixel,
 } from "./panel-harness";
@@ -63,8 +61,10 @@ test("the panel says so when there are no rooms", async () => {
 });
 
 test("the panel says so when the map cannot load", async () => {
-  const { panel } = mountPanel(async () => {
-    throw new Error("connection lost");
+  const { panel } = mountPanel({
+    reply: async () => {
+      throw new Error("connection lost");
+    },
   });
   await vi.waitFor(() => expect(panel.shadowRoot?.textContent).toContain("Map could not load"));
 });
@@ -79,9 +79,9 @@ test("the panel loads the MapLibre worker from next to its own bundle", async ()
 test("leaving the panel during startup leaves nothing behind", async () => {
   vi.useFakeTimers();
   const pending: (() => void)[] = [];
-  const { panel, connection, listeners, unsubscribe, unsubscribeEvents } = mountPanel(
-    (message) => new Promise((resolve) => pending.push(() => resolve(answer(message)))),
-  );
+  const { panel, connection, listeners, unsubscribe, unsubscribeEvents } = mountPanel({
+    reply: () => new Promise((resolve) => pending.push(() => resolve(undefined))),
+  });
   await vi.advanceTimersByTimeAsync(0);
   panel.remove();
   // Resolve every call the panel makes from here on, as they come.
@@ -103,7 +103,7 @@ test("the panel has a header, the editing tools and the area strip; the card has
   expect(panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!.querySelector("[role=heading]")?.textContent).toBe("Spaces");
   for (const name of ["Align", "Draw", "Adjust", "Undo", "Redo"]) expect(buttonNamed(panel, name)).toBeDefined();
   expect(panel.shadowRoot!.querySelector("spatial-area-strip")).not.toBeNull();
-  const card = mountPanel(answer, {}, true).panel;
+  const card = mountPanel({ card: true }).panel;
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalledTimes(2));
   await settle(card);
   expect(card.shadowRoot?.querySelector("spatial-panel-header")).toBeNull();
@@ -118,15 +118,11 @@ const room = (floor_id: string | null, level: number | null) => ({
 });
 
 test("the card has one button per floor in the rooms, named by Home Assistant", async () => {
-  const collection = {
-    type: "FeatureCollection",
-    features: [room("loft", 1), room("ground", 0), room("annex", 0), room(null, null)],
-  };
-  const { panel } = mountPanel(
-    async (message) => (message.type === "spatial/geojson" ? collection : answer(message)),
-    { ground: { name: "Ground floor" }, loft: { name: "Loft" } },
-    true,
-  );
+  const { panel } = mountPanel({
+    geojson: rooms(room("loft", 1), room("ground", 0), room("annex", 0), room(null, null)),
+    hassFloors: { ground: { name: "Ground floor" }, loft: { name: "Loft" } },
+    card: true,
+  });
   await vi.waitFor(() =>
     expect(floorButtonNames(panel)).toEqual(["All", "Ground floor", "annex", "Loft", "No floor"]),
   );
@@ -134,9 +130,7 @@ test("the card has one button per floor in the rooms, named by Home Assistant", 
 
 test("an update with a new site bearing turns the map", async () => {
   let bearing = 0;
-  const { connection } = mountPanel(async (message) =>
-    message.type === "spatial/site" ? siteReply({ bearing_deg: bearing }) : answer(message),
-  );
+  const { connection } = mountPanel({ site: () => ({ bearing_deg: bearing }) });
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
   bearing = 90;
   const [[onUpdate]] = connection.subscribeMessage.mock.calls as unknown as [[() => Promise<void>]];
@@ -181,23 +175,14 @@ const square = (floor_id: string, west: number, south: number) => ({
   properties: { floor_id, level: 0 },
 });
 
-const TWO_FLOORS = {
-  type: "FeatureCollection",
-  features: [square("ground", 5, 52), square("first", 6, 53)],
-};
+const TWO_FLOORS = rooms(square("ground", 5, 52), square("first", 6, 53));
 
-const mountStatic = (floor: string, geojson: () => object = () => TWO_FLOORS) =>
-  mountPanel(
-    async (message) => (message.type === "spatial/geojson" ? geojson() : answer(message)),
-    {},
-    true,
-    floor,
-  );
+const mountStatic = (floor: string, geojson: () => object = () => TWO_FLOORS) => mountPanel({ geojson, card: true, floor });
 
 const buttons = (panel: HTMLElement) => buttonsIn(panel.shadowRoot!).length;
 
 test("without a floor the map is interactive, with floor buttons", async () => {
-  const { panel } = mountPanel(answer, {}, true);
+  const { panel } = mountPanel({ card: true });
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
   expect(mapCreated.mock.calls[0][0]).not.toHaveProperty("interactive", false);
   expect(buttons(panel)).toBeGreaterThan(0);
@@ -226,7 +211,7 @@ test("a static map frames the rooms again on every update", async () => {
   let geojson: object = TWO_FLOORS;
   const { connection } = mountStatic("ground", () => geojson);
   await vi.waitFor(() => expect(fitBounds).toHaveBeenCalled());
-  geojson = { type: "FeatureCollection", features: [square("ground", 4, 51)] };
+  geojson = rooms(square("ground", 4, 51));
   const [[onUpdate]] = connection.subscribeMessage.mock.calls as unknown as [[() => Promise<void>]];
   await onUpdate();
   expect(fitBounds.mock.calls.at(-1)?.[0]).toEqual([4, 51, 5, 52]);
@@ -290,30 +275,21 @@ test("Align on an empty plan sends the bearing and the wall's left end as origin
   await vi.waitFor(() => expect(guideText(panel)).toBe("Click the wall your rooms follow"));
   click();
   expect(queryRenderedFeatures).toHaveBeenLastCalledWith({ x: 1, y: 2 }, { layers: ["building-3d"] });
-  const [saved] = updates(connection) as unknown as [{ bearing_deg: number; origin: number[] }];
+  // Which fields and their values are alignFields' rule; here only that the empty plan reaches it.
+  const [saved] = updates(connection);
   expect(Object.keys(saved)).toEqual(["type", "bearing_deg", "origin"]);
-  // The counter-clockwise ring runs north along the east wall, so its south end is on the left in the aligned view.
-  expect(saved.bearing_deg).toBeCloseTo(0, 1);
-  expect(saved.origin).toEqual([5.0002, 52]);
   click();
   expect(updates(connection)).toHaveLength(1);
   await vi.waitFor(() => expect(guideText(panel)).not.toContain("Click the wall"));
 });
 
-const ROOM_FEED = {
-  type: "FeatureCollection",
-  features: [{ type: "Feature", id: "kitchen", geometry: SHED, properties: { floor_id: null, level: null } }],
-};
+const ROOM_FEED = rooms({ type: "Feature", id: "kitchen", geometry: SHED, properties: { floor_id: null, level: null } });
 
 test.each([
   ["a footprint", ROOM_FEED, null],
   ["an outline", EMPTY, SHED],
 ])("Align with %s sends only the bearing", async (_name, feed, outline) => {
-  const { panel, connection } = mountPanel(async (message) => {
-    if (message.type === "spatial/geojson") return feed;
-    if (message.type === "spatial/site") return siteReply({ outline });
-    return answer(message);
-  });
+  const { panel, connection } = mountPanel({ geojson: feed, site: { outline } });
   queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
   await startAligning(panel);
   click();
@@ -380,12 +356,7 @@ test("in Align a click without a building saves nothing", async () => {
 
 test.each([false, true])("the stored outline is drawn on start and after updates (card %s)", async (card) => {
   let outline: object | null = HOUSE;
-  const { connection } = mountPanel(
-    async (message) =>
-      message.type === "spatial/site" ? siteReply({ outline }) : answer(message),
-    {},
-    card,
-  );
+  const { connection } = mountPanel({ site: () => ({ outline }), card });
   await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
   handlers["style.load"]();
   expect(layers.find((layer) => layer.id === "spatial-outline")).toMatchObject({
@@ -401,9 +372,10 @@ test.each([false, true])("the stored outline is drawn on start and after updates
 
 test("in Align a save Spatial refuses turns the map back and shows its reason, without Retry", async () => {
   const refusal = { code: "outside_outline", message: "Beyond the building outline: kitchen" };
-  const { panel } = mountPanel(async (message) => {
-    if (message.type === "spatial/site/update") throw refusal;
-    return answer(message);
+  const { panel } = mountPanel({
+    reply: async (message) => {
+      if (message.type === "spatial/site/update") throw refusal;
+    },
   });
   queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
   vi.spyOn(console, "error").mockImplementationOnce(() => {});
@@ -416,9 +388,10 @@ test("in Align a save Spatial refuses turns the map back and shows its reason, w
 
 test("in Align a failed save turns the map back and offers Retry, which saves the same bearing again", async () => {
   let fail = true;
-  const { panel, connection } = mountPanel(async (message) => {
-    if (message.type === "spatial/site/update" && fail) throw new Error("connection lost");
-    return answer(message);
+  const { panel, connection } = mountPanel({
+    reply: async (message) => {
+      if (message.type === "spatial/site/update" && fail) throw new Error("connection lost");
+    },
   });
   queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
   vi.spyOn(console, "error").mockImplementationOnce(() => {});
@@ -485,9 +458,9 @@ test.each([
 
 test("Align turns the map before the save is answered", async () => {
   let answerSave = () => {};
-  const { panel } = mountPanel(async (message) => {
-    if (message.type === "spatial/site/update") return new Promise<null>((resolve) => (answerSave = () => resolve(null)));
-    return answer(message);
+  const { panel } = mountPanel({
+    reply: async (message) =>
+      message.type === "spatial/site/update" ? new Promise<null>((resolve) => (answerSave = () => resolve(null))) : undefined,
   });
   queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
   await startAligning(panel);
@@ -520,16 +493,14 @@ test("the panel reads the areas and floors again on registry changes, until it i
 });
 
 test("the card does not follow the registries", async () => {
-  const { connection } = mountPanel(answer, {}, true);
+  const { connection } = mountPanel({ card: true });
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
   expect(connection.subscribeEvents).not.toHaveBeenCalled();
 });
 
 test("a unit system change uses the refetched frame", async () => {
   let frame = siteFrameData(SITE, 0);
-  const { panel, connection } = mountPanel(async (message) =>
-    message.type === "spatial/site" ? siteReply({ frame }) : answer(message),
-  );
+  const { panel, connection } = mountPanel({ site: () => ({ frame }) });
   await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
   handlers["style.load"]();
   await showNoFloor(panel);
@@ -634,9 +605,7 @@ test("Align turns the map on with the toggle disabled, and its end turns it off 
 
 test("the compass turns with the map", async () => {
   let bearing = 0;
-  const { panel, connection } = mountPanel(async (message) =>
-    message.type === "spatial/site" ? siteReply({ bearing_deg: bearing }) : answer(message),
-  );
+  const { panel, connection } = mountPanel({ site: () => ({ bearing_deg: bearing }) });
   await vi.waitFor(() => expect(handlers.rotate).toBeDefined());
   await settle(panel);
   const needle = () => buttonNamed(panel, "Face the house")!.querySelector("ha-svg-icon")!.getAttribute("style");
@@ -649,11 +618,10 @@ test("the compass turns with the map", async () => {
   expect(needle()).toContain("rotate(0deg)");
 });
 
-const UNALIGNED_SITE: Reply = async (message) =>
-  message.type === "spatial/site" ? siteReply({ bearing_deg: null }) : answer(message);
+const UNALIGNED = { site: { bearing_deg: null } };
 
 test("before any Align the map opens north up and the compass faces north, also in Draw", async () => {
-  const { panel } = mountPanel(UNALIGNED_SITE);
+  const { panel } = mountPanel(UNALIGNED);
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
   expect(mapCreated.mock.calls[0][0]).toMatchObject({ bearing: 0 });
   await showNoFloor(panel);
@@ -666,12 +634,7 @@ test("before any Align the map opens north up and the compass faces north, also 
 });
 
 test("before any Align a static card frames its rooms north up", async () => {
-  mountPanel(
-    async (message) => (message.type === "spatial/geojson" ? TWO_FLOORS : UNALIGNED_SITE(message)),
-    {},
-    true,
-    "all",
-  );
+  mountPanel({ ...UNALIGNED, geojson: TWO_FLOORS, card: true, floor: "all" });
   await vi.waitFor(() => expect(fitBounds).toHaveBeenCalled());
   expect(fitBounds.mock.calls[0][1]).toMatchObject({ bearing: 0 });
 });

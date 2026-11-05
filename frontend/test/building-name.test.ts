@@ -3,16 +3,14 @@
 import type { Polygon } from "geojson";
 import { afterEach, expect, test, vi } from "vitest";
 import {
-  EMPTY,
   type Reply,
-  answer,
   buttonNamed,
+  floorEntry,
   handlers,
   liveMarkers,
   mountPanel,
   resetFakes,
   settle,
-  siteReply,
   toastMessages,
   toasts,
   unprojectPixel,
@@ -37,13 +35,9 @@ const mountHome = (locationName: string, isAdmin = true, overrides: Reply = asyn
   const reply: Reply = async (message) => {
     const overridden = await overrides(message);
     if (overridden !== undefined) return overridden;
-    if (message.type === "spatial/site") return siteReply({ outline: OUTLINE });
-    if (message.type === "spatial/geojson") return EMPTY;
-    if (message.type === "config/floor_registry/list") return [{ floor_id: "ground", name: "Ground floor", level: 0 }];
-    if (message.type === "config/core/update") return null;
-    return answer(message);
+    return message.type === "config/core/update" ? null : undefined;
   };
-  const mounted = mountPanel(reply);
+  const mounted = mountPanel({ reply, site: { outline: OUTLINE }, floors: [floorEntry("ground", "Ground floor")] });
   setHass(mounted.panel, locationName, isAdmin);
   return mounted;
 };
