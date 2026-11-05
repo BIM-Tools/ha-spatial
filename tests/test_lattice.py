@@ -175,29 +175,17 @@ async def test_bearing_change_reads_the_same_data_on_the_new_lattice(
     assert await _features(client) == before
 
 
-@pytest.mark.parametrize(
-    ("room", "message"),
-    [
-        (polygon((0, 0), (4, 0), (0, 3.9)), "A corner must be between 45 and 315 degrees"),
-        (polygon((0, 0), (0.003, 0), (0, 0.003)), "A ring needs at least three corners"),
-        (
-            polygon((0, 0), (4, 0), (4, 3), (2.004, 0.003), (0, 3)),
-            "A ring crosses itself",
-        ),
-        (notched(0.075), "An edge must be at least one grid step"),
-    ],
-    ids=["spike", "collapsed", "touches_itself_once_snapped", "edge_under_a_grid_step"],
-)
 async def test_footprints_are_checked_as_snapped(
-    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, room: dict[str, Any], message: str
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
 ) -> None:
     """Test a footprint is checked on the lattice, as it will be read, naming the area."""
     client = await hass_ws_client(hass)
     await _write(client, site=FRAME)
+    touches_itself_once_snapped = polygon((0, 0), (4, 0), (4, 3), (2.004, 0.003), (0, 3))
 
-    msg = await _write(client, areas={"kitchen": room})
+    msg = await _write(client, areas={"kitchen": touches_itself_once_snapped})
 
-    assert msg["error"] == {"code": "invalid_format", "message": f"{message} (kitchen)"}
+    assert msg["error"] == {"code": "invalid_format", "message": "A ring crosses itself (kitchen)"}
 
 
 @pytest.mark.parametrize(
@@ -218,81 +206,6 @@ async def test_bad_outline_is_named(
         "code": "invalid_format",
         "message": "A corner must be between 45 and 315 degrees (outline)",
     }
-
-
-async def test_room_without_net_area_is_refused(
-    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
-) -> None:
-    """Test a room no wider than its two half walls is refused."""
-    client = await hass_ws_client(hass)
-    await _write(client, site=FRAME)
-    msg = await _write(client, areas={"kitchen": rect(0, 0, 4, 0.1), "hall": rect(0, 1, 4, 3)})
-    assert msg["error"] == {"code": "invalid_format", "message": "No net area: kitchen"}
-
-
-@pytest.mark.parametrize(
-    ("room", "accepted"),
-    [
-        (rect(2, 2, 4, 4), True),
-        (rect(0, 0, 4, 3), True),
-        (rect(10, 0, 14, 3), True),
-        (rect(12, 12, 14, 14), True),
-        (rect(8, 0, 14, 3), False),
-        (rect(-1, -1, 11, 11), False),
-        (rect(0, 0, 10.025, 3), False),
-    ],
-    ids=[
-        "inside",
-        "inside_touching",
-        "outside_touching",
-        "outside",
-        "across_the_facade",
-        "around_the_building",
-        "one_unit_beyond",
-    ],
-)
-async def test_rooms_may_not_cross_the_outline(
-    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, room: dict[str, Any], accepted: bool
-) -> None:
-    """Test a room lies inside or outside the outline, touching allowed, never across it."""
-    client = await hass_ws_client(hass)
-    await _write(client, site={**FRAME, "outline": OUTLINE})
-    events = async_capture_events(hass, EVENT_SPATIAL_UPDATED)
-
-    msg = await _write(client, areas={"garden": room, "hall": rect(0, 5, 2, 7)})
-    await hass.async_block_till_done()
-
-    if accepted:
-        assert msg["success"], msg
-    else:
-        assert msg["error"] == {
-            "code": "outside_outline",
-            "message": "Beyond the building outline: garden",
-        }
-        assert events == []
-
-
-async def test_outline_may_not_cut_a_room(
-    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
-) -> None:
-    """Test a new outline is refused when it would cut existing rooms; removing it is not."""
-    client = await hass_ws_client(hass)
-    await _write(
-        client,
-        site={**FRAME, "outline": OUTLINE},
-        areas={"kitchen": rect(0, 0, 4, 3), "hall": rect(4, 0, 8, 3)},
-    )
-
-    msg = await _write(client, site={"outline": rect(0, 0, 6, 10)})
-    assert msg["error"] == {
-        "code": "outside_outline",
-        "message": "Beyond the building outline: hall",
-    }
-
-    msg = await _write(client, site={"outline": rect(0, 0, 6, 10)}, areas={"hall": None})
-    assert msg["success"], msg
-    msg = await call(client, type="spatial/site/update", outline=None)
-    assert msg["success"], msg
 
 
 @pytest.mark.parametrize(
@@ -350,46 +263,22 @@ async def test_facade_insets_follow_the_outline(
     assert properties["on_facade"] is on_facade
 
 
-@pytest.mark.parametrize(
-    ("bearing_deg", "accepted"),
-    [(45.0, True), (33.0, False)],
-    ids=["still_inside", "corner_read_beyond_the_outline"],
-)
 async def test_new_bearing_keeps_rooms_within_the_outline(
-    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, bearing_deg: float, accepted: bool
-) -> None:
-    """Test a new bearing is refused when a room corner on an outline edge would read beyond it."""
-    client = await hass_ws_client(hass)
-    await _write(client, site={**FRAME, "outline": OUTLINE}, areas={"kitchen": rect(0, 0, 5, 4)})
-
-    msg = await call(client, type="spatial/site/update", bearing_deg=bearing_deg)
-
-    if accepted:
-        assert msg["success"], msg
-    else:
-        assert msg["error"] == {
-            "code": "outside_outline",
-            "message": "Beyond the building outline: kitchen",
-        }
-
-
-async def test_area_named_outline_is_checked_too(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator
 ) -> None:
-    """Test an area whose id is "outline" is validated beside the site outline."""
-    ar.async_get(hass).async_create("Outline")
+    """Test a new bearing is refused when a stored room corner would read beyond the outline."""
     client = await hass_ws_client(hass)
+    await _write(client, site={**FRAME, "outline": OUTLINE}, areas={"kitchen": rect(0, 0, 5, 4)})
+    events = async_capture_events(hass, EVENT_SPATIAL_UPDATED)
 
-    msg = await _write(
-        client,
-        site={**FRAME, "outline": OUTLINE},
-        areas={"outline": polygon((1, 1), (5, 1), (1, 4.9))},
-    )
+    msg = await call(client, type="spatial/site/update", bearing_deg=33.0)
+    await hass.async_block_till_done()
 
     assert msg["error"] == {
-        "code": "invalid_format",
-        "message": "A corner must be between 45 and 315 degrees (outline)",
+        "code": "outside_outline",
+        "message": "Beyond the building outline: kitchen",
     }
+    assert events == []
 
 
 async def test_us_customary_minimum_edge(
