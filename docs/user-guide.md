@@ -116,6 +116,9 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
 - **Alt:** hold Alt to place without snapping, on the 2.5 cm (1 in) lattice. Phones always snap.
 - **Move:** a drag that starts inside the active shape moves it; a click there still sets a
   corner. A moved shape snaps by its corners in the same way, else moves by whole grid steps.
+  Against the outline it stops where it first touches it, so a room inside stays inside and one
+  outside stays outside, and the wall or corner it touches lights up; the rest of the drag still
+  slides it along a wall that runs along the site direction.
 - **Pan:** hold Space and drag. **Escape** cancels a box. **Delete** removes the active shape.
 - Draw turns the map back to the site direction and keeps it flat until another tool is picked.
 
@@ -129,7 +132,8 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
   button. Tap one, type the length and press Enter (at least 10 cm or 4 in; an unchanged length
   saves nothing). The length is rounded to the 2.5 cm (1 in) lattice, so 3.47 m becomes 3.475 m.
   The side's start corner stays, the opposite side follows. Escape closes the field.
-- Moving a room snaps it to its neighbours as in Draw, else shifts it by whole grid steps.
+- Moving a room snaps it to its neighbours as in Draw, else shifts it by whole grid steps, and
+  stops it at the outline as in Draw.
 - **Stretch a side:** on such a rectangle, drag an edge anywhere along it. Only that edge moves,
   straight out or in, onto the 10 cm (4 in) grid, and rests on a parallel wall or a corner of
   another room or the outline nearby, which lights up. The draft counts its lengths and area as
@@ -252,8 +256,9 @@ each one means, and the [importer](../tools/README.md) sets floor heights.
 - Boxes follow the site direction; walls at other angles cannot be drawn.
 - Side lengths can only be typed, and sides and corners only dragged, for a rectangle along the
   site direction. A change arriving from elsewhere while a side field is open resets the field.
-- A dragged side or corner may pass a neighbouring room. It stops at a diagonal outline wall
-  only at that wall's corners, so a room that would cross it is refused as "Could not save".
+- A moved room, dragged side or corner may pass a neighbouring room. A moved room travels in a
+  straight line from where it was picked up, so a drag around an outline corner stops at that
+  corner.
 - Snapping uses the rooms on this floor and the outline: not the floor below, diagonal walls or
   buildings on the map. A moved room lines up its corners with others, not its walls with their
   corners.

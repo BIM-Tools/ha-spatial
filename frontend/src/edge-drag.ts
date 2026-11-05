@@ -3,7 +3,16 @@
 import type { Polygon, Position } from "geojson";
 import { boxFromCorners } from "./plan";
 import type { LatticePoint, PlanFrame } from "./site-frame";
-import { type LatticeEdge, type SnapCandidates, type SnapOptions, type SnapSource, snapLine, snapPoint } from "./snap";
+import {
+  NEAR_LATTICE,
+  type SnapCandidates,
+  type SnapOptions,
+  type SnapSource,
+  type SweptCorner,
+  outlineContact,
+  snapLine,
+  snapPoint,
+} from "./snap";
 
 /** A point on the map's canvas, in pixels from its top left. */
 export interface Pixel {
@@ -34,37 +43,30 @@ const keepApart = (value: number, start: number, opposite: number, step: number)
   start > opposite ? Math.max(value, opposite + step) : Math.min(value, opposite - step);
 
 /**
- * Custom. Where a side across `axis`, from `low` to `high` on the other axis, stops when it grows
- * from `start` (away from `opposite`) towards `target`: at the first outline wall or corner strictly
- * within that span, so a room inside the outline stays inside and one outside stays outside. A wall
- * that only touches the span's ends runs along the room and does not stop it; a shrinking side never
- * stops. Known limit: a diagonal outline edge stops the side only at its corners.
+ * Where the side across `axis` through `corner` of the rectangle from `opposite` to `corner` stops
+ * when it moves to `target`: at its first contact with the outline (`outlineContact`), rounded back
+ * towards where it started, so a room inside the outline stays inside and one outside stays outside.
  */
 function stopAtOutline(
   candidates: SnapCandidates,
   axis: 0 | 1,
-  start: number,
-  opposite: number,
+  opposite: LatticePoint,
+  corner: LatticePoint,
   target: number,
-  [low, high]: [number, number],
 ): { value: number; source?: SnapSource } {
-  const outward = start > opposite ? 1 : -1;
-  if ((target - start) * outward <= 0) return { value: target };
-  const along = axis === 0 ? 1 : 0;
-  const walls: [LatticeEdge, SnapSource][] = [
-    ...candidates.outlineEdges.map((edge): [LatticeEdge, SnapSource] => [edge, { kind: "edge", edge }]),
-    ...candidates.outlineCorners.map((at): [LatticeEdge, SnapSource] => [[at, at], { kind: "corner", at }]),
-  ];
-  let stop: { value: number; source: SnapSource } | undefined;
-  for (const [[from, to], source] of walls) {
-    const [wallLow, wallHigh] = span(from[along], to[along]);
-    if (wallHigh <= low || wallLow >= high) continue;
-    const [near, far] = span(from[axis] * outward, to[axis] * outward);
-    if (far < start * outward) continue;
-    const value = Math.max(near, start * outward) * outward + 0;
-    if (!stop || (value - stop.value) * outward < 0) stop = { value, source };
-  }
-  return stop && (target - stop.value) * outward > 0 ? stop : { value: target };
+  const start = corner[axis];
+  const velocity: [number, number] = [0, 0];
+  velocity[axis] = target - start;
+  const [left, right] = span(opposite[0], corner[0]);
+  const [bottom, top] = span(opposite[1], corner[1]);
+  const rectangle = ([[left, bottom], [right, bottom], [right, top], [left, top]] as LatticePoint[]).map(
+    (at): SweptCorner => ({ at, velocity: at[axis] === start ? velocity : [0, 0] }),
+  );
+  const contact = outlineContact([rectangle], candidates);
+  if (!contact) return { value: target };
+  const reached = start + contact.progress * (target - start);
+  const value = target > start ? Math.floor(reached + NEAR_LATTICE) : Math.ceil(reached - NEAR_LATTICE);
+  return { value: value + 0, source: contact.source };
 }
 
 /**
@@ -91,9 +93,9 @@ export function resizeRectangle(
   const step = frame.unitsPerStep;
   const corner: [number, number] = [start[0], start[1]];
   let source: SnapSource;
-  // Each moved side: snapped `value` on `axis`, spanning `extent` on the other axis.
-  const moveSide = (axis: 0 | 1, value: number, extent: [number, number]) => {
-    const stopped = stopAtOutline(candidates, axis, start[axis], opposite[axis], value, extent);
+  // Each moved side: the snapped `value` on `axis`, for the rectangle as far as it is resized yet.
+  const moveSide = (axis: 0 | 1, value: number) => {
+    const stopped = stopAtOutline(candidates, axis, opposite, corner, value);
     corner[axis] = keepApart(stopped.value, start[axis], opposite[axis], step);
     return corner[axis] !== stopped.value ? { kind: "grid" as const } : stopped.source;
   };
@@ -101,12 +103,11 @@ export function resizeRectangle(
     const next = corners[(index + 1) % 4];
     const axis = start[0] === next[0] ? 0 : 1;
     const snapped = snapLine(pointer[axis], axis, candidates, options);
-    const other = axis === 0 ? 1 : 0;
-    source = moveSide(axis, snapped.value, span(start[other], opposite[other])) ?? snapped.source;
+    source = moveSide(axis, snapped.value) ?? snapped.source;
   } else {
     const snapped = snapPoint(pointer, candidates, options);
-    const across = moveSide(0, snapped.point[0], span(start[1], opposite[1]));
-    const down = moveSide(1, snapped.point[1], span(corner[0], opposite[0]));
+    const across = moveSide(0, snapped.point[0]);
+    const down = moveSide(1, snapped.point[1]);
     const kept = corner[0] === snapped.point[0] && corner[1] === snapped.point[1];
     source = kept ? snapped.source : (down ?? across ?? { kind: "grid" });
   }
