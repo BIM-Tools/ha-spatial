@@ -9,9 +9,9 @@ from homeassistant.helpers import floor_registry as fr
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_capture_events
 from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
-from custom_components.spatial.const import DOMAIN, EVENT_SPATIAL_UPDATED
+from custom_components.spatial.const import EVENT_SPATIAL_UPDATED
 
-from .common import lonlat, rect, set_frame
+from .common import call, lonlat, rect, set_frame, setup_entry
 
 OUTLINE = rect(0, 0, 10, 10)
 ROOM_PROPERTY_KEYS = ("floors_up", "floor_ids", "on_facade_override", "on_facade", "is_external")
@@ -32,24 +32,14 @@ async def setup_integration(
     areas.async_create("Landing", floor_id=first.floor_id)
     areas.async_create("Study", floor_id=second.floor_id)
     areas.async_create("Garden")
-
-    entry = MockConfigEntry(domain=DOMAIN, title="Spatial")
-    entry.add_to_hass(hass)
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    entry = await setup_entry(hass)
     await set_frame(hass, hass_ws_client)
     return entry
 
 
-async def _call(client: Any, **command: Any) -> dict[str, Any]:
-    """Send a command and return the response message."""
-    await client.send_json_auto_id(command)
-    return await client.receive_json()
-
-
 async def _write(client: Any, **command: Any) -> dict[str, Any]:
     """Send an update_geometries command, assert success and return its result."""
-    msg = await _call(client, type="spatial/area/update_geometries", **command)
+    msg = await call(client, type="spatial/area/update_geometries", **command)
     assert msg["success"], msg
     result: dict[str, Any] = msg["result"]
     return result
@@ -58,13 +48,13 @@ async def _write(client: Any, **command: Any) -> dict[str, Any]:
 async def _properties(client: Any, floor_id: str | None = None) -> dict[str, dict[str, Any]]:
     """Return the feature properties of the GeoJSON feed by area_id."""
     command = {"floor_id": floor_id} if floor_id else {}
-    msg = await _call(client, type="spatial/geojson", **command)
+    msg = await call(client, type="spatial/geojson", **command)
     return {f["id"]: f["properties"] for f in msg["result"]["features"]}
 
 
 async def _adjacent(client: Any, area_id: str) -> list[str]:
     """Return the areas adjacent to an area."""
-    msg = await _call(client, type="spatial/area/adjacent", area_id=area_id)
+    msg = await call(client, type="spatial/area/adjacent", area_id=area_id)
     area_ids: list[str] = msg["result"]["area_ids"]
     return area_ids
 
@@ -107,7 +97,7 @@ async def test_set_and_clear_properties_keeps_the_polygon(
     assert hall["on_facade_override"] is True
     assert hall["on_facade"] is True
 
-    msg = await _call(client, type="spatial/geojson")
+    msg = await call(client, type="spatial/geojson")
     assert msg["result"]["features"][0]["geometry"] == rect(0, 0, 4, 3)
 
     third = await _write(client, properties={"hall": {"floors_up": 0, "on_facade_override": None}})
@@ -170,7 +160,7 @@ async def test_invalid_properties_change_nothing(
     await _write(client, areas={"hall": rect(0, 0, 4, 3), "garden": rect(20, 0, 30, 10)})
     events = async_capture_events(hass, EVENT_SPATIAL_UPDATED)
 
-    msg = await _call(client, type="spatial/area/update_geometries", properties=properties)
+    msg = await call(client, type="spatial/area/update_geometries", properties=properties)
     await hass.async_block_till_done()
 
     assert msg["error"]["code"] == "invalid_format"
@@ -189,7 +179,7 @@ async def test_properties_with_a_new_footprint(
     assert list(result["rev"]) == ["kitchen"]
     assert (await _properties(client))["kitchen"]["floors_up"] == 1
 
-    msg = await _call(
+    msg = await call(
         client,
         type="spatial/area/update_geometries",
         areas={"kitchen": None},
@@ -203,7 +193,7 @@ async def test_properties_of_an_unknown_area(
 ) -> None:
     """Test properties of an area that is not in the registry return not_found."""
     client = await hass_ws_client(hass)
-    msg = await _call(
+    msg = await call(
         client, type="spatial/area/update_geometries", properties={"nowhere": {"floors_up": 0}}
     )
     assert msg["error"]["code"] == "not_found"
@@ -215,7 +205,7 @@ async def test_stale_rev_conflicts(hass: HomeAssistant, hass_ws_client: WebSocke
     old = await _write(client, areas={"hall": rect(0, 0, 4, 3)})
     current = await _write(client, properties={"hall": {"floors_up": 1}})
 
-    msg = await _call(
+    msg = await call(
         client,
         type="spatial/area/update_geometries",
         properties={"hall": {"floors_up": 2}},
@@ -272,9 +262,9 @@ async def test_room_reaching_up_appears_on_the_floors_it_occupies(
     assert (hall["floor_id"], hall["base_m"], hall["top_m"]) == ("ground_floor", 0.0, 6.0)
 
     lon, lat = lonlat(1, 1)
-    msg = await _call(client, type="spatial/query_point", lon=lon, lat=lat, floor_id="first_floor")
+    msg = await call(client, type="spatial/query_point", lon=lon, lat=lat, floor_id="first_floor")
     assert msg["result"] == {"area_id": "hall"}
-    msg = await _call(client, type="spatial/query_point", lon=lon, lat=lat, floor_id="second_floor")
+    msg = await call(client, type="spatial/query_point", lon=lon, lat=lat, floor_id="second_floor")
     assert msg["result"] == {"area_id": None}
 
 
@@ -288,11 +278,11 @@ async def test_floors_up_counts_only_floors_with_a_higher_level(
     ar.async_get(hass).async_create("Attic", floor_id=loft.floor_id)
     await _write(client, areas={"study": rect(0, 0, 4, 3), "attic": rect(0, 0, 4, 3)})
 
-    msg = await _call(
+    msg = await call(
         client, type="spatial/area/update_geometries", properties={"study": {"floors_up": 1}}
     )
     assert msg["error"]["code"] == "invalid_format"
-    msg = await _call(
+    msg = await call(
         client, type="spatial/area/update_geometries", properties={"attic": {"floors_up": 1}}
     )
     assert msg["error"]["code"] == "invalid_format"
