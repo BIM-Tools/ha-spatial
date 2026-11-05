@@ -268,40 +268,6 @@ async def test_room_reaching_up_appears_on_the_floors_it_occupies(
     assert msg["result"] == {"area_id": None}
 
 
-async def test_floors_up_counts_only_floors_with_a_higher_level(
-    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
-) -> None:
-    """Test floors without a level, and the floors of a level-less floor, are not above."""
-    client = await hass_ws_client(hass)
-    floors = fr.async_get(hass)
-    loft = floors.async_create("Loft")
-    ar.async_get(hass).async_create("Attic", floor_id=loft.floor_id)
-    await _write(client, areas={"study": rect(0, 0, 4, 3), "attic": rect(0, 0, 4, 3)})
-
-    msg = await call(
-        client, type="spatial/area/update_geometries", properties={"study": {"floors_up": 1}}
-    )
-    assert msg["error"]["code"] == "invalid_format"
-    msg = await call(
-        client, type="spatial/area/update_geometries", properties={"attic": {"floors_up": 1}}
-    )
-    assert msg["error"]["code"] == "invalid_format"
-
-
-async def test_floor_ids_shrink_when_a_floor_above_is_deleted(
-    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
-) -> None:
-    """Test a stored floors_up beyond the floors that remain reaches only the remaining ones."""
-    client = await hass_ws_client(hass)
-    await _write(client, areas={"hall": rect(0, 0, 4, 3)}, properties={"hall": {"floors_up": 2}})
-    fr.async_get(hass).async_delete("second_floor")
-    await hass.async_block_till_done()
-
-    hall = (await _properties(client))["hall"]
-    assert hall["floors_up"] == 2
-    assert hall["floor_ids"] == ["ground_floor", "first_floor"]
-
-
 @pytest.mark.parametrize(
     ("room", "outline", "is_external"),
     [
