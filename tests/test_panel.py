@@ -6,29 +6,20 @@ from typing import Any
 import pytest
 from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL
 from homeassistant.core import HomeAssistant
-from pytest_homeassistant_custom_component.common import MockConfigEntry, MockUser
+from pytest_homeassistant_custom_component.common import MockUser
 from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
 import custom_components.spatial
 from custom_components.spatial.const import DOMAIN, PANEL_URL_PATH, STATIC_URL
 
-
-async def setup_entry(hass: HomeAssistant) -> MockConfigEntry:
-    """Set up the integration with a config entry."""
-    entry = MockConfigEntry(domain=DOMAIN, title="Spatial")
-    entry.add_to_hass(hass)
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-    return entry
+from .common import call, setup_entry
 
 
 async def panels_for_user(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator
 ) -> dict[str, Any]:
     """Return the panels Home Assistant's frontend gets for the current user."""
-    client = await hass_ws_client(hass)
-    await client.send_json_auto_id({"type": "get_panels"})
-    msg = await client.receive_json()
+    msg = await call(await hass_ws_client(hass), type="get_panels")
     assert msg["success"], msg
     panels: dict[str, Any] = msg["result"]
     return panels
