@@ -4,16 +4,17 @@ import type { Feature, Point, Polygon } from "geojson";
 import { expect, vi } from "vitest";
 import {
   type Reply,
-  answer,
+  areaEntry,
   buttonNamed,
+  floorEntry,
   handlers,
   liveMarkers,
   layers,
   mountPanel,
   queryRenderedFeatures,
+  rooms,
   settle,
   SITE,
-  siteReply,
   sources,
   unprojectPixel,
 } from "./panel-harness";
@@ -45,29 +46,19 @@ export const OUTLINE = pixelBox(0, 100, 100, 200);
 
 export const mountEditor = (overrides: Reply = async () => undefined, outline: Polygon | null = OUTLINE, units = METRIC_UNITS) => {
   let registry = [
-    { area_id: "kitchen", name: "Kitchen", floor_id: "ground" },
-    { area_id: "bath", name: "Bath", floor_id: "ground" },
-    { area_id: "hall", name: "Hall", floor_id: "ground" },
-    { area_id: "attic", name: "Attic", floor_id: "loft" },
+    areaEntry("kitchen", "Kitchen", "ground"),
+    areaEntry("bath", "Bath", "ground"),
+    areaEntry("hall", "Hall", "ground"),
+    areaEntry("attic", "Attic", "loft"),
   ];
   let feed = [{ type: "Feature", id: "kitchen", geometry: KITCHEN, properties: { floor_id: "ground", level: 0 } }];
-  const reply: Reply = async (message) => {
+  // The editor's writes; the reads come from the home below.
+  const writes: Reply = async (message) => {
     const overridden = await overrides(message);
     if (overridden !== undefined) return overridden;
     switch (message.type) {
-      case "spatial/site":
-        return siteReply({ bearing_deg: SITE_BEARING, outline, frame: units === US_UNITS ? INCH_FRAME_DATA : FRAME_DATA });
-      case "spatial/geojson":
-        return { type: "FeatureCollection", features: feed };
-      case "config/area_registry/list":
-        return registry;
-      case "config/floor_registry/list":
-        return [
-          { floor_id: "ground", name: "Ground floor", level: 0 },
-          { floor_id: "loft", name: "Loft", level: 1 },
-        ];
       case "config/area_registry/create": {
-        const created = { area_id: "room_1", name: message.name as string, floor_id: message.floor_id as string };
+        const created = areaEntry("room_1", message.name as string, message.floor_id as string);
         registry = [...registry, created];
         return created;
       }
@@ -76,9 +67,16 @@ export const mountEditor = (overrides: Reply = async () => undefined, outline: P
       case "spatial/area/update_geometries":
         return { area_m2: {} };
     }
-    return answer(message);
+    return undefined;
   };
-  const mounted = mountPanel(reply, {}, false, undefined, units);
+  const mounted = mountPanel({
+    reply: writes,
+    site: { bearing_deg: SITE_BEARING, outline, frame: units === US_UNITS ? INCH_FRAME_DATA : FRAME_DATA },
+    geojson: () => rooms(...feed),
+    floors: [floorEntry("ground", "Ground floor", 0), floorEntry("loft", "Loft", 1)],
+    areas: () => registry,
+    units,
+  });
   const setRegistry = (next: typeof registry) => (registry = next);
   const setFeed = (next: typeof feed) => (feed = next);
   return { ...mounted, setRegistry, setFeed };

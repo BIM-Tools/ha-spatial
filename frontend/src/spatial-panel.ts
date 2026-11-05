@@ -1,7 +1,7 @@
 // The space editor panel; the dashboard card embeds it to show the rooms on the map.
 
 import { lineString } from "@turf/helpers";
-import type { Feature, FeatureCollection, MultiPolygon, Polygon, Position } from "geojson";
+import type { MultiPolygon, Polygon, Position } from "geojson";
 import { LitElement, type PropertyValues, css, html, nothing } from "lit";
 import {
   type GeoJSONSource,
@@ -15,13 +15,13 @@ import type { Floor, FloorChoice } from "./floor-selector";
 import "./floor-selector";
 import "./map-stack";
 import { type MapPaint, layerColours, readMapPaint, repaint } from "./map-paint";
-import { type ThemeState, bounds, darkModeOf, floorsByLevel, mapBearing, styleUrl, withMapTilesToken, workerUrl } from "./map-view";
-import { buildingAt, wallAt, wallBearingAt } from "./outline";
+import { type ThemeState, bounds, darkModeOf, mapBearing, styleUrl, withMapTilesToken, workerUrl } from "./map-view";
+import { type AlignFields, alignFields, buildingAt, wallAt } from "./outline";
 import "./panel-header";
+import { EMPTY, PanelState } from "./panel-state";
 import { BUILDING } from "./area-strip";
 import { type Guide, RoomEditor, type Toast, type Tool } from "./room-editor";
 import { type AreaInfo, RoomLabels, roomLabelStyles } from "./room-labels";
-import { PlanFrame, type SiteFrameData } from "./site-frame";
 import { floatingSurface, phoneBar } from "./styles";
 import type { HassUnits } from "./units";
 
@@ -43,20 +43,6 @@ interface Hass extends HassUnits {
   selectedTheme?: ThemeState["selectedTheme"];
 }
 
-interface Site {
-  lon: number;
-  lat: number;
-  // Null until the first Align.
-  bearing_deg: number | null;
-  // As stored: null until Align sets it on an empty plan.
-  origin: [number, number] | null;
-  outline: Polygon | null;
-  // The frame the integration reads footprints in, with its defaults filled in.
-  frame: SiteFrameData;
-}
-
-const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
-const EAST_DEG = 90;
 // Share of the map height the aligned wall sits below the centre.
 const WALL_OFFSET_SHARE = 0.3;
 const REGISTRY_EVENTS = ["area_registry_updated", "floor_registry_updated"];
@@ -112,14 +98,10 @@ class SpatialPanel extends LitElement {
     // Set by the card's `floor` option: a fixed, static view of "all" or one floor_id.
     floor: { attribute: false },
     panel: { attribute: false },
-    _floors: { state: true },
-    _floor: { state: true },
     _failed: { state: true },
     _hovered: { state: true },
     _mapShown: { state: true },
     _phone: { state: true },
-    // The stored site direction, which names the compass.
-    _bearing: { state: true },
   };
 
   static styles = [
@@ -254,14 +236,13 @@ class SpatialPanel extends LitElement {
   declare card: boolean;
   declare floor: string | undefined;
   declare panel: object | undefined;
-  declare _floors: (string | null)[] | undefined;
-  declare _floor: Floor;
   declare _failed: boolean;
   declare _hovered: string | undefined;
   declare _mapShown: boolean;
   declare _phone: boolean;
-  declare _bearing: number | null;
 
+  // The site, its frame, the rooms and the floor in view.
+  private readonly _state = new PanelState(this);
   private _map?: MapLibreMap;
   private _started = false;
   // Bumped on disconnect, so a startup still awaiting creates nothing.
@@ -274,10 +255,6 @@ class SpatialPanel extends LitElement {
   private _token = "";
   private _tokenTimer?: ReturnType<typeof setInterval>;
   private _unsubscribe?: () => void;
-  private _areas: FeatureCollection = EMPTY;
-  private _outline: Polygon | FeatureCollection = EMPTY;
-  // Rebuilt on every site load, so a unit system change reaches the next gesture.
-  private _frame?: PlanFrame;
   private _labels?: RoomLabels;
   // Only the admin panel edits; the card stays read-only.
   private _editor?: RoomEditor;
@@ -286,11 +263,9 @@ class SpatialPanel extends LitElement {
   constructor() {
     super();
     this.card = false;
-    this._floor = "all";
     this._hovered = undefined;
     this._mapShown = readMapShown();
     this._phone = false;
-    this._bearing = null;
   }
 
   connectedCallback() {
@@ -302,11 +277,6 @@ class SpatialPanel extends LitElement {
   private _phoneChanged = () => {
     this._phone = this._phoneQuery.matches;
   };
-
-  // The site's x-axis, clockwise from north. Before any Align it points east, so the view is north up.
-  private get _axisDeg(): number {
-    return this._bearing ?? EAST_DEG;
-  }
 
   private get _aligning() {
     return this._editor?.tool === "align";
@@ -342,7 +312,7 @@ class SpatialPanel extends LitElement {
               .mapShown=${this._mapShown}
               .mapForced=${this._aligning}
               .bearing=${this._mapBearingDeg}
-              .aligned=${this._bearing !== null}
+              .aligned=${this._state.bearing !== null}
               @map-toggle=${this._toggleMap}
               @zoom-in=${() => this._map?.zoomIn()}
               @zoom-out=${() => this._map?.zoomOut()}
@@ -362,7 +332,7 @@ class SpatialPanel extends LitElement {
     return html`<spatial-floor-selector
       ?chips=${chips}
       .choices=${choices}
-      .selected=${this._floor}
+      .selected=${this._state.floor}
       @floor-select=${(event: CustomEvent<{ floor: Floor }>) => this._show(event.detail.floor)}
     ></spatial-floor-selector>`;
   }
@@ -371,7 +341,7 @@ class SpatialPanel extends LitElement {
     return html`<spatial-editor-toolbar
       class=${bar ? "" : "toolbar"}
       ?bar=${bar}
-      ?disabled=${this._floor === "all"}
+      ?disabled=${this._state.floor === "all"}
       .tool=${editor.tool}
       .canUndo=${editor.canUndo}
       .canRedo=${editor.canRedo}
@@ -383,9 +353,7 @@ class SpatialPanel extends LitElement {
 
   // One line at a time, and only when there is something to say; what went wrong first.
   private _guide() {
-    const noRooms =
-      this._floors &&
-      (this.floor && this.floor !== "all" ? !this._floors.includes(this.floor) : this._floors.length === 0);
+    const noRooms = this._state.hasNoRooms(this.floor);
     const guide: Guide | undefined = this._failed
       ? { text: "Map could not load" }
       : (this._editor?.guide ?? (noRooms ? { text: "No rooms yet" } : undefined));
@@ -500,26 +468,16 @@ class SpatialPanel extends LitElement {
   private async _start(hass: Hass) {
     const run = this._run;
     const stopped = () => run !== this._run;
-    const call = <T>(type: string) => hass.connection.sendMessagePromise<T>({ type });
-    this._floor = this.floor ?? "all";
+    this._state.floor = this.floor ?? "all";
     await this._refreshToken();
     if (stopped()) return;
     this._tokenTimer = setInterval(this._keepToken, TOKEN_REFRESH_MS);
     hass.connection.addEventListener("ready", this._keepToken);
 
     const loadAreas = async () => {
-      const feed = call<FeatureCollection>("spatial/geojson");
-      // The frame is set before the editor takes the footprints, so it measures them in it.
-      const site = call<Site>("spatial/site").then((reply) => {
-        this._frame = PlanFrame.fromSite(reply.frame);
-        return reply;
-      });
-      await editor?.refresh(feed, site);
-      this._areas = await feed;
-      this._floors = floorsByLevel(this._areas);
-      this._map?.getSource<GeoJSONSource>("areas")?.setData(this._areas);
-      this._outline = (await site).outline ?? EMPTY;
-      this._map?.getSource<GeoJSONSource>("outline")?.setData(this._outline);
+      const site = await this._state.load(hass.connection, editor);
+      this._map?.getSource<GeoJSONSource>("areas")?.setData(this._state.areas);
+      this._map?.getSource<GeoJSONSource>("outline")?.setData(this._state.outline);
       this._showLabels();
       return site;
     };
@@ -527,9 +485,11 @@ class SpatialPanel extends LitElement {
       ? undefined
       : new RoomEditor(hass.connection, {
           requestUpdate: () => this.requestUpdate(),
-          reloadRooms: loadAreas,
-          siteBearing: () => this._axisDeg,
-          siteFrame: () => this._frame,
+          reloadRooms: async () => {
+            await loadAreas();
+          },
+          siteBearing: () => this._state.axisDeg,
+          siteFrame: () => this._state.frame,
           units: () => this.hass!,
           selectTool: (tool) => this._selectTool(tool),
           toast: (toast) => this._toast(toast),
@@ -546,13 +506,13 @@ class SpatialPanel extends LitElement {
     const onUpdate = async () => {
       const { bearing_deg } = await loadAreas();
       if (this.floor) {
-        this._bearing = bearing_deg;
+        this._state.bearing = bearing_deg;
         this._fit();
         return;
       }
-      if (bearing_deg === this._bearing) return;
-      this._bearing = bearing_deg;
-      this._map?.setBearing(mapBearing(this._axisDeg));
+      if (bearing_deg === this._state.bearing) return;
+      this._state.bearing = bearing_deg;
+      this._map?.setBearing(mapBearing(this._state.axisDeg));
     };
     // The editor's strip and floor buttons name areas and floors, which change outside this panel.
     const rereadRegistries = () => {
@@ -571,18 +531,18 @@ class SpatialPanel extends LitElement {
     }
     this._unsubscribe = unsubscribe;
 
-    this._bearing = site.bearing_deg;
+    this._state.bearing = site.bearing_deg;
     const style = await this._loadStyle();
     if (stopped() || !style) return;
     setWorkerUrl(workerUrl(import.meta.url));
-    this._mapBearingDeg = mapBearing(this._axisDeg);
+    this._mapBearingDeg = mapBearing(this._state.axisDeg);
     const map = new MapLibreMap({
       container: this.renderRoot.querySelector<HTMLElement>("#map")!,
       style,
       transformRequest: (url) => withMapTilesToken(url, location.origin, this._token),
       center: [site.lon, site.lat],
       zoom: 19,
-      pitch: this._floor === "all" ? 50 : 0,
+      pitch: this._state.floor === "all" ? 50 : 0,
       bearing: this._mapBearingDeg,
       interactive: !this.floor,
     });
@@ -616,13 +576,9 @@ class SpatialPanel extends LitElement {
 
   // Frames the rooms in view, keeping the picked wall horizontal.
   private _fit() {
-    const box = bounds(
-      this._areas.features.filter(
-        (f) => this._floor === "all" || f.properties?.floor_id === this._floor,
-      ),
-    );
+    const box = bounds(this._state.roomsInView());
     if (box) {
-      this._map?.fitBounds(box, { bearing: mapBearing(this._axisDeg), padding: 16, animate: false });
+      this._map?.fitBounds(box, { bearing: mapBearing(this._state.axisDeg), padding: 16, animate: false });
     }
   }
 
@@ -630,7 +586,7 @@ class SpatialPanel extends LitElement {
   private _addAreas() {
     const map = this._map!;
     const colours = layerColours(this._readPaint());
-    map.addSource("areas", { type: "geojson", data: this._areas });
+    map.addSource("areas", { type: "geojson", data: this._state.areas });
     map.addLayer({
       id: "areas-3d",
       type: "fill-extrusion",
@@ -658,7 +614,7 @@ class SpatialPanel extends LitElement {
         paint: { ...colours["spatial-hover"], "line-width": 2 },
       });
     }
-    map.addSource("outline", { type: "geojson", data: this._outline });
+    map.addSource("outline", { type: "geojson", data: this._state.outline });
     map.addLayer({
       id: "spatial-outline",
       type: "line",
@@ -714,11 +670,9 @@ class SpatialPanel extends LitElement {
   // Labels name the rooms of one floor; the 3D view of all floors has none.
   private _showLabels() {
     if (!this._labels) return;
-    const onFloor = this._floor !== "all";
-    const rooms = onFloor
-      ? (this._areas.features.filter((feature) => feature.properties?.floor_id === this._floor) as Feature<Polygon>[])
-      : [];
-    const outline = onFloor && this._outline.type === "Polygon" ? this._outline : undefined;
+    const onFloor = this._state.floor !== "all";
+    const rooms = onFloor ? this._state.roomsInView() : [];
+    const outline = onFloor && this._state.outline.type === "Polygon" ? this._state.outline : undefined;
     this._labels.show(rooms, outline, this.hass?.areas ?? {});
   }
 
@@ -733,7 +687,7 @@ class SpatialPanel extends LitElement {
     if (this.floor) return [];
     const floors: Floor[] = this._editor
       ? ["all", ...this._editor.floors.map((entry) => entry.floor_id), null]
-      : ["all", ...(this._floors ?? [])];
+      : ["all", ...(this._state.floorsWithRooms ?? [])];
     return floors.map((floor) => ({ floor, name: this._floorName(floor) }));
   }
 
@@ -748,7 +702,7 @@ class SpatialPanel extends LitElement {
   // The compass turns the house back the way Align set it, or north up before any Align.
   // Draw keeps this view, so it is safe there too.
   private _faceSite() {
-    this._map?.easeTo({ bearing: mapBearing(this._axisDeg) });
+    this._map?.easeTo({ bearing: mapBearing(this._state.axisDeg) });
   }
 
   private _selectTool(tool: Tool) {
@@ -799,24 +753,22 @@ class SpatialPanel extends LitElement {
       return;
     }
     const at: Position = [event.lngLat.lng, event.lngLat.lat];
-    const newBearing = wallBearingAt(building, at);
+    const fields = alignFields(building, at, this._editor?.hasShapes ?? false);
     // The picked wall lies low in the view with the building above it, its outside facing the viewer.
     const wallBelowCentre = (this._map?.getContainer().clientHeight ?? 0) * WALL_OFFSET_SHARE;
-    this._map?.easeTo({ bearing: mapBearing(newBearing), center: event.lngLat, offset: [0, wallBelowCentre] });
-    // On an empty plan the grid starts at the wall's left end; later the origin stays, so no room moves on the lattice.
-    const origin = this._editor?.hasShapes ? {} : { origin: wallAt(building, at)[0] };
-    this._saveBearing({ bearing_deg: newBearing, ...origin }, this._bearing);
+    this._map?.easeTo({ bearing: mapBearing(fields.bearing_deg), center: event.lngLat, offset: [0, wallBelowCentre] });
+    this._saveBearing(fields, this._state.bearing);
   }
 
   // A failed save turns the view back. A refusal shows Spatial's reason, as trying again would not
   // help; otherwise Retry turns the view to the picked wall again and saves the same fields once more.
-  private _saveBearing(fields: { bearing_deg: number; origin?: Position }, previousBearing: number | null) {
+  private _saveBearing(fields: AlignFields, previousBearing: number | null) {
     const newBearing = fields.bearing_deg;
-    this._bearing = newBearing;
+    this._state.bearing = newBearing;
     this.hass!.connection.sendMessagePromise({ type: "spatial/site/update", ...fields }).catch((err) => {
       console.error(err);
-      this._bearing = previousBearing;
-      this._map?.easeTo({ bearing: mapBearing(this._axisDeg) });
+      this._state.bearing = previousBearing;
+      this._map?.easeTo({ bearing: mapBearing(this._state.axisDeg) });
       if (typeof err?.code === "string" && typeof err.message === "string") {
         this._toast({ message: err.message });
         return;
@@ -831,19 +783,19 @@ class SpatialPanel extends LitElement {
 
   private _applyFloor() {
     const map = this._map!;
-    const flat = this._floor !== "all";
+    const flat = this._state.floor !== "all";
     map.setLayoutProperty("areas-3d", "visibility", flat ? "none" : "visible");
     for (const id of ["areas-2d", "areas-outline"]) {
       map.setLayoutProperty(id, "visibility", flat ? "visible" : "none");
-      map.setFilter(id, flat ? ["==", ["get", "floor_id"], this._floor] : null);
+      map.setFilter(id, flat ? ["==", ["get", "floor_id"], this._state.floor] : null);
     }
   }
 
   private _show(floor: Floor) {
-    if (floor === this._floor) return;
+    if (floor === this._state.floor) return;
     // All is a view only; Align would stay pressed on a disabled toolbar.
     if (floor === "all" && this._aligning) this._selectTool("adjust");
-    this._floor = floor;
+    this._state.floor = floor;
     this._editor?.setFloor(floor);
     this._showLabels();
     // Before the style has loaded, `_addAreas` applies the floor.

@@ -32,6 +32,7 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | File | Purpose |
 | --- | --- |
 | `src/spatial-panel.ts` | The panel element: layout, the MapLibre map and its style, Align, websocket calls |
+| `src/panel-state.ts` | The panel's reactive controller for what Spatial sends: site, frame, rooms, the floors with rooms, the floor in view and the stored bearing |
 | `src/panel-header.ts` | The panel's header in the look of Home Assistant's subpage: Back, title, Help and its sheet in a native dialog |
 | `src/floor-selector.ts` | Floor buttons: a floating segmented control, or a chip row on a phone |
 | `src/editor-toolbar.ts` | Align, Draw, Adjust, Undo and Redo: floating, or a bottom bar on a phone |
@@ -48,7 +49,7 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/history.ts` | Session undo and redo of footprint changes |
 | `src/spatial-card.ts` | The card: wraps the panel element, without the header and tools; loads the panel bundle when created |
 | `src/map-view.ts` | Pure helpers: map bearing, style URL, map tiles token, floor order, room bounds |
-| `src/outline.ts` | The OSM building under a click and the bearing of its nearest wall, with turf |
+| `src/outline.ts` | The OSM building under a click, the bearing of its nearest wall, with turf, and the fields an Align pick writes |
 | `src/site-frame.ts` | Applies the site frame from `spatial/site`: lon/lat to lattice units and back |
 | `src/plan.ts` | Boxes, side lengths, resizing and moving on the site lattice; joining with turf |
 | `src/units.ts` | Lengths and areas shown in Home Assistant's unit system and number format (metric at lattice precision, US feet and inches with primes), and typed lengths read back in metres |

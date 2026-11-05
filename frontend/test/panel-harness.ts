@@ -5,6 +5,7 @@ import distance from "@turf/distance";
 import { vi } from "vitest";
 import type { SiteFrameData } from "../src/site-frame";
 import { siteFrameData } from "./site-frame-fixture";
+import type { HassUnits } from "../src/units";
 import { METRIC_UNITS } from "./units-fixture";
 
 export const mapCreated = vi.fn();
@@ -198,25 +199,71 @@ export const fakeMapLibre = {
 
 export const EMPTY = { type: "FeatureCollection", features: [] };
 
+/** A `spatial/geojson` reply with these room features. */
+export const rooms = (...features: object[]) => ({ type: "FeatureCollection", features });
+
+export interface SiteFields {
+  bearing_deg?: number | null;
+  outline?: unknown;
+  frame?: SiteFrameData;
+}
+
 /** A `spatial/site` reply at the site centre; its frame has its origin there and follows the bearing (null faces north). */
-export const siteReply = (fields: { bearing_deg?: number | null; outline?: unknown; frame?: SiteFrameData } = {}) => {
+export const siteReply = (fields: SiteFields = {}) => {
   const bearing = fields.bearing_deg === undefined ? 0 : fields.bearing_deg;
   return { lon: 5, lat: 52, origin: null, outline: null, frame: siteFrameData(SITE, bearing ?? 0), ...fields, bearing_deg: bearing };
 };
 
+/** A floor registry entry. */
+export const floorEntry = (floor_id: string, name: string, level: number | null = 0) => ({ floor_id, name, level });
+
+/** An area registry entry. */
+export const areaEntry = (area_id: string, name: string, floor_id: string | null) => ({ area_id, name, floor_id });
+
 export type Reply = (message: { type: string; [key: string]: unknown }) => Promise<unknown>;
 
-export const answer: Reply = async ({ type }) => {
-  if (type === "map_tiles/access_token") return { token: "t" };
-  if (type === "spatial/site") return siteReply();
-  if (type === "spatial/site/update") return null;
-  if (type === "spatial/geojson") return EMPTY;
-  if (type === "config/area_registry/list" || type === "config/floor_registry/list") return [];
-  throw new Error(type);
-};
+// A fixed value, or one read again on every message, for a test that changes it between updates.
+type Live<T> = T | (() => T);
+const now = <T>(value: Live<T>): T => (typeof value === "function" ? (value as () => T)() : value);
 
-export const mountPanel = (reply: Reply = answer, floors = {}, card = false, floor?: string, units = METRIC_UNITS) => {
-  const sendMessagePromise = vi.fn(reply);
+/** What Home Assistant and Spatial hold; each part has a default, so a test names only what it is about. */
+export interface Home {
+  site?: Live<SiteFields>;
+  geojson?: Live<object>;
+  floors?: Live<object[]>;
+  areas?: Live<object[]>;
+}
+
+/** Answers the panel's reads and writes from `home`. */
+export const homeReply =
+  ({ site = {}, geojson = EMPTY, floors = [], areas = [] }: Home = {}): Reply =>
+  async ({ type }) => {
+    if (type === "map_tiles/access_token") return { token: "t" };
+    if (type === "spatial/site") return siteReply(now(site));
+    if (type === "spatial/site/update") return null;
+    if (type === "spatial/geojson") return now(geojson);
+    if (type === "config/floor_registry/list") return now(floors);
+    if (type === "config/area_registry/list") return now(areas);
+    throw new Error(type);
+  };
+
+export interface Mount extends Home {
+  /** Answers first; a reply of undefined leaves the message to the home. */
+  reply?: Reply;
+  /** `hass.floors`: Home Assistant's floor names. */
+  hassFloors?: Record<string, { name: string }>;
+  card?: boolean;
+  /** The card's fixed floor option. */
+  floor?: string;
+  units?: HassUnits;
+}
+
+export const mountPanel = ({ reply, hassFloors = {}, card = false, floor, units = METRIC_UNITS, ...home }: Mount = {}) => {
+  const fromHome = homeReply(home);
+  const sendMessagePromise = vi.fn<Reply>(async (message) => {
+    const answered = reply && (await reply(message));
+    return answered === undefined ? fromHome(message) : answered;
+  });
   const unsubscribe = vi.fn(async () => {});
   const unsubscribeEvents = vi.fn(async () => {});
   const listeners: Record<string, () => void> = {};
@@ -237,7 +284,7 @@ export const mountPanel = (reply: Reply = answer, floors = {}, card = false, flo
     floor?: string;
   };
   panel.floor = floor;
-  panel.hass = { connection, floors, themes: { darkMode: false }, ...units };
+  panel.hass = { connection, floors: hassFloors, themes: { darkMode: false }, ...units };
   panel.toggleAttribute("card", card);
   document.body.append(panel);
   const tokenCalls = () =>
@@ -292,7 +339,6 @@ export const floorButtonNames = (panel: HTMLElement) =>
     (button) => button.textContent?.trim(),
   );
 
-/** The guide line's text and step, with single spaces. */
 /** The text of each part of the guide line, one space apart. */
 export const guideText = (panel: HTMLElement) =>
   [...(panel.shadowRoot?.querySelector(".guide")?.children ?? [])].map((part) => part.textContent).join(" ");
