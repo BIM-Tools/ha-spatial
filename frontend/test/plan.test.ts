@@ -4,7 +4,6 @@ import area from "@turf/area";
 import booleanClockwise from "@turf/boolean-clockwise";
 import type { Polygon } from "geojson";
 import { expect, test } from "vitest";
-import type { HassUnits } from "../src/units";
 import {
   addToFootprint,
   areaLabel,
@@ -145,25 +144,21 @@ test.each<[string, Polygon | undefined, Polygon, Polygon | null | undefined]>([
   expect(result).toEqual({ change: { before: { kitchen: before }, after: { kitchen: addToFootprint(METRIC, current, drawn) } } });
 });
 
-test("boxChange refuses a box apart from the footprint and says why", () => {
-  expect(boxChange(METRIC, "kitchen", box, boxFromCorners(METRIC, [0, 160], [160, 280])!)).toEqual({
-    refusal: "A room is one shape: draw against it",
-  });
+test("boxChange refuses a box apart from the footprint", () => {
+  expect(boxChange(METRIC, "kitchen", box, boxFromCorners(METRIC, [0, 160], [160, 280])!)).toEqual({ refusal: "apart" });
 });
 
 test("resizeChange saves the resized rectangle as one area's change", () => {
-  expect(resizeChange(METRIC, "kitchen", box, 0, 5, METRIC_UNITS)).toEqual({
+  expect(resizeChange(METRIC, "kitchen", box, 0, 5)).toEqual({
     change: { before: { kitchen: box }, after: { kitchen: resizeSide(METRIC, box, 0, 5) } },
   });
 });
 
-test.each<[string, PlanFrame, number | undefined, HassUnits, string]>([
-  ["a side under a grid step", METRIC, 0.05, METRIC_UNITS, "10 cm"],
-  ["an unreadable length", METRIC, undefined, METRIC_UNITS, "10 cm"],
-  ["a side under a grid step in US customary units", INCHES, 3 * 0.0254, US_UNITS, "4 in"],
-])("resizeChange refuses %s and names the grid step", (_name, frame, lengthM, units, step) => {
+test.each<[string, PlanFrame, number | undefined]>([
+  ["a side under a grid step", METRIC, 0.05],
+  ["an unreadable length", METRIC, undefined],
+  ["a side under a grid step in US customary units", INCHES, 3 * 0.0254],
+])("resizeChange refuses %s as too small", (_name, frame, lengthM) => {
   const rectangle = boxFromCorners(frame, [0, 0], [160, 120])!;
-  expect(resizeChange(frame, "kitchen", rectangle, 0, lengthM, units)).toEqual({
-    refusal: `Too small: every side needs at least ${step}`,
-  });
+  expect(resizeChange(frame, "kitchen", rectangle, 0, lengthM)).toEqual({ refusal: "too_small" });
 });

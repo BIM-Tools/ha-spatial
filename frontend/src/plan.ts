@@ -5,7 +5,7 @@ import union from "@turf/union";
 import type { Polygon, Position } from "geojson";
 import type { Change } from "./history";
 import type { LatticePoint, PlanFrame } from "./site-frame";
-import { type HassUnits, formatArea, formatLength, isUsCustomary } from "./units";
+import { type HassUnits, type Refusal, formatArea, formatLength } from "./units";
 
 type Ring = LatticePoint[];
 
@@ -127,8 +127,8 @@ export function addToFootprint(frame: PlanFrame, existing: Polygon | undefined, 
   return { type: "Polygon", coordinates: rings };
 }
 
-/** What saving a gesture changes, or the toast that says why it saves nothing. */
-export type ChangeOrRefusal = { change: Change } | { refusal: string };
+/** What saving a gesture changes, or why it saves nothing. */
+export type ChangeOrRefusal = { change: Change } | { refusal: Refusal };
 
 const footprintChange = (areaId: string, before: Polygon | null, after: Polygon | null): Change => ({
   before: { [areaId]: before },
@@ -138,7 +138,7 @@ const footprintChange = (areaId: string, before: Polygon | null, after: Polygon 
 /** A drawn box joins the area's footprint, or starts it; a box the footprint cannot join is refused. */
 export function boxChange(frame: PlanFrame, areaId: string, current: Polygon | undefined, box: Polygon): ChangeOrRefusal {
   const footprint = addToFootprint(frame, current, box);
-  if (!footprint) return { refusal: "A room is one shape: draw against it" };
+  if (!footprint) return { refusal: "apart" };
   return { change: footprintChange(areaId, current ?? null, footprint) };
 }
 
@@ -149,9 +149,8 @@ export function resizeChange(
   rectangle: Polygon,
   edgeIndex: number,
   lengthM: number | undefined,
-  units: HassUnits,
 ): ChangeOrRefusal {
   const resized = lengthM === undefined ? undefined : resizeSide(frame, rectangle, edgeIndex, lengthM);
-  if (!resized) return { refusal: `Too small: every side needs at least ${isUsCustomary(units) ? "4 in" : "10 cm"}` };
+  if (!resized) return { refusal: "too_small" };
   return { change: footprintChange(areaId, rectangle, resized) };
 }

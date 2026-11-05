@@ -12,7 +12,7 @@ import type { LayerColours } from "./map-paint";
 import { byLevel } from "./map-view";
 import { type ChangeOrRefusal, boxChange, edgeLengths, isAxisRectangle, resizeChange, sideLabels } from "./plan";
 import type { PlanFrame } from "./site-frame";
-import { type HassUnits, parseLength, typedLength } from "./units";
+import { type HassUnits, parseLength, refusalMessage, typedLength } from "./units";
 
 interface Connection {
   sendMessagePromise<T>(message: { type: string; [key: string]: unknown }): Promise<T>;
@@ -395,7 +395,7 @@ export class RoomEditor {
           // An unchanged field leaves the edit: saving its rounded length would shift the side and add an undo step.
           if (event.key === "Escape" || (event.key === "Enter" && typed.value === prefilled)) this._select(areaId);
           // The frame the field was built in, so a refresh still in flight cannot pair it with another one.
-          else if (event.key === "Enter") this._resize(resizeChange(frame, areaId, footprint, edgeIndex, parseLength(typed.value, units), units));
+          else if (event.key === "Enter") this._resize(resizeChange(frame, areaId, footprint, edgeIndex, parseLength(typed.value, units)));
         });
         control = typed;
       } else {
@@ -424,7 +424,7 @@ export class RoomEditor {
 
   private _resize(resized: ChangeOrRefusal) {
     if ("refusal" in resized) {
-      this._host.toast({ message: resized.refusal });
+      this._host.toast({ message: refusalMessage(resized.refusal, this._host.units()) });
       return;
     }
     this._editingSide = undefined;
@@ -437,7 +437,7 @@ export class RoomEditor {
     const current = this._footprints.get(areaId);
     const drawn = boxChange(frame, areaId, current, box);
     if ("refusal" in drawn) {
-      this._host.toast({ message: drawn.refusal });
+      this._host.toast({ message: refusalMessage(drawn.refusal, this._host.units()) });
       return;
     }
     await this._whileSaving(async () => {
