@@ -91,19 +91,18 @@ def content_rev(entry: AreaSpatial | Site) -> str:
     return hashlib.sha256(json_bytes_sorted(entry)).hexdigest()[:REV_LENGTH]
 
 
+def _exterior_inset(grid: UnitGrid, on_facade_override: bool | None) -> int:
+    """Return the inset along the outline: half an exterior wall, unless marked off the facade."""
+    return grid.interior_inset_units if on_facade_override is False else grid.exterior_inset_units
+
+
 def _measure(
     polygon: dict[str, Any], on_facade_override: bool | None, site: _SiteGeometry
 ) -> _Footprint:
-    """Return a footprint snapped to the lattice with its net area, facade length and relation.
-
-    Pieces on the outline lose half an exterior wall, unless the room is marked
-    as not on the facade.
-    """
+    """Return a footprint snapped to the lattice with its net area, facade length and relation."""
     grid, outline = site.grid, site.outline
     corners = site.frame.snap(polygon)
-    exterior_inset = (
-        grid.interior_inset_units if on_facade_override is False else grid.exterior_inset_units
-    )
+    exterior_inset = _exterior_inset(grid, on_facade_override)
     unit_m = float(grid.lattice_unit_m)
     return _Footprint(
         corners,
@@ -112,6 +111,100 @@ def _measure(
         shared_edge_length(corners, outline) * unit_m if outline else 0.0,
         outline_relation(corners, outline) if outline else None,
     )
+
+
+def change_refusal(
+    stored: dict[str, list[Ring]],
+    written: dict[str, list[Ring] | None],
+    outline: list[Ring] | None,
+    on_facade_overrides: dict[str, bool | None],
+    grid: UnitGrid,
+    *,
+    outline_written: bool,
+    frame_changed: bool,
+) -> tuple[str, str] | None:
+    """Return the error code and message that refuse a change, or None if it can be applied.
+
+    Custom. Every ring is on the lattice of the site after the change: `written`
+    holds the footprints the change sets or removes (None), `outline` the outline
+    after it, and `stored` the stored footprints. `stored` is read only when the
+    outline is written or the frame changes, to check every room against the
+    outline; otherwise only the rooms written are checked and it may be empty.
+    Footprints written, and an outline written, must be valid lattice polygons;
+    the first invalid one is named, rooms before the outline. Indoor rooms may not
+    extend beyond the outline: the rooms written, or all rooms when the outline or the frame changes
+    (both move what the lattice reads), must lie inside it or outside it. Rooms
+    written must keep a net area, with their on_facade_overrides after the change
+    (missing means None). Known limit: stored footprints are not validated again.
+    """
+    footprints_set = {
+        area_id: corners for area_id, corners in written.items() if corners is not None
+    }
+    to_validate = list(footprints_set.items())
+    if outline_written and outline is not None:
+        to_validate.append(("outline", outline))
+    for name, corners in to_validate:
+        try:
+            validate_lattice_polygon(corners)
+        except ValueError as err:
+            return ERR_INVALID_FORMAT, f"{err} ({name})"
+
+    rooms_after = {
+        **{area_id: c for area_id, c in stored.items() if area_id not in written},
+        **footprints_set,
+    }
+    checked = rooms_after if outline_written or frame_changed else footprints_set
+    if outline is not None and (
+        beyond := sorted(
+            area_id
+            for area_id, corners in checked.items()
+            if outline_relation(corners, outline) == "crossing"
+        )
+    ):
+        return ERR_OUTSIDE_OUTLINE, f"Beyond the building outline: {', '.join(beyond)}"
+    if empty := sorted(
+        area_id
+        for area_id, corners in footprints_set.items()
+        if net_area(
+            corners,
+            outline,
+            grid.interior_inset_units,
+            _exterior_inset(grid, on_facade_overrides.get(area_id)),
+        )
+        <= 0
+    ):
+        return ERR_INVALID_FORMAT, f"No net area: {', '.join(empty)}"
+    return None
+
+
+def floors_above(floor_id: str | None, levels: dict[str, int | None]) -> list[str]:
+    """Return the floors with a higher level than a floor, lowest first.
+
+    `levels` maps every floor_id to its level. A floor without a level, or not
+    in `levels`, has no floors above it, and a floor without a level is above
+    none. Floors on the same level are ordered by floor_id.
+    """
+    if (base_level := levels.get(floor_id) if floor_id else None) is None:
+        return []
+    above = sorted(
+        (level, other_id)
+        for other_id, level in levels.items()
+        if level is not None and level > base_level
+    )
+    return [other_id for _, other_id in above]
+
+
+def occupied_floor_ids(
+    floor_id: str | None, floors_up: int, levels: dict[str, int | None]
+) -> list[str]:
+    """Return the floors a room occupies: its own and floors_up above it, lowest first.
+
+    Empty for a site-level room without a floor. When floors above were deleted
+    after floors_up was set, the room reaches only the remaining ones.
+    """
+    if floor_id is None:
+        return []
+    return [floor_id, *floors_above(floor_id, levels)[:floors_up]]
 
 
 class SpatialCoordinator:
@@ -232,47 +325,39 @@ class SpatialCoordinator:
         site_fields: dict[str, Any],
         room_properties: dict[str, dict[str, Any]],
     ) -> tuple[str, str] | None:
-        """Return the error code and message that reject a change, or None if it can be applied.
+        """Return the error code and message that refuse a change, or None if it can be applied.
 
-        Footprints and an outline are checked on the lattice as they will be read.
-        Indoor rooms may not extend beyond the outline: the rooms written, or all
-        rooms when the outline or the frame changes (both move what the lattice
-        reads), must lie inside it or outside it. Rooms written must keep a net area.
+        Reads the footprints and the outline on the lattice of the site after the
+        change, as they will be read, and leaves the rules to change_refusal. Stored
+        footprints are read only when the outline or the frame changes.
         """
-        written = {area_id: p for area_id, p in polygons.items() if p is not None}
-        new_outline = site_fields.get("outline")
         site_after = self._site_after(site_fields)
         site = self._site_geometry(site_after)
-        to_validate = [(area_id, site.frame.snap(polygon)) for area_id, polygon in written.items()]
-        if site.outline is not None and new_outline is not None:
-            to_validate.append(("outline", site.outline))
-        for name, corners in to_validate:
-            try:
-                validate_lattice_polygon(corners)
-            except ValueError as err:
-                return ERR_INVALID_FORMAT, f"{err} ({name})"
-
-        rooms = {area_id: entry["polygon"] for area_id, entry in self.store.areas.items()}
-        for area_id, polygon in polygons.items():
-            if polygon is None:
-                rooms.pop(area_id, None)
-            else:
-                rooms[area_id] = polygon
+        outline_written = site_fields.get("outline") is not None
         frame_changed = any(
             site_after[key] != self.store.site[key] for key in ("origin", "bearing_deg")
         )
-        checked = list(rooms) if new_outline is not None or frame_changed else list(written)
-        footprints = {
-            area_id: _measure(rooms[area_id], self._override_after(area_id, room_properties), site)
-            for area_id in checked
-        }
-        if beyond := sorted(
-            area_id for area_id, footprint in footprints.items() if footprint.relation == "crossing"
-        ):
-            return ERR_OUTSIDE_OUTLINE, f"Beyond the building outline: {', '.join(beyond)}"
-        if empty := sorted(area_id for area_id in written if footprints[area_id].net_m2 <= 0):
-            return ERR_INVALID_FORMAT, f"No net area: {', '.join(empty)}"
-        return None
+        return change_refusal(
+            {
+                area_id: site.frame.snap(entry["polygon"])
+                for area_id, entry in self.store.areas.items()
+            }
+            if outline_written or frame_changed
+            else {},
+            {
+                area_id: site.frame.snap(polygon) if polygon is not None else None
+                for area_id, polygon in polygons.items()
+            },
+            site.outline,
+            {
+                area_id: self._override_after(area_id, room_properties)
+                for area_id, polygon in polygons.items()
+                if polygon is not None
+            },
+            site.grid,
+            outline_written=outline_written,
+            frame_changed=frame_changed,
+        )
 
     def _override_after(
         self, area_id: str, room_properties: dict[str, dict[str, Any]]
@@ -392,41 +477,23 @@ class SpatialCoordinator:
         base = elevation if elevation is not None else level * DEFAULT_FLOOR_HEIGHT_M
         return base, base + (height if height is not None else DEFAULT_FLOOR_HEIGHT_M)
 
-    def _floors_above(self, floor_id: str | None) -> list[str]:
-        """Return the floors with a higher level than a floor, lowest first.
-
-        A floor without a level has no floors above it, and a floor without a
-        level is above none. Floors on the same level are ordered by floor_id.
-        """
-        floor_registry = fr.async_get(self.hass)
-        floor = floor_registry.async_get_floor(floor_id) if floor_id else None
-        if floor is None or floor.level is None:
-            return []
-        base_level = floor.level
-        above = sorted(
-            (other.level, other.floor_id)
-            for other in floor_registry.async_list_floors()
-            if other.level is not None and other.level > base_level
-        )
-        return [other_floor_id for _, other_floor_id in above]
+    def _floor_levels(self) -> dict[str, int | None]:
+        """Return the level of every floor in the registry, by floor_id."""
+        return {
+            floor.floor_id: floor.level for floor in fr.async_get(self.hass).async_list_floors()
+        }
 
     def max_floors_up(self, area_id: str) -> int:
         """Return how many floors an area can reach above its own floor."""
-        return len(self._floors_above(self._floor_of(area_id)))
+        return len(floors_above(self._floor_of(area_id), self._floor_levels()))
 
     def has_footprint(self, area_id: str) -> bool:
         """Return True if an area has a stored footprint."""
         return area_id in self.store.areas
 
     def _floor_ids(self, area_id: str, data: AreaSpatial) -> list[str]:
-        """Return the floors an area occupies: its own and floors_up above it, lowest first.
-
-        Empty for a site-level area without a floor. When floors above were
-        deleted after floors_up was set, the area reaches only the remaining ones.
-        """
-        if (floor_id := self._floor_of(area_id)) is None:
-            return []
-        return [floor_id, *self._floors_above(floor_id)[: data["floors_up"]]]
+        """Return the floors an area occupies, lowest first, from the registry as it is now."""
+        return occupied_floor_ids(self._floor_of(area_id), data["floors_up"], self._floor_levels())
 
     def _levels(self, area_id: str, data: AreaSpatial) -> set[str | None]:
         """Return the floors an area occupies, with None standing for the site level."""
