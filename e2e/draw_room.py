@@ -1,4 +1,4 @@
-"""Smoke test: a fresh Home Assistant, the Spatial panel, one room drawn with the mouse."""
+"""Smoke test: a fresh Home Assistant, the Spatial panel, rooms drawn and resized with the mouse."""
 
 import json
 import os
@@ -110,9 +110,9 @@ def drag(page, start, end):
     page.mouse.up()
 
 
-def top_right_on_screen(panel, ring):
-    """Page pixels of the ring's corner furthest right and up on the screen."""
-    corners = panel.evaluate(
+def corners_on_screen(panel, ring):
+    """Page pixels of the ring's corners, without the closing one."""
+    return panel.evaluate(
         """(panel, ring) => {
             const map = panel._map;
             const box = map.getContainer().getBoundingClientRect();
@@ -123,11 +123,46 @@ def top_right_on_screen(panel, ring):
         }""",
         ring[:-1],
     )
-    return max(corners, key=lambda corner: corner[0] - corner[1])
 
 
-def draw_rooms(websocket):
-    """Draws Kitchen, then Bedroom from 5 px right of Kitchen's top right corner; returns both."""
+def top_right_on_screen(panel, ring):
+    """Page pixels of the ring's corner furthest right and up on the screen."""
+    return max(corners_on_screen(panel, ring), key=lambda corner: corner[0] - corner[1])
+
+
+def wait_for_larger(websocket, name, area_m2):
+    """The area's feature once its area_m2 exceeds the given one, or as it is after 10 s."""
+    deadline = time.monotonic() + 10
+    while True:
+        feature = features_named(websocket, name)[0]
+        if feature["properties"]["area_m2"] > area_m2 or time.monotonic() > deadline:
+            return feature
+        time.sleep(0.5)
+
+
+def resize_kitchen(page, panel, websocket, kitchen):
+    """In Adjust drags Kitchen's left edge 40 px left, then its top left corner 30 px out."""
+    panel.get_by_role("button", name="Adjust", exact=True).click()
+    panel.get_by_role("button", name="Kitchen", exact=True).click()
+    left_corners = sorted(corners_on_screen(panel, kitchen["geometry"]["coordinates"][0]))[:2]
+    x = (left_corners[0][0] + left_corners[1][0]) / 2
+    y = (left_corners[0][1] + left_corners[1][1]) / 2
+    drag(page, (x, y), (x - 40, y))
+    stretched = wait_for_larger(websocket, "Kitchen", kitchen["properties"]["area_m2"])
+    # The top left corner faces free space; Bedroom lies to the right.
+    corner_x, corner_y = min(
+        corners_on_screen(panel, stretched["geometry"]["coordinates"][0]),
+        key=lambda corner: corner[0] + corner[1],
+    )
+    drag(page, (corner_x, corner_y), (corner_x - 30, corner_y - 30))
+    cornered = wait_for_larger(websocket, "Kitchen", stretched["properties"]["area_m2"])
+    return stretched, cornered
+
+
+def draw_rooms(websocket, kitchen_id):
+    """Draws Kitchen, then Bedroom from 5 px right of Kitchen's top right corner, then resizes
+    Kitchen; returns Kitchen as drawn, Bedroom, Kitchen's neighbours then, and Kitchen after
+    each resize."""
     with sync_playwright() as playwright:
         page = playwright.chromium.launch().new_page(viewport={"width": 1280, "height": 800})
         # Proves the panel draws without map tiles.
@@ -153,7 +188,10 @@ def draw_rooms(websocket):
         panel.get_by_role("button", name="Bedroom", exact=True).click()
         corner_x, corner_y = top_right_on_screen(panel, kitchen[0]["geometry"]["coordinates"][0])
         drag(page, (corner_x + 5, corner_y), (corner_x + 155, corner_y + 150))
-        return kitchen, wait_for_features(websocket, "Bedroom")
+        bedroom = wait_for_features(websocket, "Bedroom")
+        # Before the resizes, as the dragged corner leaves Bedroom's wall.
+        adjacent = websocket.call("spatial/area/adjacent", area_id=kitchen_id)["area_ids"]
+        return kitchen, bedroom, adjacent, resize_kitchen(page, panel, websocket, kitchen[0])
 
 
 def main():
@@ -172,13 +210,19 @@ def main():
         )
     websocket.call("spatial/site/update", bearing_deg=20)
 
-    kitchen, bedroom = draw_rooms(websocket)
+    kitchen, bedroom, adjacent, (stretched, cornered) = draw_rooms(
+        websocket, areas["Kitchen"]["area_id"]
+    )
     assert kitchen[0]["properties"]["area_m2"] > 0, kitchen[0]
     print(f"PASS: Kitchen drawn, {kitchen[0]['properties']['area_m2']} m2")
     assert len(bedroom) == 1, bedroom
-    adjacent = websocket.call("spatial/area/adjacent", area_id=areas["Kitchen"]["area_id"])
-    assert areas["Bedroom"]["area_id"] in adjacent["area_ids"], adjacent
+    assert areas["Bedroom"]["area_id"] in adjacent, adjacent
     print("PASS: Bedroom snapped to Kitchen")
+    drawn_m2 = kitchen[0]["properties"]["area_m2"]
+    assert stretched["properties"]["area_m2"] > drawn_m2, stretched
+    print(f"PASS: Kitchen edge dragged, {stretched['properties']['area_m2']} m2")
+    assert cornered["properties"]["area_m2"] > stretched["properties"]["area_m2"], cornered
+    print(f"PASS: Kitchen corner dragged, {cornered['properties']['area_m2']} m2")
 
 
 if __name__ == "__main__":

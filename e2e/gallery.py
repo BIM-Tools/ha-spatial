@@ -503,6 +503,44 @@ def adjust_room_active(shot: Shot) -> None:
     shot.click(*shot.room_centre("Living room"))
 
 
+def edge_middle(corners: list[tuple[float, float]], side: str) -> tuple[float, float]:
+    """The middle of a screen-aligned rectangle's left or right edge, in page pixels."""
+    ordered = sorted(corners)
+    (x1, y1), (x2, y2) = ordered[:2] if side == "left" else ordered[2:]
+    return (x1 + x2) / 2, (y1 + y2) / 2
+
+
+def edge_drag(shot: Shot) -> None:
+    adjust_room_active(shot)
+    x, y = edge_middle(shot.room_corners("Living room"), "left")
+    # Its left edge lies on the outline, so it is dragged 40 px in.
+    shot.start_drag((x, y), (x + 40, y))
+
+
+def corner_drag(shot: Shot) -> None:
+    adjust_room_active(shot)
+    x, y = min(shot.room_corners("Living room"), key=lambda corner: corner[1] - corner[0])
+    # Its top right corner, 30 px out to the right and up: the top stops at the outline.
+    shot.start_drag((x, y), (x + 30, y - 30))
+
+
+def resize_snapped(shot: Shot) -> None:
+    floor_plan(shot)
+    shot.click(*shot.room_centre("Toilet"))
+    x, y = edge_middle(shot.room_corners("Toilet"), "right")
+    right = max(x for x, _ in shot.room_corners("Kitchen"))
+    # The toilet's right edge to 3 px short of the kitchen's right wall, which it snaps to.
+    shot.start_drag((x, y), (right - 3, y))
+
+
+def outline_drag(shot: Shot) -> None:
+    floor_plan(shot)
+    shot.activate_pill("Building")
+    left, top, _, bottom = shot.floor_screen_box("Ground floor")
+    # The outline's left edge, 40 px out.
+    shot.start_drag((left, (top + bottom) / 2), (left - 40, (top + bottom) / 2))
+
+
 def labels_fit(shot: Shot) -> None:
     floor_plan(shot)
 
@@ -599,6 +637,34 @@ STATES = [
         "tools",
         "Adjust with the living room active: corner handles and side lengths",
         adjust_room_active,
+    ),
+    State(
+        "edge-drag",
+        "tools",
+        "Dragging the living room's left edge in: the draft counts its lengths",
+        edge_drag,
+        phone=False,
+    ),
+    State(
+        "corner-drag",
+        "tools",
+        "Dragging the living room's top right corner out: the top stops at the outline",
+        corner_drag,
+        phone=False,
+    ),
+    State(
+        "resize-snapped",
+        "tools",
+        "Dragging the toilet's right edge onto the kitchen's right wall, which lights up",
+        resize_snapped,
+        phone=False,
+    ),
+    State(
+        "outline-drag",
+        "tools",
+        "Dragging the building outline's left edge out",
+        outline_drag,
+        phone=False,
     ),
     State(
         "strip-pills",

@@ -6,6 +6,7 @@ import { html } from "lit";
 import { type GeoJSONSource, Marker, type Map as MapLibreMap } from "maplibre-gl";
 import { type AreaEntry, BUILDING, newAreaName, nextActive, stripOrder } from "./area-strip";
 import { type ActiveRoom, BoxInteraction } from "./box-interaction";
+import type { Pixel } from "./edge-drag";
 import { type Change, type FootprintBatch, History } from "./history";
 import type { LayerColours } from "./map-paint";
 import { byLevel } from "./map-view";
@@ -54,6 +55,8 @@ export interface EditorHost {
   toast(toast: Toast): void;
   buildingName(): string;
   canRenameBuilding(): boolean;
+  // The rooms whose labels hide while a resize draft over them shows its lengths and area.
+  hideLabels(areaIds: string[]): void;
 }
 
 // A later save that succeeds closes the failure toast through this id.
@@ -63,6 +66,12 @@ const SIDE_STYLE =
   "font: 12px sans-serif; background: var(--card-background-color); color: var(--primary-text-color); border: 1px solid var(--primary-color); border-radius: 3px";
 // A side button or field sits on the map, inside a Marker that would block focus; its presses and keys stay its own.
 const MAP_EVENTS = ["mousedown", "touchstart", "click", "dblclick", "keydown"];
+
+// Where a DOM event on a Marker falls on the map.
+const pixelOn = (map: MapLibreMap, event: MouseEvent): Pixel => {
+  const box = map.getContainer().getBoundingClientRect();
+  return { x: event.clientX - box.left, y: event.clientY - box.top };
+};
 
 export class RoomEditor {
   floors: FloorEntry[] = [];
@@ -79,6 +88,8 @@ export class RoomEditor {
   private _saving = false;
   private _saveFailedShown = false;
   private _sides: Marker[] = [];
+  private _resizeLive = false;
+
   private _editingSide?: number;
   // Counts acknowledged saves and started refreshes, so an older refresh cannot undo a newer save.
   private _changes = 0;
@@ -126,7 +137,9 @@ export class RoomEditor {
       snapCandidates: (frame, exclude) => this._snapCandidates(frame, exclude),
       units: () => this._host.units(),
       onBox: (box, frame) => this._finishBox(box, frame),
-      onMove: (room, moved) => this._saveMove(room, moved),
+      onMove: (room, moved) => this._saveShape(room, moved),
+      onResize: (room, resized) => this._saveShape(room, resized),
+      onResizing: (resizing) => this._resizing(resizing),
       onPickRoom: (areaId) => this._select(areaId),
     });
     window.addEventListener("keydown", this._keys);
@@ -348,6 +361,8 @@ export class RoomEditor {
     // All floors is a view only, as its disabled Undo and Redo buttons show.
     if (this._floor === "all") return;
     if (event.composedPath()[0] instanceof HTMLInputElement) return;
+    // A held edge or corner saves against the room as grabbed, which these would change under it.
+    if (this._interaction?.resizing) return;
     if (event.key === "Delete") {
       this._removeActiveShape();
       return;
@@ -367,6 +382,8 @@ export class RoomEditor {
 
   // In Adjust each side of the active room, when it is a rectangle on the site axis, is a button that opens a length field.
   private _showSides() {
+    // The draft shows the lengths until the resize ends; `_resizing` rebuilds them then.
+    if (this._resizeLive) return;
     for (const side of this._sides) side.remove();
     this._sides = [];
     const map = this._map;
@@ -394,8 +411,14 @@ export class RoomEditor {
       } else {
         control = Object.assign(document.createElement("button"), { textContent: text });
         control.addEventListener("click", () => {
+          // The click that ends a drag from this button comes while that drag saves.
+          if (this._saving) return;
           this._editingSide = edgeIndex;
           this._showSides();
+        });
+        // A button sits on its edge and covers part of it, so a press on it drags that edge; a click without a drag still opens the field.
+        control.addEventListener("mousedown", (event) => {
+          if (event.button === 0) this._interaction?.startResize({ kind: "edge", index: edgeIndex }, pixelOn(map, event), event.altKey);
         });
       }
       control.style.cssText = SIDE_STYLE;
@@ -436,8 +459,22 @@ export class RoomEditor {
     }, current ? undefined : footprint);
   }
 
-  private _saveMove({ areaId, footprint }: ActiveRoom, moved: Polygon) {
-    this._whileSaving(() => this._apply({ before: { [areaId]: footprint }, after: { [areaId]: moved } }));
+  private _saveShape({ areaId, footprint }: ActiveRoom, changed: Polygon) {
+    this._whileSaving(() => this._apply({ before: { [areaId]: footprint }, after: { [areaId]: changed } }));
+  }
+
+  // While an edge or corner is dragged the draft shows its lengths and area, so the side buttons and
+  // the labels under it hide; a save shows the buttons again when it settles.
+  private _resizing(resizing: boolean) {
+    this._resizeLive = resizing;
+    // The building's draft covers every room on the floor.
+    const covered = this._active === BUILDING ? this._order().map((area) => area.area_id) : [this._active];
+    this._host.hideLabels(resizing ? covered : []);
+    if (!resizing) {
+      if (!this._saving) this._showSides();
+      return;
+    }
+    for (const side of this._sides) side.getElement().style.visibility = "hidden";
   }
 
   private async _apply(change: Change) {

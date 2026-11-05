@@ -536,6 +536,7 @@ class SpatialPanel extends LitElement {
           buildingName: () => this._buildingName(),
           // Renaming writes Home Assistant's core config, which only an admin may change.
           canRenameBuilding: () => this.hass?.user?.is_admin === true,
+          hideLabels: (areaIds) => this._labels?.hide(areaIds),
         });
     this._editor = editor;
     const site = await loadAreas();
