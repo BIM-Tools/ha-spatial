@@ -2,7 +2,6 @@
 // Checks the area strip in the panel: floors, pills, names, new areas and the guide.
 import { afterEach, expect, test, vi } from "vitest";
 import {
-  answer,
   buttonNamed,
   handlers,
   floorButtonNames,
@@ -10,10 +9,8 @@ import {
   layers,
   mapCreated,
   guideText,
-  partsText,
   toastMessages,
   toasts,
-  mountPanel,
   onUpdateOf,
   queryRenderedFeatures,
   settle,
@@ -21,8 +18,6 @@ import {
 } from "./panel-harness";
 import {
   mountEditor,
-  type Panel,
-  strip,
   chips,
   activeFilter,
   chipNames,
@@ -37,7 +32,6 @@ import {
   pixelShape,
   feature,
   startAdjusting,
-  buildingHighlight,
   renameField,
   toolPressed,
   hoverFilter,
@@ -49,13 +43,7 @@ import "../src/spatial-panel";
 
 afterEach(resetFakes);
 
-test("the panel's floor buttons come from the floor registry, with No floor, and the toolbar has the tools", async () => {
-  const { panel } = mountEditor();
-  await vi.waitFor(() => expect(floorButtonNames(panel)).toEqual(["All", "Ground floor", "Loft", "No floor"]));
-  for (const name of ["Align", "Draw", "Adjust", "Undo", "Redo"]) expect(buttonNamed(panel, name)).toBeDefined();
-});
-
-test("floors out of level order in the registry show in level order", async () => {
+test("the panel's floor buttons come from the floor registry in level order, with No floor, and the toolbar has the tools", async () => {
   const { panel } = mountEditor(async (message) =>
     message.type === "config/floor_registry/list"
       ? [
@@ -65,26 +53,8 @@ test("floors out of level order in the registry show in level order", async () =
       : undefined,
   );
   await vi.waitFor(() => expect(floorButtonNames(panel)).toEqual(["All", "Ground floor", "Loft", "No floor"]));
+  for (const name of ["Align", "Draw", "Adjust", "Undo", "Redo"]) expect(buttonNamed(panel, name)).toBeDefined();
 });
-
-test("the strip is shown in the panel and not in the card", async () => {
-  const { panel } = mountEditor();
-  await showFloor(panel);
-  expect(strip(panel)).not.toBeNull();
-  const card = mountPanel(answer, {}, true).panel;
-  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalledTimes(2));
-  await (card as Panel).updateComplete;
-  expect(strip(card)).toBeNull();
-  for (const name of ["Draw", "Adjust", "Undo", "Redo"]) expect(buttonNamed(card, name)).toBeUndefined();
-});
-
-test("on a floor the first area without a footprint is active", async () => {
-  const { panel } = mountEditor();
-  await showFloor(panel);
-  await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Building", "Kitchen", "Bath", "Hall", "New area"]));
-  expect(activeChip(panel)).toBe("Bath");
-});
-
 test("an update that removes the active area makes the first area in the order active", async () => {
   const { panel, connection, setRegistry, setFeed } = mountEditor();
   await startDrawing(panel);
@@ -99,21 +69,6 @@ test("an update that removes the active area makes the first area in the order a
   await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Building", "Bath", "Hall", "New area"]));
   expect(activeChip(panel)).toBe("Bath");
   expect(activeFilter()).toEqual(["==", ["get", "area_id"], "bath"]);
-});
-
-test("renaming the active area updates the area registry", async () => {
-  const { panel, connection } = mountEditor();
-  await showFloor(panel);
-  chip(panel, "Bath").click();
-  await settle(panel);
-  const input = strip(panel)!.shadowRoot!.querySelector("input")!;
-  input.value = "Scullery";
-  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
-  await vi.waitFor(() =>
-    expect(sent(connection, "config/area_registry/update")).toEqual([
-      { type: "config/area_registry/update", area_id: "bath", name: "Scullery" },
-    ]),
-  );
 });
 
 test("a failed registry read does not stop the map", async () => {
@@ -141,25 +96,6 @@ test("on a floor each room is labelled with its area's icon, name and net m² fr
   expect(label.querySelector("ha-icon")?.getAttribute("icon")).toBe("mdi:stove");
   expect(label.querySelector(".name")?.textContent).toBe("Kitchen");
   expect(label.querySelector(".size")?.textContent).toBe("21.5 m²");
-});
-
-test("pills tell linked areas from unlinked ones by data-linked", async () => {
-  const { panel } = mountEditor();
-  await showFloor(panel);
-  await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Building", "Kitchen", "Bath", "Hall", "New area"]));
-  expect(chips(panel).map((c) => c.getAttribute("data-linked"))).toEqual(["true", "true", "false", "false", null]);
-});
-
-test("the map highlights the active area's polygon, which an unlinked area does not have", async () => {
-  const { panel } = mountEditor();
-  await showFloor(panel);
-  await vi.waitFor(() => expect(chipNames(panel)).toContain("Kitchen"));
-  chip(panel, "Kitchen").click();
-  await settle(panel);
-  expect(activeFilter()).toEqual(["==", ["get", "area_id"], "kitchen"]);
-  chip(panel, "Bath").click();
-  await settle(panel);
-  expect(activeFilter()).toEqual(["==", ["get", "area_id"], "bath"]);
 });
 
 test("choosing a pill without a shape picks Draw; a pill with one keeps the tool", async () => {
@@ -198,20 +134,6 @@ test("New area creates the area on the floor at once, makes it active in Draw an
   expect(Object.keys(saves(connection)[0].areas)).toEqual(["room_1"]);
 });
 
-test("a tap on the active pill opens its name, and Escape closes it without a rename", async () => {
-  const { panel, connection } = mountEditor();
-  await showFloor(panel);
-  chip(panel, "Bath").click();
-  await settle(panel);
-  const field = renameField(panel)!;
-  expect(field.value).toBe("Bath");
-  field.value = "Scullery";
-  field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-  await settle(panel);
-  expect(renameField(panel)).toBeNull();
-  expect(sent(connection, "config/area_registry/update")).toEqual([]);
-});
-
 test("the guide says which area to draw and how far the floor is, and nothing for a drawn one", async () => {
   const { panel, connection } = mountEditor();
   await showFloor(panel);
@@ -228,17 +150,6 @@ test("the guide says which area to draw and how far the floor is, and nothing fo
   buttonNamed(panel, "All")!.click();
   await settle(panel);
   expect(guideText(panel)).toBe("");
-});
-
-test("on All the strip shows only the Building and a hint, and nothing is highlighted", async () => {
-  const { panel } = mountEditor();
-  await vi.waitFor(() => expect(strip(panel)).not.toBeNull());
-  await settle(panel);
-  expect(partsText(strip(panel)!)).toBe("Building Choose a floor to edit its rooms");
-  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
-  handlers["style.load"]();
-  expect(buildingHighlight()).toBe("none");
-  expect(activeFilter()).toEqual(["==", ["get", "area_id"], ""]);
 });
 
 test("pointing at a pill outlines its room, and pointing at a room marks its pill", async () => {

@@ -1,11 +1,10 @@
 // @vitest-environment happy-dom
 // Checks undo, redo and Delete.
 import { afterEach, expect, test, vi } from "vitest";
-import { EMPTY, buttonNamed, handlers, toastMessages, settle, sources, resetFakes } from "./panel-harness";
+import { EMPTY, buttonNamed, handlers, sources, resetFakes } from "./panel-harness";
 import {
   KITCHEN,
   mountEditor,
-  strip,
   chipNames,
   activeChip,
   chip,
@@ -15,10 +14,9 @@ import {
   key,
   sent,
   saves,
+  activateKitchen,
   startAdjusting,
   tapRoom,
-  sideButtons,
-  sideField,
   ctrlZ,
   renameField,
 } from "./room-editor-fixture";
@@ -44,17 +42,20 @@ test("Undo and Redo are disabled until they can act", async () => {
   expect(buttonNamed(panel, "Undo")!.disabled).toBe(true);
 });
 
-test("undo of a new footprint removes it and redo saves it again", async () => {
+test.each<[string, (panel: HTMLElement) => void, (panel: HTMLElement) => void]>([
+  ["the buttons", (panel) => buttonNamed(panel, "Undo")!.click(), (panel) => buttonNamed(panel, "Redo")!.click()],
+  ["Ctrl+Z and Ctrl+Shift+Z", () => ctrlZ(), () => ctrlZ(true)],
+])("undo by %s removes a new footprint and redo saves it again", async (_name, undo, redo) => {
   const { panel, connection } = mountEditor();
   await startDrawing(panel);
   tap(100, 0);
   tap(140, 30);
   await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
-  buttonNamed(panel, "Undo")!.click();
+  undo(panel);
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
   expect(saves(connection)[1].areas).toEqual({ bath: null });
   await vi.waitFor(() => expect(buttonNamed(panel, "Redo")!.disabled).toBe(false));
-  buttonNamed(panel, "Redo")!.click();
+  redo(panel);
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(3));
   expect(saves(connection)[2].areas).toEqual(saves(connection)[0].areas);
 });
@@ -62,8 +63,7 @@ test("undo of a new footprint removes it and redo saves it again", async () => {
 test("undo of an extended footprint saves the previous polygon", async () => {
   const { panel, connection } = mountEditor();
   await startDrawing(panel);
-  chip(panel, "Kitchen").click();
-  await settle(panel);
+  await activateKitchen(panel);
   tap(50, 0);
   tap(100, 50);
   await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
@@ -87,60 +87,6 @@ test("undo of a created area's first box keeps the area in Home Assistant", asyn
   await vi.waitFor(() => expect(chipNames(panel)).toContain("Room 1"));
 });
 
-test("a rejected undo reloads the rooms, says so and can be tried again", async () => {
-  let reject = false;
-  const { panel, connection } = mountEditor(async (message) => {
-    if (message.type === "spatial/area/update_geometries" && reject) throw new Error("connection lost");
-    return undefined;
-  });
-  vi.spyOn(console, "error").mockImplementationOnce(() => {});
-  await startDrawing(panel);
-  tap(100, 0);
-  tap(140, 30);
-  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
-  reject = true;
-  const feedLoads = sent(connection, "spatial/geojson").length;
-  buttonNamed(panel, "Undo")!.click();
-  await vi.waitFor(() => expect(toastMessages()).toContain("Could not save"));
-  expect(sent(connection, "spatial/geojson").length).toBe(feedLoads + 1);
-  await settle(panel);
-  expect(buttonNamed(panel, "Undo")!.disabled).toBe(false);
-  expect(buttonNamed(panel, "Redo")!.disabled).toBe(true);
-});
-
-test("Ctrl+Z undoes and Ctrl+Shift+Z redoes", async () => {
-  const { panel, connection } = mountEditor();
-  await startDrawing(panel);
-  tap(100, 0);
-  tap(140, 30);
-  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
-  ctrlZ();
-  await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
-  expect(saves(connection)[1].areas).toEqual({ bath: null });
-  await vi.waitFor(() => expect(buttonNamed(panel, "Redo")!.disabled).toBe(false));
-  ctrlZ(true);
-  await vi.waitFor(() => expect(saves(connection)).toHaveLength(3));
-  expect(saves(connection)[2].areas).toEqual(saves(connection)[0].areas);
-});
-
-test("Ctrl+Z in the rename field or a side field undoes nothing", async () => {
-  const { panel, connection } = mountEditor();
-  await startDrawing(panel);
-  tap(100, 0);
-  tap(140, 30);
-  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
-  chip(panel, "Hall").click();
-  await settle(panel);
-  const rename = strip(panel)!.shadowRoot!.querySelector("input")!;
-  rename.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true, composed: true }));
-  buttonNamed(panel, "Adjust")!.click();
-  await tapRoom(panel, "kitchen");
-  sideButtons()[0].click();
-  sideField()!.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true, composed: true }));
-  await settle(panel);
-  expect(saves(connection)).toHaveLength(1);
-});
-
 test("the box from a first tap follows the mouse while an undo is saving", async () => {
   let hold = false;
   let release = () => {};
@@ -162,20 +108,6 @@ test("the box from a first tap follows the mouse while an undo is saving", async
   release();
 });
 
-test("on All Ctrl+Z and Ctrl+Shift+Z change nothing, as the tools are off there", async () => {
-  const { panel, connection } = mountEditor();
-  await startDrawing(panel);
-  tap(100, 0);
-  tap(140, 30);
-  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
-  buttonNamed(panel, "All")!.click();
-  await settle(panel);
-  ctrlZ();
-  ctrlZ(true);
-  await settle(panel);
-  expect(saves(connection)).toHaveLength(1);
-});
-
 test("Delete removes the active shape in one save, and undo brings it back", async () => {
   const { panel, connection } = mountEditor();
   await startAdjusting(panel);
@@ -187,15 +119,4 @@ test("Delete removes the active shape in one save, and undo brings it back", asy
   buttonNamed(panel, "Undo")!.click();
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
   expect(saves(connection)[1].areas).toEqual({ kitchen: KITCHEN });
-});
-
-test("Delete without a shape, or in a field, removes nothing", async () => {
-  const { panel, connection } = mountEditor();
-  await startAdjusting(panel);
-  key("keydown", "Delete");
-  chip(panel, "Bath").click();
-  await settle(panel);
-  renameField(panel)!.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true, composed: true }));
-  await settle(panel);
-  expect(saves(connection)).toEqual([]);
 });

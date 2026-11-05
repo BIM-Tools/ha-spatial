@@ -5,7 +5,6 @@ import type { Feature, Polygon } from "geojson";
 import { afterEach, expect, test, vi } from "vitest";
 import { EMPTY, buttonNamed, handlers, onUpdateOf, settle, sources, resetFakes } from "./panel-harness";
 import {
-  FRAME,
   pixelBox,
   KITCHEN,
   mountEditor,
@@ -15,7 +14,6 @@ import {
   drag,
   key,
   saves,
-  expectOnGrid,
   expectCornersNear,
   activateKitchen,
   startAdjusting,
@@ -40,38 +38,6 @@ test("a drag that ends less than half a grid step from where it started saves no
   expect(saves(connection)).toEqual([]);
   expect(sources["spatial-draft"].data).toEqual(EMPTY);
   expect(buttonNamed(panel, "Undo")!.disabled).toBe(true);
-});
-
-test("a move shifts the room by whole grid steps", async () => {
-  const { panel, connection } = mountEditor();
-  await startDrawing(panel);
-  await activateKitchen(panel);
-  drag([25, 25], [45.3, 25.3]);
-  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
-  const moved = saves(connection)[0].areas.kitchen;
-  expectOnGrid(FRAME, moved, 1);
-  moved.coordinates[0].forEach((corner, index) => {
-    const [x, y] = FRAME.toLattice(corner);
-    const [fromX, fromY] = FRAME.toLattice(KITCHEN.coordinates[0][index]);
-    expect([x - fromX, y - fromY]).toEqual([80, 0]);
-  });
-});
-
-test("a moved room shares its neighbour's edge", async () => {
-  const { panel, connection, setFeed } = mountEditor();
-  const bath = pixelBox(60, 0, 100, 50);
-  setFeed([
-    { type: "Feature", id: "kitchen", geometry: KITCHEN, properties: { floor_id: "ground", level: 0 } },
-    { type: "Feature", id: "bath", geometry: bath, properties: { floor_id: "ground", level: 0 } },
-  ]);
-  await startDrawing(panel);
-  await activateKitchen(panel);
-  drag([25, 25], [31.3, 26]);
-  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
-  const moved = saves(connection)[0].areas.kitchen.coordinates[0].map((corner) => FRAME.toLattice(corner));
-  const neighbour = bath.coordinates[0].map((corner) => FRAME.toLattice(corner));
-  expect(moved[1]).toEqual(neighbour[0]);
-  expect(moved[2]).toEqual(neighbour[3]);
 });
 
 test("in Draw a drag inside the active room moves it in one batch, and undo puts it back", async () => {

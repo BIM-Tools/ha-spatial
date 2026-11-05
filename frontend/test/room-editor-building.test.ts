@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 // Checks drawing, moving and resizing the building outline with the Building pill.
 import area from "@turf/area";
+import type { Polygon } from "geojson";
 import { afterEach, expect, test, vi } from "vitest";
 import { buttonNamed, handlers, settle, resetFakes } from "./panel-harness";
 import {
@@ -61,41 +62,40 @@ test("undo of the first outline box removes the outline", async () => {
   expect(siteSaves(connection)[1]).toEqual({ type: "spatial/site/update", outline: null });
 });
 
-test("with the Building pill active the outline is highlighted and a box against it joins it", async () => {
+// Each row acts on the outline with the Building pill active: one outline save, no area save.
+test.each<[string, (panel: HTMLElement) => Promise<void>, () => void, (outline: Polygon) => void]>([
+  [
+    "a box against it joins it",
+    startDrawing,
+    () => {
+      tap(90, 120);
+      tap(150, 170);
+    },
+    (outline) => expect(area(outline)).toBeCloseTo(125, 0),
+  ],
+  [
+    "a drag inside it moves it",
+    startDrawing,
+    () => {
+      handlers.mousedown(mouse(50, 150));
+      handlers.mousemove(mouse(70, 150));
+      handlers.mouseup(mouse(70, 150));
+    },
+    (outline) => expectCornersNear(outline, pixelBox(20, 100, 120, 200)),
+  ],
+  ["typing a side in Adjust resizes it", startAdjusting, () => typeSide(0, "12"), (outline) => expect(edgeLengths(FRAME, outline)[0]).toBeCloseTo(12, 3)],
+])("with the Building pill active the outline is highlighted, and %s", async (_name, start, act, expectOutline) => {
   const { panel, connection } = mountEditor();
-  await startDrawing(panel);
+  await start(panel);
   expect(buildingHighlight()).toBe("none");
   chip(panel, "Building").click();
   await settle(panel);
   expect(buildingHighlight()).toBe("visible");
-  tap(90, 120);
-  tap(150, 170);
+  act();
   await vi.waitFor(() => expect(siteSaves(connection)).toHaveLength(1));
-  expect(area(siteSaves(connection)[0].outline!)).toBeCloseTo(125, 0);
+  expectOutline(siteSaves(connection)[0].outline!);
   expect(saves(connection)).toEqual([]);
   chip(panel, "Kitchen").click();
   await settle(panel);
   expect(buildingHighlight()).toBe("none");
-});
-
-test("a drag inside the outline with the Building pill active moves the outline", async () => {
-  const { panel, connection } = mountEditor();
-  await startDrawing(panel);
-  chip(panel, "Building").click();
-  await settle(panel);
-  handlers.mousedown(mouse(50, 150));
-  handlers.mousemove(mouse(70, 150));
-  handlers.mouseup(mouse(70, 150));
-  await vi.waitFor(() => expect(siteSaves(connection)).toHaveLength(1));
-  expectCornersNear(siteSaves(connection)[0].outline!, pixelBox(20, 100, 120, 200));
-});
-
-test("typing a side of the outline in Adjust saves the outline", async () => {
-  const { panel, connection } = mountEditor();
-  await startAdjusting(panel);
-  chip(panel, "Building").click();
-  await settle(panel);
-  typeSide(0, "12");
-  await vi.waitFor(() => expect(siteSaves(connection)).toHaveLength(1));
-  expect(edgeLengths(FRAME, siteSaves(connection)[0].outline!)[0]).toBeCloseTo(12, 3);
 });
