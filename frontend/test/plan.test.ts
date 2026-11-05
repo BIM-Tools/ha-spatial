@@ -7,11 +7,13 @@ import { expect, test } from "vitest";
 import {
   addToFootprint,
   areaLabel,
+  boxChange,
   boxFromCorners,
   centreOf,
   edgeLengths,
   isAxisRectangle,
   movePolygon,
+  resizeChange,
   resizeSide,
   sideLabels,
 } from "../src/plan";
@@ -132,4 +134,31 @@ test("addToFootprint joins boxes that share part of an edge, in any frame, on wh
       }
     }
   }
+});
+
+test.each<[string, Polygon | undefined, Polygon, Polygon | null | undefined]>([
+  ["a first box starts the footprint", undefined, box, null],
+  ["a touching box joins it", box, boxFromCorners(METRIC, [0, 120], [160, 240])!, box],
+])("boxChange: %s, as one area's change", (_name, current, drawn, before) => {
+  const result = boxChange(METRIC, "kitchen", current, drawn);
+  expect(result).toEqual({ change: { before: { kitchen: before }, after: { kitchen: addToFootprint(METRIC, current, drawn) } } });
+});
+
+test("boxChange refuses a box apart from the footprint", () => {
+  expect(boxChange(METRIC, "kitchen", box, boxFromCorners(METRIC, [0, 160], [160, 280])!)).toEqual({ refusal: "apart" });
+});
+
+test("resizeChange saves the resized rectangle as one area's change", () => {
+  expect(resizeChange(METRIC, "kitchen", box, 0, 5)).toEqual({
+    change: { before: { kitchen: box }, after: { kitchen: resizeSide(METRIC, box, 0, 5) } },
+  });
+});
+
+test.each<[string, PlanFrame, number | undefined]>([
+  ["a side under a grid step", METRIC, 0.05],
+  ["an unreadable length", METRIC, undefined],
+  ["a side under a grid step in US customary units", INCHES, 3 * 0.0254],
+])("resizeChange refuses %s as too small", (_name, frame, lengthM) => {
+  const rectangle = boxFromCorners(frame, [0, 0], [160, 120])!;
+  expect(resizeChange(frame, "kitchen", rectangle, 0, lengthM)).toEqual({ refusal: "too_small" });
 });

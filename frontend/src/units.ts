@@ -12,6 +12,15 @@ const INCHES_PER_FOOT = 12;
 
 export const isUsCustomary =(hass: HassUnits): boolean => hass.config.unit_system.length === "mi";
 
+/** Why a gesture saves nothing: a box apart from its room, or a side under one grid step. */
+export type Refusal = "apart" | "too_small";
+
+/** The toast for a refused gesture; the minimum side is the drawing grid step of the unit system. */
+export const refusalMessage = (refusal: Refusal, hass: HassUnits): string =>
+  refusal === "apart"
+    ? "A room is one shape: draw against it"
+    : `Too small: every side needs at least ${isUsCustomary(hass) ? "4 in" : "10 cm"}`;
+
 /*!
  * numberFormatToLocale and formatNumber are ported from home-assistant/frontend
  * src/common/number/format_number.ts, release 20260930.3:

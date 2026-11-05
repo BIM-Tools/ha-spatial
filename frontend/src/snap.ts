@@ -66,6 +66,22 @@ export function candidatesOf(frame: PlanFrame, rooms: Polygon[], outline: Polygo
   return { roomCorners: room.corners, roomEdges: room.edges, outlineCorners: building.corners, outlineEdges: building.edges };
 }
 
+/**
+ * The candidates of a gesture: the footprints of the floor's areas and the outline, stored under
+ * `outlineId`, without the shape `exclude` names, so a moved or resized shape does not snap to itself.
+ */
+export function snapCandidatesFor(
+  frame: PlanFrame,
+  floorAreaIds: readonly string[],
+  footprints: ReadonlyMap<string, Polygon>,
+  outlineId: string,
+  exclude?: string,
+): SnapCandidates {
+  const rooms = floorAreaIds.filter((areaId) => areaId !== exclude).flatMap((areaId) => footprints.get(areaId) ?? []);
+  const outline = exclude === outlineId ? undefined : footprints.get(outlineId);
+  return candidatesOf(frame, rooms, outline);
+}
+
 const tiersOf = (candidates: SnapCandidates): Tier[] => [
   { corners: candidates.roomCorners },
   { edges: candidates.roomEdges },

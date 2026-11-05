@@ -3,7 +3,7 @@
 import type { Polygon } from "geojson";
 import { expect, test } from "vitest";
 import { PlanFrame, type LatticePoint } from "../src/site-frame";
-import { type SnapCandidates, candidatesOf, snapLine, snapMove, snapPoint } from "../src/snap";
+import { type SnapCandidates, candidatesOf, snapCandidatesFor, snapLine, snapMove, snapPoint } from "../src/snap";
 import { siteFrameData } from "./site-frame-fixture";
 
 const FRAME = PlanFrame.fromSite(siteFrameData([5, 52], 20));
@@ -221,4 +221,45 @@ test("snapLine prefers a parallel edge, then corners, then grid lines", () => {
   });
   expect(snapLine(9.1, 0, candidates, OPTIONS)).toEqual({ value: 8, source: { kind: "grid" } });
   expect(snapLine(20.8, 0, candidates, { ...OPTIONS, free: true })).toEqual({ value: 21, source: { kind: "lattice" } });
+});
+
+const KITCHEN = shapeOf([
+  [0, 0],
+  [40, 0],
+  [40, 40],
+  [0, 40],
+]);
+const BATH = shapeOf([
+  [40, 0],
+  [80, 0],
+  [80, 40],
+  [40, 40],
+]);
+const ATTIC = shapeOf([
+  [200, 0],
+  [240, 0],
+  [240, 40],
+  [200, 40],
+]);
+const HOUSE = shapeOf([
+  [0, 0],
+  [400, 0],
+  [400, 400],
+  [0, 400],
+]);
+const FOOTPRINTS = new Map([
+  ["kitchen", KITCHEN],
+  ["bath", BATH],
+  ["attic", ATTIC],
+  ["#outline", HOUSE],
+]);
+
+test.each<[string, string | undefined, Polygon[], Polygon | undefined]>([
+  ["the floor's rooms and the outline, not rooms on other floors", undefined, [KITCHEN, BATH], HOUSE],
+  ["without the moved room", "kitchen", [BATH], HOUSE],
+  ["without the moved outline", "#outline", [KITCHEN, BATH], undefined],
+])("snapCandidatesFor takes %s", (_name, exclude, rooms, outline) => {
+  // The floor lists an area without a footprint too, which adds nothing.
+  const floorAreaIds = ["kitchen", "hall", "bath"];
+  expect(snapCandidatesFor(FRAME, floorAreaIds, FOOTPRINTS, "#outline", exclude)).toEqual(candidatesOf(FRAME, rooms, outline));
 });

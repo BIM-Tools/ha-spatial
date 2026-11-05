@@ -29,17 +29,12 @@ import "../src/spatial-panel";
 
 afterEach(resetFakes);
 
-test("without an outline the Building pill is active on every floor; a box saves the outline, then the first unlinked area is active", async () => {
+test("without an outline the Building pill is active; a box saves the outline, then the first unlinked area is active", async () => {
   const { panel, connection } = mountEditor(undefined, null);
   await startDrawing(panel);
   await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Building", "Kitchen", "Bath", "Hall", "New area"]));
   expect(activeChip(panel)).toBe("Building");
   expect(chip(panel, "Building").getAttribute("data-linked")).toBe("false");
-  buttonNamed(panel, "Loft")!.click();
-  await settle(panel);
-  expect(activeChip(panel)).toBe("Building");
-  buttonNamed(panel, "Ground floor")!.click();
-  await settle(panel);
   tap(100, 0);
   tap(140, 30);
   await vi.waitFor(() => expect(siteSaves(connection)).toHaveLength(1));

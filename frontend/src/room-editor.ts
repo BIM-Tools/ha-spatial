@@ -4,16 +4,15 @@ import { point } from "@turf/helpers";
 import type { FeatureCollection, Polygon } from "geojson";
 import { html } from "lit";
 import { type GeoJSONSource, Marker, type Map as MapLibreMap } from "maplibre-gl";
-import { type AreaEntry, BUILDING, newAreaName, nextActive, stripOrder } from "./area-strip";
-import { type ActiveRoom, BoxInteraction } from "./box-interaction";
+import { type AreaEntry, BUILDING, firstToDraw, newAreaName, stripOrder } from "./area-strip";
+import { type ActiveRoom, BoxInteraction, type EditorSnapshot } from "./box-interaction";
 import type { Pixel } from "./edge-drag";
 import { type Change, type FootprintBatch, History } from "./history";
 import type { LayerColours } from "./map-paint";
 import { byLevel } from "./map-view";
-import { addToFootprint, edgeLengths, isAxisRectangle, resizeSide, sideLabels } from "./plan";
+import { type ChangeOrRefusal, boxChange, edgeLengths, isAxisRectangle, resizeChange, sideLabels } from "./plan";
 import type { PlanFrame } from "./site-frame";
-import { type SnapCandidates, candidatesOf } from "./snap";
-import { type HassUnits, isUsCustomary, parseLength, typedLength } from "./units";
+import { type HassUnits, parseLength, refusalMessage, typedLength } from "./units";
 
 interface Connection {
   sendMessagePromise<T>(message: { type: string; [key: string]: unknown }): Promise<T>;
@@ -125,17 +124,7 @@ export class RoomEditor {
   attach(map: MapLibreMap) {
     this._map = map;
     this._interaction = new BoxInteraction(map, {
-      tool: () => this.tool,
-      floorPicked: () => this._floor !== "all",
-      saving: () => this._saving,
-      activeRoom: () => {
-        const footprint = this._footprints.get(this._active);
-        return footprint && { areaId: this._active, footprint };
-      },
-      siteBearing: () => this._host.siteBearing(),
-      siteFrame: () => this._host.siteFrame(),
-      snapCandidates: (frame, exclude) => this._snapCandidates(frame, exclude),
-      units: () => this._host.units(),
+      snapshot: () => this._snapshot(),
       onBox: (box, frame) => this._finishBox(box, frame),
       onMove: (room, moved) => this._saveShape(room, moved),
       onResize: (room, resized) => this._saveShape(room, resized),
@@ -228,7 +217,7 @@ export class RoomEditor {
   setFloor(floor: string | null | "all") {
     this._floor = floor;
     this._interaction?.toolChanged();
-    this._select(this._firstToDraw());
+    this._select(firstToDraw(this._order(), this._linked()));
   }
 
   setTool(tool: Tool) {
@@ -283,13 +272,19 @@ export class RoomEditor {
     return new Set(this._footprints.keys());
   }
 
-  // The footprints on this floor and the outline, without the shape being moved.
-  private _snapCandidates(frame: PlanFrame, exclude?: string): SnapCandidates {
-    const rooms = this._order()
-      .filter((area) => area.area_id !== exclude)
-      .flatMap((area) => this._footprints.get(area.area_id) ?? []);
-    const outline = exclude === BUILDING ? undefined : this._footprints.get(BUILDING);
-    return candidatesOf(frame, rooms, outline);
+  private _snapshot(): EditorSnapshot {
+    const footprint = this._footprints.get(this._active);
+    return {
+      tool: this.tool,
+      floorPicked: this._floor !== "all",
+      saving: this._saving,
+      activeRoom: footprint && { areaId: this._active, footprint },
+      siteBearing: this._host.siteBearing(),
+      siteFrame: this._host.siteFrame(),
+      units: this._host.units(),
+      floorAreaIds: this._order().map((area) => area.area_id),
+      footprints: this._footprints,
+    };
   }
 
   private _order() {
@@ -325,11 +320,6 @@ export class RoomEditor {
 
   private _showHandles() {
     this._map?.getSource<GeoJSONSource>("spatial-handles")?.setData(this._handles());
-  }
-
-  // The outline comes first, as it frames the rooms; with every area drawn the outline is active.
-  private _firstToDraw() {
-    return (this._footprints.has(BUILDING) && nextActive(this._order(), this._linked())) || BUILDING;
   }
 
   private _select(areaId: string) {
@@ -405,7 +395,7 @@ export class RoomEditor {
           // An unchanged field leaves the edit: saving its rounded length would shift the side and add an undo step.
           if (event.key === "Escape" || (event.key === "Enter" && typed.value === prefilled)) this._select(areaId);
           // The frame the field was built in, so a refresh still in flight cannot pair it with another one.
-          else if (event.key === "Enter") this._resize(frame, areaId, footprint, edgeIndex, parseLength(typed.value, units));
+          else if (event.key === "Enter") this._resize(resizeChange(frame, areaId, footprint, edgeIndex, parseLength(typed.value, units)));
         });
         control = typed;
       } else {
@@ -432,31 +422,29 @@ export class RoomEditor {
     field?.select();
   }
 
-  private _resize(frame: PlanFrame, areaId: string, footprint: Polygon, edgeIndex: number, lengthM: number | undefined) {
-    const after = lengthM === undefined ? undefined : resizeSide(frame, footprint, edgeIndex, lengthM);
-    if (!after) {
-      const step = isUsCustomary(this._host.units()) ? "4 in" : "10 cm";
-      this._host.toast({ message: `Too small: every side needs at least ${step}` });
+  private _resize(resized: ChangeOrRefusal) {
+    if ("refusal" in resized) {
+      this._host.toast({ message: refusalMessage(resized.refusal, this._host.units()) });
       return;
     }
     this._editingSide = undefined;
-    this._whileSaving(() => this._apply({ before: { [areaId]: footprint }, after: { [areaId]: after } }));
+    this._whileSaving(() => this._apply(resized.change));
   }
 
   private async _finishBox(box: Polygon, frame: PlanFrame) {
     const areaId = this._active;
     const floor = this._floor;
     const current = this._footprints.get(areaId);
-    const footprint = addToFootprint(frame, current, box);
-    if (!footprint) {
-      this._host.toast({ message: "A room is one shape: draw against it" });
+    const drawn = boxChange(frame, areaId, current, box);
+    if ("refusal" in drawn) {
+      this._host.toast({ message: refusalMessage(drawn.refusal, this._host.units()) });
       return;
     }
     await this._whileSaving(async () => {
-      await this._apply({ before: { [areaId]: current ?? null }, after: { [areaId]: footprint } });
+      await this._apply(drawn.change);
       // Only a first shape moves on: the next box for a drawn area usually extends it.
-      if (!current && this._floor === floor) this._setActive(this._firstToDraw());
-    }, current ? undefined : footprint);
+      if (!current && this._floor === floor) this._setActive(firstToDraw(this._order(), this._linked()));
+    }, current ? undefined : box);
   }
 
   private _saveShape({ areaId, footprint }: ActiveRoom, changed: Polygon) {

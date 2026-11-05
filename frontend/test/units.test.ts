@@ -1,7 +1,7 @@
 // Checks lengths and areas in both of Home Assistant's unit systems and in several number formats.
 
 import { expect, test } from "vitest";
-import { formatArea, formatLength, parseLength, typedLength } from "../src/units";
+import { type HassUnits, type Refusal, formatArea, formatLength, parseLength, refusalMessage, typedLength } from "../src/units";
 import { METRIC_UNITS as METRIC, US_UNITS as US, unitsOf } from "./units-fixture";
 
 const INCH_M = 0.0254;
@@ -115,4 +115,12 @@ test("a field's starting length reads back within half an inch, or half a lattic
 test("a metric length shown with a comma decimal reads back", () => {
   const dutch = unitsOf("km", "language", "nl");
   expect(parseLength(formatLength(4.25, dutch), dutch)).toBeCloseTo(4.25, 9);
+});
+
+test.each<[Refusal, HassUnits, string]>([
+  ["apart", METRIC, "A room is one shape: draw against it"],
+  ["too_small", METRIC, "Too small: every side needs at least 10 cm"],
+  ["too_small", US, "Too small: every side needs at least 4 in"],
+])("refusalMessage words %s", (refusal, units, message) => {
+  expect(refusalMessage(refusal, units)).toBe(message);
 });

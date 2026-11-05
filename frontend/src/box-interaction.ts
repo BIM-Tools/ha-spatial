@@ -4,13 +4,14 @@ import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
 import { feature } from "@turf/helpers";
 import type { FeatureCollection, Point, Polygon, Position } from "geojson";
 import { type GeoJSONSource, Marker, type MapMouseEvent, type Map as MapLibreMap } from "maplibre-gl";
+import { BUILDING } from "./area-strip";
 import { type Pixel, type ResizeTarget, resizeCursor, resizeRectangle, resizeTargetAt } from "./edge-drag";
 import type { LayerColours } from "./map-paint";
 import { mapBearing } from "./map-view";
-import { addToFootprint, areaLabel, boxFromCorners, centreOf, isAxisRectangle, movePolygon, sideLabels } from "./plan";
+import { areaLabel, boxChange, boxFromCorners, centreOf, isAxisRectangle, movePolygon, sideLabels } from "./plan";
 import type { Tool } from "./room-editor";
 import type { LatticePoint, PlanFrame } from "./site-frame";
-import { type SnapCandidates, type SnapOptions, snapMove, snapPoint } from "./snap";
+import { type SnapCandidates, type SnapOptions, snapCandidatesFor, snapMove, snapPoint } from "./snap";
 import { SnapHighlight } from "./snap-highlight";
 import type { HassUnits } from "./units";
 
@@ -20,16 +21,22 @@ export interface ActiveRoom {
   footprint: Polygon;
 }
 
+/** The editor's state as the interaction reads it at each event. */
+export interface EditorSnapshot {
+  readonly tool: Tool;
+  readonly floorPicked: boolean;
+  readonly saving: boolean;
+  readonly activeRoom: ActiveRoom | undefined;
+  readonly siteBearing: number;
+  readonly siteFrame: PlanFrame | undefined;
+  readonly units: HassUnits;
+  // The current floor's areas, and every footprint with the outline under BUILDING: what a gesture snaps to.
+  readonly floorAreaIds: readonly string[];
+  readonly footprints: ReadonlyMap<string, Polygon>;
+}
+
 export interface BoxInteractionCallbacks {
-  readonly tool: () => Tool;
-  readonly floorPicked: () => boolean;
-  readonly saving: () => boolean;
-  readonly activeRoom: () => ActiveRoom | undefined;
-  readonly siteBearing: () => number;
-  readonly siteFrame: () => PlanFrame | undefined;
-  // Rooms on the current floor and the outline, without the shape `exclude` names.
-  readonly snapCandidates: (frame: PlanFrame, exclude?: string) => SnapCandidates;
-  readonly units: () => HassUnits;
+  readonly snapshot: () => EditorSnapshot;
   readonly onBox: (box: Polygon, frame: PlanFrame) => void;
   readonly onMove: (room: ActiveRoom, moved: Polygon) => void;
   readonly onResize: (room: ActiveRoom, resized: Polygon) => void;
@@ -173,7 +180,7 @@ export class BoxInteraction {
   applyInput(align = true) {
     const map = this._map;
     if (this._canDraw()) {
-      if (align) map.jumpTo({ bearing: mapBearing(this._callbacks.siteBearing()), pitch: 0 });
+      if (align) map.jumpTo({ bearing: mapBearing(this._callbacks.snapshot().siteBearing), pitch: 0 });
       map.dragRotate.disable();
       map.touchZoomRotate.disableRotation();
       map.touchPitch.disable();
@@ -188,8 +195,8 @@ export class BoxInteraction {
 
   // Align picks a wall on the map, so only Draw and Adjust edit rooms.
   private _toolOnFloor(): "draw" | "adjust" | undefined {
-    const tool = this._callbacks.tool();
-    return this._callbacks.floorPicked() && tool !== "align" ? tool : undefined;
+    const { tool, floorPicked } = this._callbacks.snapshot();
+    return floorPicked && tool !== "align" ? tool : undefined;
   }
 
   private _canDraw() {
@@ -239,10 +246,8 @@ export class BoxInteraction {
   };
 
   private _down = (event: MapMouseEvent) => {
-    if (!this._toolOnFloor() || this._spaceHeld || this._callbacks.saving() || event.originalEvent.button !== 0) {
-      return;
-    }
-    const frame = this._callbacks.siteFrame();
+    const { saving, siteFrame: frame, activeRoom: room } = this._callbacks.snapshot();
+    if (!this._toolOnFloor() || this._spaceHeld || saving || event.originalEvent.button !== 0) return;
     // Until the first site reply there is no lattice to draw on.
     if (!frame) return;
     const target = this._resizeTarget(event.point);
@@ -252,7 +257,6 @@ export class BoxInteraction {
       return;
     }
     const at = lngLatOf(event);
-    const room = this._callbacks.activeRoom();
     const grabbed = room && booleanPointInPolygon(at, room.footprint) ? room : undefined;
     if (!grabbed && !this._canDraw()) return;
     // A moved shape does not snap to itself.
@@ -328,7 +332,7 @@ export class BoxInteraction {
   /** Grabs an edge or a corner of the active axis rectangle at a pixel; false when there is none to grab. */
   startResize(target: ResizeTarget, pixel: Pixel, free: boolean): boolean {
     const room = this._resizable();
-    const frame = this._callbacks.siteFrame();
+    const frame = this._callbacks.snapshot().siteFrame;
     if (!room || !frame) return false;
     const [anchorX, anchorY] = frame.toLattice(room.footprint.coordinates[0][target.index]);
     const [x, y] = this._latticeAt(pixel, frame);
@@ -377,9 +381,8 @@ export class BoxInteraction {
 
   // The active shape, when it is an axis rectangle in Adjust on a floor and nothing else is going on.
   private _resizable(): ActiveRoom | undefined {
-    if (this._toolOnFloor() !== "adjust" || this._callbacks.saving()) return undefined;
-    const frame = this._callbacks.siteFrame();
-    const room = this._callbacks.activeRoom();
+    const { saving, siteFrame: frame, activeRoom: room } = this._callbacks.snapshot();
+    if (this._toolOnFloor() !== "adjust" || saving) return undefined;
     return frame && room && isAxisRectangle(frame, room.footprint) ? room : undefined;
   }
 
@@ -394,7 +397,7 @@ export class BoxInteraction {
   }
 
   private _cursorOf(target: ResizeTarget): string {
-    const corners = this._callbacks.activeRoom()!.footprint.coordinates[0].map((corner) => this._map.project(corner as [number, number]));
+    const corners = this._callbacks.snapshot().activeRoom!.footprint.coordinates[0].map((corner) => this._map.project(corner as [number, number]));
     return resizeCursor(target, corners);
   }
 
@@ -406,12 +409,13 @@ export class BoxInteraction {
 
   // Before the first corner the highlight shows where a press would land.
   private _hover(event: MapMouseEvent) {
-    const frame = this._callbacks.siteFrame();
+    const frame = this._callbacks.snapshot().siteFrame;
     if (frame) this._cornerAt(event, this._snapping(frame));
   }
 
   private _snapping(frame: PlanFrame, exclude?: string): Snapping {
-    return { frame, candidates: this._callbacks.snapCandidates(frame, exclude), radiusPx: snapRadiusPx() };
+    const { floorAreaIds, footprints } = this._callbacks.snapshot();
+    return { frame, candidates: snapCandidatesFor(frame, floorAreaIds, footprints, BUILDING, exclude), radiusPx: snapRadiusPx() };
   }
 
   // The pixel radius in lattice units at the pointer, which differ with zoom; Alt places freely.
@@ -439,10 +443,10 @@ export class BoxInteraction {
       if (room) this._callbacks.onPickRoom(String(room.properties.area_id));
       return;
     }
-    if (!this._canDraw() || this._spaceHeld || this._callbacks.saving()) return;
+    if (!this._canDraw() || this._spaceHeld || this._callbacks.snapshot().saving) return;
     const start = this._corner;
     if (!start) {
-      const frame = this._callbacks.siteFrame();
+      const frame = this._callbacks.snapshot().siteFrame;
       if (!frame) return;
       const snapping = this._snapping(frame);
       this._corner = { ...snapping, corner: this._cornerAt(event, snapping) };
@@ -479,8 +483,8 @@ export class BoxInteraction {
 
   // A box the active footprint cannot join is refused on release, so it shows in the warning colour while drawn.
   private _apartFromActive(box: Polygon, frame: PlanFrame): boolean {
-    const room = this._callbacks.activeRoom();
-    return Boolean(room && !addToFootprint(frame, room.footprint, box));
+    const room = this._callbacks.snapshot().activeRoom;
+    return room !== undefined && "refusal" in boxChange(frame, room.areaId, room.footprint, box);
   }
 
   private _preview(draft: Polygon | Point | undefined, frame?: PlanFrame, apart = false) {
@@ -492,7 +496,7 @@ export class BoxInteraction {
       this._labels = [];
       return;
     }
-    const units = this._callbacks.units();
+    const units = this._callbacks.snapshot().units;
     const labels = [...sideLabels(frame, draft, units), { at: centreOf(frame, draft), text: areaLabel(frame, draft, units) }];
     if (!this._labels.length) {
       this._labels = labels.map(() => {
