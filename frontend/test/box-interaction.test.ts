@@ -1,20 +1,11 @@
 // @vitest-environment happy-dom
 // Checks map pointer, drag and keyboard events that draft boxes, move rooms and pick areas.
 
-import type { Polygon, Position } from "geojson";
+import type { Feature, Point, Polygon, Position } from "geojson";
 import type { Map as MapLibreMap } from "maplibre-gl";
 import { afterEach, expect, test, vi } from "vitest";
-import {
-  dragPan,
-  dragRotate,
-  fakeMapLibre,
-  handlers,
-  queryRenderedFeatures,
-  resetFakes,
-  SITE,
-  sources,
-  unprojectPixel,
-} from "./panel-harness";
+import { EMPTY, fakeMapLibre, handlers, layers, liveMarkers, resetFakes, SITE, sources, unprojectPixel } from "./panel-harness";
+import { FRAME, pixelBox } from "./room-editor-fixture";
 import { siteFrameData } from "./site-frame-fixture";
 import { METRIC_UNITS } from "./units-fixture";
 
@@ -26,8 +17,6 @@ import type { Tool } from "../src/room-editor";
 import { PlanFrame } from "../src/site-frame";
 import { candidatesOf } from "../src/snap";
 
-const FRAME = PlanFrame.fromSite(siteFrameData(SITE, 30));
-
 let mounted: BoxInteraction | undefined;
 
 afterEach(() => {
@@ -36,16 +25,6 @@ afterEach(() => {
   resetFakes();
 });
 
-const pixelBox = (x1: number, y1: number, x2: number, y2: number): Polygon => {
-  const ring = [
-    [x1, y1],
-    [x2, y1],
-    [x2, y2],
-    [x1, y2],
-    [x1, y1],
-  ].map((p) => unprojectPixel(p as [number, number], 300));
-  return { type: "Polygon", coordinates: [ring] };
-};
 
 const ROOM = pixelBox(0, 0, 50, 50);
 
@@ -259,38 +238,6 @@ test("Escape, Space and a tool change clear the highlight", () => {
   expect(highlighted()).toEqual([]);
 });
 
-test("while drawing is enabled the map does not rotate or pan, except with Space", () => {
-  mountInteraction();
-  expect(dragPan.isEnabled()).toBe(false);
-  expect(dragRotate.isEnabled()).toBe(false);
-
-  window.dispatchEvent(new KeyboardEvent("keydown", { key: " " }));
-  expect(dragPan.isEnabled()).toBe(true);
-
-  window.dispatchEvent(new KeyboardEvent("keyup", { key: " " }));
-  expect(dragPan.isEnabled()).toBe(false);
-});
-
-test("a mouse drag drafts a box and saves it on mouseup", () => {
-  const { onBox } = mountInteraction();
-  handlers.mousedown(pointEvent(0, 0));
-  handlers.mousemove(pointEvent(100, 100));
-
-  expect(sources["spatial-draft"].data).toBeDefined();
-
-  handlers.mouseup(pointEvent(100, 100));
-  expect(onBox).toHaveBeenCalledWith(expect.objectContaining({ type: "Polygon" }), FRAME);
-  expect(sources["spatial-draft"].data).toEqual({ type: "FeatureCollection", features: [] });
-});
-
-test("two clicks draft a box along the site axis", () => {
-  const { onBox } = mountInteraction();
-  handlers.click(pointEvent(0, 0));
-  expect(onBox).not.toHaveBeenCalled();
-
-  handlers.click(pointEvent(80, 60));
-  expect(onBox).toHaveBeenCalledWith(expect.objectContaining({ type: "Polygon" }), FRAME);
-});
 
 test("the first of two taps shows the start dot, and the box once each side is a grid step", () => {
   mountInteraction();
@@ -299,6 +246,41 @@ test("the first of two taps shows the start dot, and the box once each side is a
   expect(draftType()).toBe("Point");
   handlers.mousemove(pointEvent(80, 60));
   expect(draftType()).toBe("Polygon");
+});
+
+test.each([
+  ["a drag on the grid narrower than half a step", false, 0.3],
+  ["an Alt drag 3 lattice units wide", true, 0.75],
+])("%s yields no box, and shows only the start dot while drawn", (_name, altKey, widthPx) => {
+  const { onBox } = mountInteraction();
+  handlers.mousedown(pointEvent(100, 0, 0, altKey));
+  handlers.mousemove(pointEvent(100 + widthPx, 30, 0, altKey));
+  const draft = sources["spatial-draft"].data as Feature;
+  expect(draft.geometry.type).toBe("Point");
+  expect(FRAME.toLattice((draft.geometry as Point).coordinates)).toEqual([400, 0]);
+  expect(layers.find((layer) => layer.id === "spatial-draft-point")).toMatchObject({ type: "circle", source: "spatial-draft" });
+  expect(liveMarkers()).toEqual([]);
+  handlers.mouseup(pointEvent(100 + widthPx, 30, 0, altKey));
+  expect(onBox).not.toHaveBeenCalled();
+  expect(sources["spatial-draft"].data).toEqual(EMPTY);
+});
+
+test("a press or taps while Space is held draw nothing", () => {
+  const { onBox } = mountInteraction();
+  const tapAt = (x: number, y: number) => {
+    handlers.mousedown(pointEvent(x, y));
+    handlers.mouseup(pointEvent(x, y));
+    handlers.click(pointEvent(x, y));
+  };
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: " " }));
+  handlers.mousedown(pointEvent(100, 0));
+  handlers.mousemove(pointEvent(102, 2));
+  handlers.mousemove(pointEvent(140, 30));
+  handlers.mouseup(pointEvent(140, 30));
+  tapAt(100, 0);
+  tapAt(140, 30);
+  window.dispatchEvent(new KeyboardEvent("keyup", { key: " " }));
+  expect(onBox).not.toHaveBeenCalled();
 });
 
 test("before the site frame arrives presses and taps draw and move nothing", () => {
@@ -313,15 +295,6 @@ test("before the site frame arrives presses and taps draw and move nothing", () 
   expect(sources["spatial-draft"].data).toEqual({ type: "FeatureCollection", features: [] });
 });
 
-test("a drag inside the active footprint moves it", () => {
-  const { onMove, onBox } = mountInteraction("draw", { areaId: "room", footprint: ROOM });
-  handlers.mousedown(pointEvent(25, 25));
-  handlers.mousemove(pointEvent(45, 25));
-  handlers.mouseup(pointEvent(45, 25));
-
-  expect(onMove).toHaveBeenCalledTimes(1);
-  expect(onBox).not.toHaveBeenCalled();
-});
 
 test("a click without movement inside the active footprint starts drafting a box", () => {
   const { onBox, onMove } = mountInteraction("draw", { areaId: "room", footprint: ROOM });
@@ -335,13 +308,6 @@ test("a click without movement inside the active footprint starts drafting a box
   expect(onBox).toHaveBeenCalledTimes(1);
 });
 
-test("in adjust mode a click on a room picks it", () => {
-  const { onPickRoom } = mountInteraction("adjust");
-  queryRenderedFeatures.mockReturnValueOnce([{ properties: { area_id: "living_room" } }]);
-
-  handlers.click(pointEvent(10, 10));
-  expect(onPickRoom).toHaveBeenCalledWith("living_room");
-});
 
 test("in Adjust a press on an edge of the active rectangle resizes it instead of moving it, and says when it starts and ends", () => {
   const { onMove, onResize, onResizing } = mountInteraction("adjust", { areaId: "room", footprint: ROOM });

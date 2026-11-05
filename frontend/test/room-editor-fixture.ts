@@ -3,15 +3,12 @@ import distance from "@turf/distance";
 import type { Feature, Point, Polygon } from "geojson";
 import { expect, vi } from "vitest";
 import {
-  EMPTY,
   type Reply,
   answer,
   buttonNamed,
   handlers,
   liveMarkers,
   layers,
-  toastMessages,
-  toasts,
   mountPanel,
   queryRenderedFeatures,
   settle,
@@ -166,8 +163,6 @@ export const expectOnGrid = (frame: PlanFrame, shape: Polygon, step = frame.unit
   }
 };
 
-export const draft = () => sources["spatial-draft"].data as Feature;
-
 export const expectCornersNear = (actual: Polygon, expected: Polygon) =>
   actual.coordinates[0].forEach((corner, index) =>
     expect(distance(corner, expected.coordinates[0][index], { units: "meters" })).toBeLessThan(0.01),
@@ -258,29 +253,3 @@ export const failingFirstSave = () => {
 };
 
 export const draftGeometry = () => (sources["spatial-draft"].data as Feature<Polygon>).geometry;
-
-export const failingSaves = () => {
-  let fail = true;
-  const mounted = mountEditor(async (message) => {
-    if (message.type === "spatial/area/update_geometries" && fail) throw new Error("outside_outline");
-    return undefined;
-  });
-  vi.spyOn(console, "error").mockImplementationOnce(() => {});
-  return { ...mounted, stopFailing: () => (fail = false) };
-};
-
-// A refused change of a stored room shows that room as stored, still active; Retry sends the same change.
-export const expectOnlyStoredKitchen = async (panel: HTMLElement) => {
-  await vi.waitFor(() => expect(toastMessages()).toEqual(["Could not save"]));
-  await settle(panel);
-  expect(sources["spatial-draft"].data).toEqual(EMPTY);
-  expect(activeFilter()).toEqual(["==", ["get", "area_id"], "kitchen"]);
-  expect(handleCorners()).toEqual(KITCHEN.coordinates[0].slice(0, -1));
-};
-
-export const expectRetrySendsTheSame = async (connection: { sendMessagePromise: unknown }, stopFailing: () => void) => {
-  stopFailing();
-  toasts[0].action!.action();
-  await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
-  expect(saves(connection)[1]).toEqual(saves(connection)[0]);
-};

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// Checks panning, Space and Escape around Draw, and when the tools are off.
+// Checks panning, Space and Escape around Draw, and the keys and taps that do nothing.
 import { afterEach, expect, test, vi } from "vitest";
 import {
   buttonNamed,
@@ -12,15 +12,22 @@ import {
   resetFakes,
 } from "./panel-harness";
 import {
+  type Panel,
   mountEditor,
+  activeFilter,
+  chip,
   showFloor,
   startDrawing,
   mouse,
   tap,
-  drag,
   key,
   saves,
   tapRoom,
+  sideButtons,
+  sideField,
+  ctrlZ,
+  buildingHighlight,
+  renameField,
 } from "./room-editor-fixture";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
@@ -41,31 +48,6 @@ test("in Draw the map pans only while Space is held, and leaving Draw restores p
   expect(dragPan.isEnabled()).toBe(false);
   buttonNamed(panel, "Adjust")!.click();
   expect(dragPan.isEnabled()).toBe(true);
-});
-
-test("on All the tools are disabled, and Draw chosen on a floor draws nothing there", async () => {
-  const { panel, connection } = mountEditor();
-  await startDrawing(panel);
-  buttonNamed(panel, "All")!.click();
-  await settle(panel);
-  expect(buttonNamed(panel, "Draw")!.disabled).toBe(true);
-  expect(dragPan.isEnabled()).toBe(true);
-  tap(100, 0);
-  tap(140, 30);
-  await settle(panel);
-  expect(saves(connection)).toEqual([]);
-});
-
-test("a press or taps while Space is held draw nothing", async () => {
-  const { panel, connection } = mountEditor();
-  await startDrawing(panel);
-  key("keydown", " ");
-  drag([100, 0], [140, 30]);
-  tap(100, 0);
-  tap(140, 30);
-  key("keyup", " ");
-  await settle(panel);
-  expect(saves(connection)).toEqual([]);
 });
 
 test("losing focus while Space is held ends panning", async () => {
@@ -111,20 +93,30 @@ test("Draw chosen before the map attaches takes effect when it does", async () =
   expect(dragPan.isEnabled()).toBe(false);
 });
 
-test("outside Draw Space and Escape keep their usual meaning, also when Space was held on leaving Draw", async () => {
+// Each row leaves Draw with Space held; Escape outside Draw does not cancel a move.
+test.each<[string, (panel: Panel, connection: { sendMessagePromise: unknown }) => Promise<void>]>([
+  [
+    "Adjust",
+    async (panel, connection) => {
+      await tapRoom(panel, "kitchen");
+      handlers.mousedown(mouse(25, 25));
+      handlers.mousemove(mouse(45, 25));
+      key("keydown", "Escape");
+      handlers.mouseup(mouse(45, 25));
+      await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+    },
+  ],
+  ["All", async () => {}],
+])("after Draw, in %s, Space keeps its usual meaning, so it still presses a focused button", async (tool, after) => {
   const { panel, connection } = mountEditor();
   await startDrawing(panel);
   key("keydown", " ");
-  buttonNamed(panel, "Adjust")!.click();
-  await tapRoom(panel, "kitchen");
+  buttonNamed(panel, tool)!.click();
+  await settle(panel);
   const space = new KeyboardEvent("keydown", { key: " ", cancelable: true });
   window.dispatchEvent(space);
   expect(space.defaultPrevented).toBe(false);
-  handlers.mousedown(mouse(25, 25));
-  handlers.mousemove(mouse(45, 25));
-  key("keydown", "Escape");
-  handlers.mouseup(mouse(45, 25));
-  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  await after(panel as Panel, connection);
 });
 
 test("Space during a save in Draw leaves the map flat and turned to the site axis", async () => {
@@ -145,12 +137,55 @@ test("Space during a save in Draw leaves the map flat and turned to the site axi
   release();
 });
 
-test("Space keeps its usual meaning on All after Draw, so it still presses a focused button", async () => {
-  const { panel } = mountEditor();
+const keyIn = (field: HTMLElement, name: string, ctrlKey = false) =>
+  field.dispatchEvent(new KeyboardEvent("keydown", { key: name, ctrlKey, bubbles: true, composed: true }));
+
+// Each row starts in Draw after one saved box, so there is a step to undo and a shape to delete.
+test.each<[string, (panel: Panel) => Promise<void>]>([
+  [
+    "Ctrl+Z in the rename field or a side field",
+    async (panel) => {
+      chip(panel, "Hall").click();
+      await settle(panel);
+      keyIn(renameField(panel)!, "z", true);
+      buttonNamed(panel, "Adjust")!.click();
+      await tapRoom(panel, "kitchen");
+      sideButtons()[0].click();
+      keyIn(sideField()!, "z", true);
+    },
+  ],
+  [
+    "Delete without a shape, or in a field",
+    async (panel) => {
+      key("keydown", "Delete");
+      chip(panel, "Kitchen").click();
+      await settle(panel);
+      chip(panel, "Kitchen").click();
+      await settle(panel);
+      keyIn(renameField(panel)!, "Delete");
+    },
+  ],
+  [
+    "on All, where the tools are off and nothing is highlighted, Ctrl+Z, Ctrl+Shift+Z and taps",
+    async (panel) => {
+      buttonNamed(panel, "All")!.click();
+      await settle(panel);
+      expect(dragPan.isEnabled()).toBe(true);
+      expect(buildingHighlight()).toBe("none");
+      expect(activeFilter()).toEqual(["==", ["get", "area_id"], ""]);
+      ctrlZ();
+      ctrlZ(true);
+      tap(100, 100);
+      tap(140, 130);
+    },
+  ],
+])("%s change nothing", async (_name, act) => {
+  const { panel, connection } = mountEditor();
   await startDrawing(panel);
-  buttonNamed(panel, "All")!.click();
+  tap(100, 0);
+  tap(140, 30);
+  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
+  await act(panel as Panel);
   await settle(panel);
-  const space = new KeyboardEvent("keydown", { key: " ", cancelable: true });
-  window.dispatchEvent(space);
-  expect(space.defaultPrevented).toBe(false);
+  expect(saves(connection)).toHaveLength(1);
 });

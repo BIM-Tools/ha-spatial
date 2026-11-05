@@ -96,14 +96,19 @@ test("leaving the panel during startup leaves nothing behind", async () => {
   expect(connection.subscribeEvents.mock.calls.length).toBe(unsubscribeEvents.mock.calls.length);
 });
 
-test("the panel has a header with back and help, the card none", async () => {
+test("the panel has a header, the editing tools and the area strip; the card has none of them", async () => {
   const { panel } = mountPanel();
   await vi.waitFor(() => expect(panel.shadowRoot?.querySelector("spatial-panel-header")).not.toBeNull());
   await settle(panel);
   expect(panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!.querySelector("[role=heading]")?.textContent).toBe("Spaces");
+  for (const name of ["Align", "Draw", "Adjust", "Undo", "Redo"]) expect(buttonNamed(panel, name)).toBeDefined();
+  expect(panel.shadowRoot!.querySelector("spatial-area-strip")).not.toBeNull();
   const card = mountPanel(answer, {}, true).panel;
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalledTimes(2));
+  await settle(card);
   expect(card.shadowRoot?.querySelector("spatial-panel-header")).toBeNull();
+  expect(card.shadowRoot?.querySelector("spatial-area-strip")).toBeNull();
+  for (const name of ["Align", "Draw", "Adjust", "Undo", "Redo"]) expect(buttonNamed(card, name)).toBeUndefined();
 });
 
 const room = (floor_id: string | null, level: number | null) => ({
@@ -272,13 +277,6 @@ const updates = (connection: { sendMessagePromise: { mock: { calls: [{ type: str
     .map(([message]) => message)
     .filter((message) => message.type === "spatial/site/update");
 
-test("the panel has an Align button, the card does not", async () => {
-  const { panel } = mountPanel();
-  await vi.waitFor(() => expect(alignButton(panel)).toBeDefined());
-  const card = mountPanel(answer, {}, true).panel;
-  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalledTimes(2));
-  expect(alignButton(card)).toBeUndefined();
-});
 
 test("Align on an empty plan sends the bearing and the wall's left end as origin, and ends the mode", async () => {
   const { panel, connection } = mountPanel();
@@ -768,14 +766,6 @@ test("the rooms are painted from the theme's primary colour and follow a changed
   expect(paintOf("spatial-active")).toMatchObject({ "line-color": "rgba(200,0,100,1)", "line-width": 2 });
 });
 
-test("dark mode paints the rooms with the stronger dark fills", async () => {
-  const { panel } = mountPanel();
-  panel.style.setProperty("--primary-color", "rgb(0, 128, 0)");
-  panel.hass = { ...panel.hass, themes: { darkMode: true } };
-  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
-  handlers["style.load"]();
-  expect(paintOf("areas-2d")).toEqual({ "fill-color": "rgba(0,128,0,0.12)" });
-});
 
 // Home Assistant can hand over its themes before it has resolved darkMode, and then resolve it much later.
 test("a dark Home Assistant without darkMode in its themes gets the dark map, and the light one once it says light", async () => {

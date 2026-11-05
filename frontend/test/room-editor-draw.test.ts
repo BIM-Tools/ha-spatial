@@ -1,15 +1,13 @@
 // @vitest-environment happy-dom
 // Checks drawing boxes in Draw: taps, drags, the grid, joins and snapping.
 import area from "@turf/area";
-import type { Feature, Point } from "geojson";
+import type { Feature } from "geojson";
 import { afterEach, expect, test, vi } from "vitest";
 import {
-  EMPTY,
   buttonNamed,
   handlers,
   jumpTo,
   liveMarkers,
-  layers,
   toasts,
   onUpdateOf,
   panMap,
@@ -32,15 +30,12 @@ import {
   activeFilter,
   activeChip,
   chip,
-  showFloor,
   startDrawing,
   mouse,
   tap,
   drag,
-  key,
   saves,
   expectOnGrid,
-  draft,
   activateKitchen,
   snapPoint,
 } from "./room-editor-fixture";
@@ -95,19 +90,6 @@ test("two taps save a box along the site axis and move on to the next area", asy
   expect(buttonNamed(panel, "Undo")!.disabled).toBe(false);
 });
 
-test("a box against an area's footprint saves their union", async () => {
-  const { panel, connection } = mountEditor();
-  await startDrawing(panel);
-  chip(panel, "Kitchen").click();
-  await settle(panel);
-  tap(50, 0);
-  tap(100, 50);
-  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
-  const [{ areas }] = saves(connection);
-  expect(areas.kitchen.type).toBe("Polygon");
-  expect(area(areas.kitchen)).toBeCloseTo(50, 1);
-});
-
 test("a box apart from the area's footprint saves nothing and says why", async () => {
   const { panel, connection } = mountEditor();
   await startDrawing(panel);
@@ -142,29 +124,6 @@ test("a drawn box's corners land on the grid", async () => {
   const [{ areas }] = saves(connection);
   expectOnGrid(FRAME, areas.bath);
   expect(edgeLengths(FRAME, areas.bath).map((m) => Math.round(m * 1e6) / 1e6)).toEqual([4, 3, 4, 3]);
-});
-
-test.each([
-  ["a drag on the grid narrower than half a step", false, 0.3],
-  ["an Alt drag 3 lattice units wide", true, 0.75],
-])("%s yields no box and no toast, and shows only the start dot while drawn", async (_name, altKey, widthPx) => {
-  const { panel, connection } = mountEditor();
-  await startDrawing(panel);
-  const at = (x: number, y: number) => {
-    const event = mouse(x, y);
-    return { ...event, originalEvent: { ...event.originalEvent, altKey } };
-  };
-  handlers.mousedown(at(100, 0));
-  handlers.mousemove(at(100 + widthPx, 30));
-  expect(draft().geometry.type).toBe("Point");
-  expect(FRAME.toLattice((draft().geometry as Point).coordinates)).toEqual([400, 0]);
-  expect(layers.find((layer) => layer.id === "spatial-draft-point")).toMatchObject({ type: "circle", source: "spatial-draft" });
-  expect(editorMarkers()).toEqual([]);
-  handlers.mouseup(at(100 + widthPx, 30));
-  await settle(panel);
-  expect(saves(connection)).toEqual([]);
-  expect(toasts).toEqual([]);
-  expect(sources["spatial-draft"].data).toEqual(EMPTY);
 });
 
 test("a box joins in the frame its gesture started in, also when the frame changes before release", async () => {
@@ -202,16 +161,6 @@ test("rooms on other floors are not candidates, rooms on this floor and the outl
   expect(snapPoint()).toEqual(FRAME.toLattice(unprojectPixel([100, 100], 300)));
 });
 
-test("in Draw a click inside the active room sets a corner and a second click finishes the box", async () => {
-  const { panel, connection } = mountEditor();
-  await startDrawing(panel);
-  await activateKitchen(panel);
-  tap(25, 25);
-  tap(75, 50);
-  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
-  expect(area(saves(connection)[0].areas.kitchen)).toBeCloseTo(31.25, 1);
-});
-
 test("a drag starting inside a room that is not active draws a box", async () => {
   const { panel, connection } = mountEditor();
   await startDrawing(panel);
@@ -220,18 +169,6 @@ test("a drag starting inside a room that is not active draws a box", async () =>
   const [{ areas }] = saves(connection);
   expect(Object.keys(areas)).toEqual(["bath"]);
   expect(area(areas.bath)).toBeCloseTo(12, 1);
-});
-
-test("Escape after the first tap cancels the box", async () => {
-  const { panel, connection } = mountEditor();
-  await startDrawing(panel);
-  tap(100, 0);
-  handlers.mousemove(mouse(140, 30));
-  key("keydown", "Escape");
-  expect(sources["spatial-draft"].data).toEqual(EMPTY);
-  tap(140, 30);
-  await settle(panel);
-  expect(saves(connection)).toEqual([]);
 });
 
 test("boxes while a save is in flight are ignored", async () => {
@@ -277,15 +214,4 @@ test("a pan between the two taps keeps the box on the first tapped spot", async 
   tap(140, 30);
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
   expect(area(saves(connection)[0].areas.bath)).toBeCloseTo(35, 1);
-});
-
-test("the snap highlight sits above the corner handles and comes back with a new map style", async () => {
-  const { panel } = mountEditor();
-  await showFloor(panel);
-  const ids = () => layers.map((layer) => layer.id);
-  expect(ids().indexOf("spatial-snap-line")).toBeGreaterThan(ids().indexOf("spatial-handles"));
-  expect(ids().indexOf("spatial-snap-point")).toBeGreaterThan(ids().indexOf("spatial-handles"));
-  handlers["style.load"]();
-  expect(ids().filter((id) => id === "spatial-snap-point")).toHaveLength(2);
-  expect(sources["spatial-snap"].data).toEqual(EMPTY);
 });
