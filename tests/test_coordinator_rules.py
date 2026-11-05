@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 
 from custom_components.spatial.const import METRIC_GRID
-from custom_components.spatial.coordinator import change_problem, floors_above, occupied_floor_ids
+from custom_components.spatial.coordinator import change_refusal, floors_above, occupied_floor_ids
 from custom_components.spatial.geometry import Ring
 
 # Metres to units of the metric lattice (2.5 cm).
@@ -27,7 +27,7 @@ SPIKE = [ring((1, 1), (5, 1), (1, 4.9))]
 
 
 def problem(**change: Any) -> tuple[str, str] | None:
-    """Return change_problem for a change, with nothing stored, written or overridden by default."""
+    """Return change_refusal for a change, with nothing stored, written or overridden by default."""
     arguments: dict[str, Any] = {
         "stored": {},
         "written": {},
@@ -38,7 +38,7 @@ def problem(**change: Any) -> tuple[str, str] | None:
         "frame_changed": False,
         **change,
     }
-    return change_problem(**arguments)
+    return change_refusal(**arguments)
 
 
 @pytest.mark.parametrize(

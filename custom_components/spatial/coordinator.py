@@ -113,7 +113,7 @@ def _measure(
     )
 
 
-def change_problem(
+def change_refusal(
     stored: dict[str, list[Ring]],
     written: dict[str, list[Ring] | None],
     outline: list[Ring] | None,
@@ -125,12 +125,14 @@ def change_problem(
 ) -> tuple[str, str] | None:
     """Return the error code and message that refuse a change, or None if it can be applied.
 
-    Custom. Every ring is on the lattice of the site after the change: `stored`
-    holds the stored footprints, `written` the footprints the change sets or
-    removes (None), `outline` the outline after it. Footprints written, and an
-    outline written, must be valid lattice polygons; the first invalid one is
-    named, rooms before the outline. Indoor rooms may not extend beyond the
-    outline: the rooms written, or all rooms when the outline or the frame changes
+    Custom. Every ring is on the lattice of the site after the change: `written`
+    holds the footprints the change sets or removes (None), `outline` the outline
+    after it, and `stored` the stored footprints. `stored` is read only when the
+    outline is written or the frame changes, to check every room against the
+    outline; otherwise only the rooms written are checked and it may be empty.
+    Footprints written, and an outline written, must be valid lattice polygons;
+    the first invalid one is named, rooms before the outline. Indoor rooms may not
+    extend beyond the outline: the rooms written, or all rooms when the outline or the frame changes
     (both move what the lattice reads), must lie inside it or outside it. Rooms
     written must keep a net area, with their on_facade_overrides after the change
     (missing means None). Known limit: stored footprints are not validated again.
@@ -325,16 +327,23 @@ class SpatialCoordinator:
     ) -> tuple[str, str] | None:
         """Return the error code and message that refuse a change, or None if it can be applied.
 
-        Reads every footprint and the outline on the lattice of the site after the
-        change, as they will be read, and leaves the rules to change_problem.
+        Reads the footprints and the outline on the lattice of the site after the
+        change, as they will be read, and leaves the rules to change_refusal. Stored
+        footprints are read only when the outline or the frame changes.
         """
         site_after = self._site_after(site_fields)
         site = self._site_geometry(site_after)
-        return change_problem(
+        outline_written = site_fields.get("outline") is not None
+        frame_changed = any(
+            site_after[key] != self.store.site[key] for key in ("origin", "bearing_deg")
+        )
+        return change_refusal(
             {
                 area_id: site.frame.snap(entry["polygon"])
                 for area_id, entry in self.store.areas.items()
-            },
+            }
+            if outline_written or frame_changed
+            else {},
             {
                 area_id: site.frame.snap(polygon) if polygon is not None else None
                 for area_id, polygon in polygons.items()
@@ -346,10 +355,8 @@ class SpatialCoordinator:
                 if polygon is not None
             },
             site.grid,
-            outline_written=site_fields.get("outline") is not None,
-            frame_changed=any(
-                site_after[key] != self.store.site[key] for key in ("origin", "bearing_deg")
-            ),
+            outline_written=outline_written,
+            frame_changed=frame_changed,
         )
 
     def _override_after(
