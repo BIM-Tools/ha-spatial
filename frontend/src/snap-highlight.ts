@@ -34,15 +34,19 @@ export class SnapHighlight {
     });
   }
 
-  /** The grid and the lattice are what the shape itself shows, so they light up nothing. */
-  show(frame: PlanFrame, source: SnapSource) {
-    const geometry =
-      source.kind === "corner"
-        ? { type: "Point" as const, coordinates: frame.fromLattice(source.at) }
-        : source.kind === "edge"
-          ? { type: "LineString" as const, coordinates: source.edge.map((corner) => frame.fromLattice(corner)) }
-          : undefined;
-    this._set(geometry ? { type: "FeatureCollection", features: [{ type: "Feature", geometry, properties: {} }] } : EMPTY);
+  /** Each source as a dot or a line; none for a snap to the grid or the lattice, which the shape itself shows. */
+  show(frame: PlanFrame, sources: readonly SnapSource[]) {
+    this._set({
+      type: "FeatureCollection",
+      features: sources.map((source) => ({
+        type: "Feature",
+        geometry:
+          source.kind === "corner"
+            ? { type: "Point", coordinates: frame.fromLattice(source.at) }
+            : { type: "LineString", coordinates: source.edge.map((corner) => frame.fromLattice(corner)) },
+        properties: {},
+      })),
+    });
   }
 
   clear() {
