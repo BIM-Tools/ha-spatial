@@ -149,6 +149,9 @@ def resize_kitchen(page, panel, websocket, kitchen):
     y = (left_corners[0][1] + left_corners[1][1]) / 2
     drag(page, (x, y), (x - 40, y))
     stretched = wait_for_larger(websocket, "Kitchen", kitchen["properties"]["area_m2"])
+    # The store can answer before the panel has its save reply, and a press while it saves does
+    # nothing; the side chips show again once the save has settled.
+    panel.locator("button.side-chip").first.wait_for(state="visible")
     # The top left corner faces free space; Bedroom lies to the right.
     corner_x, corner_y = min(
         corners_on_screen(panel, stretched["geometry"]["coordinates"][0]),

@@ -1,6 +1,5 @@
 // Stretches a rectangular room by one of its edges or corners, snapped like a drawn box and stopped at the outline, so resizing needs no typing.
 
-import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
 import type { Polygon, Position } from "geojson";
 import { boxFromCorners } from "./plan";
 import type { LatticePoint, PlanFrame } from "./site-frame";
@@ -154,39 +153,4 @@ export function resizeCursor({ kind, index }: ResizeTarget, corners: Pixel[]): s
   }
   const opposite = corners[(index + 2) % 4];
   return (from.x - opposite.x) * (from.y - opposite.y) > 0 ? "nwse-resize" : "nesw-resize";
-}
-
-/**
- * Custom. Where a side's length chip goes on a touch screen, as an offset in pixels from the middle of
- * its edge, where the grab handle sits: across the edge, `clearancePx` past it plus the chip's own half
- * size, outward from `centre`; inward instead when the outward chip would cover a neighbouring room and
- * the inward one would not. Rooms are polygons in screen pixels. Known limit: a chip counts as covering
- * a room when one of its corners or its centre lies inside it, or a corner of the room inside the chip,
- * so a room thinner than the chip that crosses it without a corner in it is missed.
- */
-export function sideChipOffset(
-  [from, to]: readonly [Pixel, Pixel],
-  centre: Pixel,
-  chip: { width: number; height: number },
-  clearancePx: number,
-  neighbours: readonly Polygon[],
-): [number, number] {
-  const middle = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
-  const length = Math.hypot(middle.x - centre.x, middle.y - centre.y) || 1;
-  const [normalX, normalY] = [(middle.x - centre.x) / length, (middle.y - centre.y) / length];
-  const distance = clearancePx + (Math.abs(normalX) * chip.width + Math.abs(normalY) * chip.height) / 2;
-  // Adding 0 turns -0 into 0.
-  const outward: [number, number] = [normalX * distance + 0, normalY * distance + 0];
-  const inward: [number, number] = [-outward[0] + 0, -outward[1] + 0];
-  const covers = ([dx, dy]: [number, number]) => {
-    const [x, y] = [middle.x + dx, middle.y + dy];
-    const [left, right, top, bottom] = [x - chip.width / 2, x + chip.width / 2, y - chip.height / 2, y + chip.height / 2];
-    const chipPoints = [[x, y], [left, top], [right, top], [right, bottom], [left, bottom]];
-    return neighbours.some(
-      (room) =>
-        chipPoints.some((point) => booleanPointInPolygon(point, room, { ignoreBoundary: true })) ||
-        room.coordinates[0].some(([px, py]) => px > left && px < right && py > top && py < bottom),
-    );
-  };
-  return covers(outward) && !covers(inward) ? inward : outward;
 }

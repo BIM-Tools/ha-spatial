@@ -2,7 +2,7 @@
 
 import type { Polygon, Position } from "geojson";
 import { expect, test } from "vitest";
-import { type Pixel, type ResizeTarget, resizeCursor, resizeRectangle, resizeTargetAt, sideChipOffset } from "../src/edge-drag";
+import { type Pixel, type ResizeTarget, resizeCursor, resizeRectangle, resizeTargetAt } from "../src/edge-drag";
 import { PlanFrame, type LatticePoint } from "../src/site-frame";
 import type { LatticeEdge, SnapCandidates, SnapSource } from "../src/snap";
 import { siteFrameData } from "./site-frame-fixture";
@@ -103,28 +103,4 @@ test.each<[ResizeTarget, string]>([
   [{ kind: "corner", index: 1 }, "nwse-resize"],
 ])("%o shows the %s cursor", (target, cursor) => {
   expect(resizeCursor(target, ON_SCREEN)).toBe(cursor);
-});
-
-// A 40 px square on screen, its centre at [20, 20]; a chip of 30 x 10 px, 14 px off its edge's handle.
-const pixelRoom = (left: number, top: number, right: number, bottom: number): Polygon => ({
-  type: "Polygon",
-  coordinates: [[[left, top], [right, top], [right, bottom], [left, bottom], [left, top]]],
-});
-const TOP: [Pixel, Pixel] = [{ x: 0, y: 0 }, { x: 40, y: 0 }];
-const RIGHT: [Pixel, Pixel] = [{ x: 40, y: 0 }, { x: 40, y: 40 }];
-const ABOVE = pixelRoom(0, -60, 40, 0);
-const BELOW = pixelRoom(0, 40, 40, 100);
-// Only its corners reach into the outward chip, which spans x 5 to 35 and y -24 to -14.
-const THIN_ABOVE = pixelRoom(24, -100, 26, -17);
-
-test.each<[string, [Pixel, Pixel], Polygon[], [number, number]]>([
-  ["a chip goes outward, past the handle by its half height across a level edge", TOP, [], [0, -19]],
-  ["a chip goes outward by its half width across an upright edge", RIGHT, [], [29, 0]],
-  ["a chip that would cover a room outward goes inward", TOP, [ABOVE], [0, 19]],
-  ["a room reaching into the chip with a corner only also sends it inward", TOP, [THIN_ABOVE], [0, 19]],
-  ["a room further out leaves the chip outward", TOP, [pixelRoom(0, -80, 40, -30)], [0, -19]],
-  ["with rooms on both sides the chip stays outward", TOP, [ABOVE, pixelRoom(0, 0, 40, 40)], [0, -19]],
-  ["a room on the far side does not matter", TOP, [BELOW], [0, -19]],
-])("%s", (_, edge, neighbours, offset) => {
-  expect(sideChipOffset(edge, { x: 20, y: 20 }, { width: 30, height: 10 }, 14, neighbours)).toEqual(offset);
 });
