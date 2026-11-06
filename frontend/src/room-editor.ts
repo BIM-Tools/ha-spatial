@@ -1,12 +1,13 @@
 // Keeps the panel's room edits in step with Home Assistant: the area strip, side lengths, and each edit saved at once with undo and redo.
 
+import { mdiDragHorizontalVariant } from "@mdi/js";
 import { point } from "@turf/helpers";
-import type { FeatureCollection, Polygon } from "geojson";
+import type { FeatureCollection, Polygon, Position } from "geojson";
 import { html } from "lit";
 import { type GeoJSONSource, Marker, type Map as MapLibreMap } from "maplibre-gl";
 import { type AreaEntry, BUILDING, firstToDraw, newAreaName, stripOrder } from "./area-strip";
-import { type ActiveRoom, BoxInteraction, type EditorSnapshot } from "./box-interaction";
-import type { Pixel } from "./edge-drag";
+import { type ActiveRoom, BoxInteraction, type EditorSnapshot, coarsePointer } from "./box-interaction";
+import { type Pixel, sideChipOffset } from "./edge-drag";
 import { type Change, type FootprintBatch, History } from "./history";
 import type { LayerColours } from "./map-paint";
 import { byLevel } from "./map-view";
@@ -65,6 +66,14 @@ const SIDE_STYLE =
   "font: 12px sans-serif; background: var(--card-background-color); color: var(--primary-text-color); border: 1px solid var(--primary-color); border-radius: 3px";
 // A side button or field sits on the map, inside a Marker that would block focus; its presses and keys stay its own.
 const MAP_EVENTS = ["mousedown", "touchstart", "click", "dblclick", "keydown"];
+// A grab handle is a 44 px target around a 44 x 20 px pill; its touches must not pan the map either.
+const GRIP_TARGET_STYLE =
+  "display: flex; align-items: center; box-sizing: border-box; width: 44px; height: 44px; margin: 0; padding: 0; border: none; background: none; touch-action: none";
+const GRIP_STYLE =
+  "display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: 44px; height: 20px; border-radius: 10px; background: var(--card-background-color); border: 2px solid var(--primary-color); color: var(--primary-color); --mdc-icon-size: 16px";
+const GRIP_EVENTS = [...MAP_EVENTS, "pointerdown", "touchmove", "touchend"];
+// Half the grab handle's 20 px thickness and a 4 px gap.
+const GRIP_CLEARANCE_PX = 14;
 
 // Where a DOM event on a Marker falls on the map.
 const pixelOn = (map: MapLibreMap, event: MouseEvent): Pixel => {
@@ -87,6 +96,8 @@ export class RoomEditor {
   private _saving = false;
   private _saveFailedShown = false;
   private _sides: Marker[] = [];
+  // On a touch screen only: a grab handle per side, in the order of `_sides`.
+  private _grips: Marker[] = [];
   private _resizeLive = false;
 
   private _editingSide?: number;
@@ -132,6 +143,7 @@ export class RoomEditor {
       onPickRoom: (areaId) => this._select(areaId),
     });
     window.addEventListener("keydown", this._keys);
+    map.on("move", this._placeGrips);
     this._showSides();
   }
 
@@ -180,6 +192,7 @@ export class RoomEditor {
     // Adjust leaves the map's own panning and rotating on.
     this.setTool("adjust");
     window.removeEventListener("keydown", this._keys);
+    this._map?.off("move", this._placeGrips);
     this._interaction?.destroy();
     this._interaction = undefined;
     this._map = undefined;
@@ -372,10 +385,12 @@ export class RoomEditor {
 
   // In Adjust each side of the active room, when it is a rectangle on the site axis, is a button that opens a length field.
   private _showSides() {
-    // The draft shows the lengths until the resize ends; `_resizing` rebuilds them then.
-    if (this._resizeLive) return;
-    for (const side of this._sides) side.remove();
+    // The draft shows the lengths until the resize ends; `_resizing` rebuilds them then. A held
+    // grab handle would lose its pointer capture, so nothing is rebuilt from its press on.
+    if (this._resizeLive || this._interaction?.resizing) return;
+    for (const marker of [...this._sides, ...this._grips]) marker.remove();
     this._sides = [];
+    this._grips = [];
     const map = this._map;
     const areaId = this._active;
     const footprint = this._footprints.get(areaId);
@@ -418,9 +433,65 @@ export class RoomEditor {
       element.append(control);
       return new Marker({ element }).setLngLat(at as [number, number]).addTo(map);
     }));
+    if (coarsePointer()) {
+      this._grips = sideLabels(frame, footprint, units).map(({ at, edgeIndex, text }) => this._grip(map, at, edgeIndex, text));
+      this._placeGrips();
+    }
     field?.focus();
     field?.select();
   }
+
+  // A finger cannot find the thin edge on the map, which takes no touch events, so on a touch screen
+  // each side gets a handle that drags it; a tap opens the length field, like the side button.
+  private _grip(map: MapLibreMap, at: Position, edgeIndex: number, length: string): Marker {
+    const element = Object.assign(document.createElement("button"), { type: "button", className: "side-grip" });
+    element.setAttribute("aria-label", `Drag to stretch the ${length} side`);
+    element.style.cssText = GRIP_TARGET_STYLE;
+    const pill = document.createElement("span");
+    pill.style.cssText = GRIP_STYLE;
+    pill.append(Object.assign(document.createElement("ha-svg-icon"), { path: mdiDragHorizontalVariant }));
+    element.append(pill);
+    element.addEventListener("pointerdown", (event) => {
+      if (this._interaction?.startResize({ kind: "edge", index: edgeIndex }, pixelOn(map, event), false)) {
+        element.setPointerCapture?.(event.pointerId);
+      }
+    });
+    element.addEventListener("pointermove", (event) => this._interaction?.resizeTo(pixelOn(map, event), false));
+    element.addEventListener("pointerup", (event) => this._interaction?.endResize(pixelOn(map, event), false));
+    element.addEventListener("pointercancel", () => {
+      if (this._interaction?.resizing) this._interaction.cancel();
+    });
+    element.addEventListener("click", () => {
+      // The click that ends a drag from this handle comes while that drag saves.
+      if (this._saving) return;
+      this._editingSide = edgeIndex;
+      this._showSides();
+    });
+    for (const type of GRIP_EVENTS) element.addEventListener(type, (event) => event.stopPropagation());
+    return new Marker({ element }).setLngLat(at as [number, number]).addTo(map);
+  }
+
+  // Turns each grab handle along its edge on screen and moves each side chip off it, clear of the
+  // neighbouring rooms; again whenever the map moves.
+  private _placeGrips = () => {
+    const map = this._map;
+    const footprint = this._footprints.get(this._active);
+    if (!map || !footprint || !this._grips.length) return;
+    const toScreen = (ring: Position[]) => ring.map((corner) => map.project(corner as [number, number]));
+    const corners = toScreen(footprint.coordinates[0].slice(0, 4));
+    const centre = { x: corners.reduce((sum, { x }) => sum + x, 0) / 4, y: corners.reduce((sum, { y }) => sum + y, 0) / 4 };
+    const neighbours: Polygon[] = this._order().flatMap(({ area_id }) => {
+      const room = area_id === this._active ? undefined : this._footprints.get(area_id);
+      return room ? [{ type: "Polygon", coordinates: room.coordinates.map((ring) => toScreen(ring).map(({ x, y }) => [x, y])) }] : [];
+    });
+    corners.forEach((from, index) => {
+      const to = corners[(index + 1) % 4];
+      this._grips[index].setRotation((Math.atan2(to.y - from.y, to.x - from.x) * 180) / Math.PI);
+      const chip = this._sides[index];
+      const { width, height } = chip.getElement().getBoundingClientRect();
+      chip.setOffset(sideChipOffset([from, to], centre, { width, height }, GRIP_CLEARANCE_PX, neighbours));
+    });
+  };
 
   private _resize(resized: ChangeOrRefusal) {
     if ("refusal" in resized) {
@@ -463,6 +534,8 @@ export class RoomEditor {
       return;
     }
     for (const side of this._sides) side.getElement().style.visibility = "hidden";
+    // Only the pill hides, so the held handle keeps its pointer capture; MapLibre sets a marker's own opacity.
+    for (const grip of this._grips) (grip.getElement().firstElementChild as HTMLElement).style.visibility = "hidden";
   }
 
   private async _apply(change: Change) {

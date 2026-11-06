@@ -40,11 +40,11 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/map-paint.ts` | The map layers' colours, read from Home Assistant's theme at style load and on a theme change |
 | `src/room-labels.ts` | Room labels: area icon, name and (in the panel) net area, placed and stepped by the room's size on screen |
 | `src/styles.ts` | The floating card, pill buttons and phone bar shared by the controls, from Home Assistant's theme tokens |
-| `src/room-editor.ts` | The space editor controller: the area strip, side length fields, undo and redo, saving each action, area creation and rename |
+| `src/room-editor.ts` | The space editor controller: the area strip, side length fields and their touch grab handles, undo and redo, saving each action, area creation and rename |
 | `src/box-interaction.ts` | Pointer and keyboard drafting input on the map, snapped corners, moves, edge and corner drags, Alt to place freely, Space pan, draft preview |
 | `src/snap.ts` | The snap engine, pure and in lattice units: room corners, then room axis edges, then the outline, else the grid |
 | `src/snap-highlight.ts` | The map layer that lights up what a point snaps to: a dot on a corner, a line on an edge |
-| `src/edge-drag.ts` | Edge and corner drag of an axis rectangle, pure and in lattice units: where the dragged edge or corner lands, stopped at the outline, and which one a pointer grabs |
+| `src/edge-drag.ts` | Edge and corner drag of an axis rectangle, pure and in lattice units: where the dragged edge or corner lands, stopped at the outline, which one a pointer grabs, and where a side length goes clear of a touch handle and the neighbouring rooms |
 | `src/area-strip.ts` | The strip of pills, Building first: order, next area, new area names, rename field, long press, arrow keys |
 | `src/history.ts` | Session undo and redo of footprint changes |
 | `src/spatial-card.ts` | The card: wraps the panel element, without the header and tools; loads the panel bundle when created |

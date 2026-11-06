@@ -73,8 +73,10 @@ interface Resize extends Snapping {
 const lngLatOf = (event: MapMouseEvent): Position => [event.lngLat.lng, event.lngLat.lat];
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 const DRAG_MIN_PX = 5;
+/** Whether the main pointer is a finger, as on a phone or a tablet. */
+export const coarsePointer = () => window.matchMedia("(pointer: coarse)").matches;
 // A finger covers more of the map than a mouse pointer.
-const snapRadiusPx = () => (window.matchMedia("(pointer: coarse)").matches ? 12 : 8);
+const snapRadiusPx = () => (coarsePointer() ? 12 : 8);
 const LABEL_STYLE =
   "font: 12px sans-serif; background: color-mix(in srgb, var(--card-background-color) 85%, transparent); color: var(--primary-text-color); padding: 0 3px; border-radius: 3px; pointer-events: none";
 
@@ -275,7 +277,7 @@ export class BoxInteraction {
 
   private _move = (event: MapMouseEvent) => {
     if (this._resize) {
-      this._resizeTo(this._resize, event.point, event.originalEvent.altKey);
+      this.resizeTo(event.point, event.originalEvent.altKey);
       return;
     }
     const grab = this._grab;
@@ -300,7 +302,7 @@ export class BoxInteraction {
 
   private _up = (event: MapMouseEvent) => {
     if (this._resize) {
-      this._endResize(this._resize, event.point, event.originalEvent.altKey);
+      this.endResize(event.point, event.originalEvent.altKey);
       return;
     }
     const start = this._pressCorner;
@@ -356,8 +358,10 @@ export class BoxInteraction {
     return room && resizeTargetAt(pixel, room.footprint, project, snapRadiusPx());
   }
 
-  // Follows the pointer once it is a few pixels from the press, with the draft and its lengths.
-  private _resizeTo(resize: Resize, pixel: Pixel, free: boolean) {
+  /** Follows the pointer once it is a few pixels from the press, with the draft and its lengths; nothing when none is held. */
+  resizeTo(pixel: Pixel, free: boolean) {
+    const resize = this._resize;
+    if (!resize) return;
     if (!resize.moved) {
       if (Math.hypot(pixel.x - resize.press.x, pixel.y - resize.press.y) < DRAG_MIN_PX) return;
       resize.moved = true;
@@ -368,8 +372,10 @@ export class BoxInteraction {
     this._highlight.show(resize.frame, sources);
   }
 
-  // A press that did not move, or a drag back to the start, saves nothing.
-  private _endResize(resize: Resize, pixel: Pixel, free: boolean) {
+  /** Releases a held edge or corner; a press that did not move, or a drag back to the start, saves nothing. */
+  endResize(pixel: Pixel, free: boolean) {
+    const resize = this._resize;
+    if (!resize) return;
     this._resize = undefined;
     if (!resize.moved) return;
     const { shape, changed } = this._resized(resize, pixel, free);

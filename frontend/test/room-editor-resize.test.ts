@@ -2,14 +2,17 @@
 // Checks how the panel wires an edge or corner drag in Adjust: what it saves, records, hides and shows.
 import type { Polygon, Position } from "geojson";
 import { afterEach, expect, test, vi } from "vitest";
-import { EMPTY, buttonNamed, handlers, liveMarkers, mapCanvas, onUpdateOf, resetFakes, settle, sources } from "./panel-harness";
+import { EMPTY, type FakeMarker, buttonNamed, handlers, liveMarkers, mapCanvas, onUpdateOf, resetFakes, settle, sources } from "./panel-harness";
 import {
   FRAME,
+  KITCHEN,
   chip,
   ctrlZ,
+  feature,
   key,
   mountEditor,
   mouse,
+  pixelBox,
   saves,
   sent,
   sideButtons,
@@ -24,7 +27,10 @@ vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibr
 
 import "../src/spatial-panel";
 
-afterEach(resetFakes);
+afterEach(() => {
+  resetFakes();
+  vi.restoreAllMocks();
+});
 
 // The lattice corners of a shape, in a fixed order, whatever corner its ring starts at.
 const cornerSet = (shape: Polygon) =>
@@ -220,4 +226,87 @@ test.each<[string, () => void]>([
   ctrlZ();
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(5));
   expect(saves(connection)[4].areas.kitchen).toEqual(grabbed);
+});
+
+// A phone or a tablet: the main pointer is a finger.
+const touchScreen = () =>
+  vi.spyOn(window, "matchMedia").mockImplementation(
+    (media: string) => ({ matches: media === "(pointer: coarse)", addEventListener: () => {}, removeEventListener: () => {} }) as unknown as MediaQueryList,
+  );
+const grips = () => liveMarkers().filter((marker) => marker.element.matches("button.side-grip"));
+const chipMarkers = () => liveMarkers().filter((marker) => marker.element.firstElementChild instanceof HTMLButtonElement);
+// The map container sits at the page's origin, so client pixels are map pixels.
+const pointer = (grip: FakeMarker, type: string, [clientX, clientY]: [number, number]) =>
+  grip.element.dispatchEvent(new PointerEvent(type, { clientX, clientY, pointerId: 1, bubbles: true, cancelable: true }));
+
+test("on a touch screen each side of the active rectangle gets a labelled grab handle turned along it", async () => {
+  touchScreen();
+  await adjustKitchen();
+  expect(grips().map(({ element }) => element.getAttribute("aria-label"))).toEqual([
+    "Drag to stretch the 5.00 m side",
+    "Drag to stretch the 5.00 m side",
+    "Drag to stretch the 5.00 m side",
+    "Drag to stretch the 5.00 m side",
+  ]);
+  // Top runs right, the right side down, the bottom left and the left side up.
+  expect(grips().map(({ rotation }) => (Math.round(rotation) + 360) % 360)).toEqual([0, 90, 180, 270]);
+});
+
+test("with a mouse the sides get no grab handles", async () => {
+  await adjustKitchen();
+  expect(sideButtons()).toHaveLength(4);
+  expect(grips()).toEqual([]);
+});
+
+test("dragging a grab handle saves one resize through the edge drag, with the chips and the handles hidden meanwhile", async () => {
+  touchScreen();
+  const { connection } = await adjustKitchen();
+  const left = grips()[3];
+  pointer(left, "pointerdown", [0, 25]);
+  pointer(left, "pointermove", [-12, 25]);
+  expect(sidesVisible()).toEqual([false, false, false, false]);
+  expect(grips().map(({ element }) => (element.firstElementChild as HTMLElement).style.visibility)).toEqual(["hidden", "hidden", "hidden", "hidden"]);
+  pointer(left, "pointermove", [-19.2, 25]);
+  pointer(left, "pointerup", [-19.2, 25]);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  expect(cornerSet(saves(connection)[0].areas.kitchen)).toEqual(latticeBox(-76, -200, 200, 0));
+});
+
+test("a tap on a grab handle opens its side's length field", async () => {
+  touchScreen();
+  const { connection } = await adjustKitchen();
+  const top = grips()[0];
+  pointer(top, "pointerdown", [25, 0]);
+  pointer(top, "pointerup", [25, 0]);
+  top.element.click();
+  expect(sideField()).toBeDefined();
+  expect(saves(connection)).toEqual([]);
+});
+
+test("a refresh while a grab handle is pressed keeps the handle, so its drag still saves", async () => {
+  touchScreen();
+  const { panel, connection } = await adjustKitchen();
+  const left = grips()[3];
+  pointer(left, "pointerdown", [0, 25]);
+  await onUpdateOf(connection)();
+  await settle(panel);
+  expect(left.removed).toBe(false);
+  pointer(left, "pointermove", [-19.2, 25]);
+  pointer(left, "pointerup", [-19.2, 25]);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+});
+
+test("on a touch screen the side chips move off their handles, inward where a neighbouring room lies outward", async () => {
+  touchScreen();
+  const mounted = mountEditor();
+  mounted.setFeed([feature("kitchen", KITCHEN), feature("bath", pixelBox(50, 0, 100, 50))]);
+  await startAdjusting(mounted.panel);
+  await tapRoom(mounted.panel, "kitchen");
+  // In happy-dom a chip has no size, so it sits the handle's clearance off the edge.
+  expect(chipMarkers().map(({ offset }) => offset.map((pixels) => Math.round(pixels) + 0))).toEqual([
+    [0, -14],
+    [-14, 0],
+    [0, 14],
+    [-14, 0],
+  ]);
 });
