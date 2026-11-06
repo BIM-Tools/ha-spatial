@@ -108,12 +108,13 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
   boxes. A box apart from it is refused with the toast "A room is one shape: draw against it".
   After a space's first shape the next one is highlighted, so choose the space again before
   adding a box to it.
-- **Snap:** a corner within 8 px (12 px on a touch screen) of a room corner on this floor lands
-  on it; near a room wall that runs along the site direction it lands on that wall; the outline
-  comes after the rooms, the grid last. Near two walls that meet, it lands on both. What it snaps
-  to lights up: a thick line on a wall, both walls in a corner it sits in, else a dot on a
-  corner. So rooms drawn side by side share their wall and count as adjacent. Walls at other
-  angles do not snap, their corners do.
+- **Snap:** each direction snaps on its own. Across and down, a corner within 8 px (12 px on a
+  touch screen) of a room wall on this floor that runs along the site direction lands on that
+  wall, and one near a room corner lines up with it; the outline comes after the rooms, the
+  grid last. Near two walls that meet, it lands on both. What it snaps to lights up: a thick line
+  on a wall, both walls at a corner, else a dot on the corner it lines up with. So rooms drawn
+  side by side share their wall and count as adjacent. Walls at other angles do not snap, their
+  corners do.
 - **Alt:** hold Alt to place without snapping, on the 2.5 cm (1 in) lattice. Phones always snap.
 - **Move:** a drag that starts inside the active shape moves it; a click there still sets a
   corner. A moved shape snaps by its corners in the same way, else moves by whole grid steps;

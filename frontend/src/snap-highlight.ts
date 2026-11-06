@@ -8,6 +8,12 @@ import type { SnapSource } from "./snap";
 
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 
+/** Each source once, in order, without the missing ones, so a wall or corner lights up once. */
+export function distinctSources(sources: readonly (SnapSource | undefined)[]): SnapSource[] {
+  const keys = sources.map((source) => JSON.stringify(source));
+  return sources.filter((source, index): source is SnapSource => source !== undefined && keys.indexOf(keys[index]) === index);
+}
+
 export class SnapHighlight {
   // Kept for a new style, which drops the source.
   private _data: FeatureCollection = EMPTY;

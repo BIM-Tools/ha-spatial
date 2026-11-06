@@ -3,7 +3,8 @@
 import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
 import type { Polygon } from "geojson";
 import type { LatticePoint } from "./site-frame";
-import { type LatticeEdge, type SnapCandidates, type SnapSource, distinctSources } from "./snap";
+import type { LatticeEdge, SnapCandidates, SnapSource } from "./snap";
+import { distinctSources } from "./snap-highlight";
 
 /** The rings of a shape in lattice units, outer ring first. */
 export type Rings = readonly (readonly LatticePoint[])[];

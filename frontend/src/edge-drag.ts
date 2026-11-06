@@ -5,7 +5,8 @@ import type { Polygon, Position } from "geojson";
 import { boxFromCorners } from "./plan";
 import type { LatticePoint, PlanFrame } from "./site-frame";
 import { walkToOutline } from "./outline-stop";
-import { type SnapCandidates, type SnapOptions, type SnapSource, distinctSources, snapLine, snapPoint } from "./snap";
+import { type SnapCandidates, type SnapOptions, type SnapSource, snapLine, snapPoint } from "./snap";
+import { distinctSources } from "./snap-highlight";
 
 /** A point on the map's canvas, in pixels from its top left. */
 export interface Pixel {
@@ -93,7 +94,7 @@ export function resizeRectangle(
   if (kind === "edge") {
     const next = corners[(index + 1) % 4];
     const axis = start[0] === next[0] ? 0 : 1;
-    const snapped = snapLine(pointer[axis], axis, candidates, options);
+    const snapped = snapLine(pointer[axis], axis, candidates, options, span(start[1 - axis], next[1 - axis]));
     sources = moveSide(axis, snapped.value, snapped.sources);
   } else {
     const snapped = snapPoint(pointer, candidates, options);
