@@ -1,11 +1,11 @@
-// Stretches a rectangular room by one of its edges or corners, snapped like a drawn box and stopped at the outline, so resizing needs no typing.
+// Stretches a rectangular room by one of its edges or corners, snapped like a drawn box and stopped at the outline and its neighbours, so resizing needs no typing.
 
 import type { Polygon, Position } from "geojson";
 import { boxFromCorners } from "./plan";
 import type { LatticePoint, PlanFrame } from "./site-frame";
-import { walkToOutline } from "./outline-stop";
 import { type SnapCandidates, type SnapOptions, type SnapSource, snapLine, snapPoint } from "./snap";
 import { distinctSources } from "./snap-highlight";
+import { walkToWall } from "./wall-stop";
 
 /** A point on the map's canvas, in pixels from its top left. */
 export interface Pixel {
@@ -37,10 +37,11 @@ const keepApart = (value: number, start: number, opposite: number, step: number)
 
 /**
  * Where the side across `axis` through `corner` of the rectangle from `opposite` to `corner` stops
- * when it moves to `target`: on the last lattice line before the outline reaches inside the
- * rectangle (`walkToOutline`), so a room inside the outline stays inside and one outside stays outside.
+ * when it moves to `target`: on the last lattice line before the rectangle reaches past the outline
+ * or into a neighbour (`walkToWall`), so a room inside the outline stays inside, one outside stays
+ * outside, and the rooms beside it keep their space.
  */
-function stopAtOutline(
+function stopAtWalls(
   candidates: SnapCandidates,
   axis: 0 | 1,
   opposite: LatticePoint,
@@ -53,20 +54,20 @@ function stopAtOutline(
     return [[[left, bottom], [right, bottom], [right, top], [left, top]] as LatticePoint[]];
   };
   const path: LatticePoint = axis === 0 ? [target - corner[0], 0] : [0, target - corner[1]];
-  const stop = walkToOutline(rectangleAt, path, candidates);
+  const stop = walkToWall(rectangleAt, path, candidates);
   return stop ? { value: corner[axis] + stop.offset[axis] + 0, source: stop.source } : { value: target };
 }
 
 /**
  * Custom. Drags an edge (from corner `index` to the next) of an axis rectangle across its line, or a
  * corner while the opposite corner stays. The edge lands where `snapLine` puts it and the corner where
- * `snapPoint` does; then each moved side stops at the outline (`stopAtOutline`) and one grid step
- * from its opposite side, and a stopped side shows what stopped it, a side that follows the snap the
- * wall it rests on. A corner's two sides stop one after the other, across first, so a corner past
- * the outline in one direction still follows the pointer in the other, and a corner in an inner
- * corner lights both walls. Known limits: axis rectangles only; a rectangle with a side under one
- * grid step stays as it is; a corner side stops at outline walls along the room's old extent, also
- * when the other side shrinks.
+ * `snapPoint` does; then each moved side stops at the outline and the neighbours (`stopAtWalls`) and
+ * one grid step from its opposite side, and a stopped side shows what stopped it, a side that follows
+ * the snap the wall it rests on. A corner's two sides stop one after the other, across first, so a
+ * corner past a wall in one direction still follows the pointer in the other, and a corner in an
+ * inner corner lights both walls. Known limits: axis rectangles only; a rectangle with a side under
+ * one grid step stays as it is; a corner side stops at walls along the room's old extent, also when
+ * the other side shrinks.
  */
 export function resizeRectangle(
   frame: PlanFrame,
@@ -85,7 +86,7 @@ export function resizeRectangle(
   // Each moved side: the snapped `value` on `axis`, for the rectangle as far as it is resized yet,
   // and what lights it: what stopped it, nothing when kept apart, else `snappedTo`.
   const moveSide = (axis: 0 | 1, value: number, snappedTo: SnapSource[]) => {
-    const stopped = stopAtOutline(candidates, axis, opposite, corner, value);
+    const stopped = stopAtWalls(candidates, axis, opposite, corner, value);
     corner[axis] = keepApart(stopped.value, start[axis], opposite[axis], step);
     if (corner[axis] !== stopped.value) return [];
     return stopped.source ? [stopped.source] : snappedTo;

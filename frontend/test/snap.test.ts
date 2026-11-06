@@ -165,7 +165,7 @@ test("candidatesOf includes inner rings", () => {
   ]);
 });
 
-// A square building: where the outline stops a room is in outline-stop.test.ts, here only that snapMove applies it.
+// A square building: where the outline stops a room is in wall-stop.test.ts, here only that snapMove applies it.
 const SQUARE_BUILDING = candidatesOf(FRAME, [], shapeOf(boxRing(0, 0, 100, 100)));
 const BUILDING_TOP: LatticeEdge = [
   [100, 100],
@@ -215,12 +215,13 @@ const FOOTPRINTS = new Map([
   ["#outline", HOUSE],
 ]);
 
-test.each<[string, string | undefined, Polygon[], Polygon | undefined]>([
-  ["the floor's rooms and the outline, not rooms on other floors", undefined, [KITCHEN, BATH], HOUSE],
-  ["without the moved room", "kitchen", [BATH], HOUSE],
-  ["without the moved outline", "#outline", [KITCHEN, BATH], undefined],
-])("snapCandidatesFor takes %s", (_name, exclude, rooms, outline) => {
+test.each<[string, string | undefined, Polygon[], Polygon | undefined, boolean]>([
+  ["the floor's rooms and the outline, not rooms on other floors", undefined, [KITCHEN, BATH], HOUSE, true],
+  ["without the moved room", "kitchen", [BATH], HOUSE, true],
+  ["without the moved outline, which rooms do not stop", "#outline", [KITCHEN, BATH], undefined, false],
+])("snapCandidatesFor takes %s", (_name, exclude, rooms, outline, roomsStop) => {
   // The floor lists an area without a footprint too, which adds nothing.
   const floorAreaIds = ["kitchen", "hall", "bath"];
-  expect(snapCandidatesFor(FRAME, floorAreaIds, FOOTPRINTS, "#outline", exclude)).toEqual(candidatesOf(FRAME, rooms, outline));
+  const expected = candidatesOf(FRAME, rooms, outline);
+  expect(snapCandidatesFor(FRAME, floorAreaIds, FOOTPRINTS, "#outline", exclude)).toEqual(roomsStop ? expected : { ...expected, roomRings: [] });
 });

@@ -548,8 +548,9 @@ def touch_handle_drag(shot: Shot) -> None:
 def corner_drag(shot: Shot) -> None:
     adjust_room_active(shot)
     x, y = min(shot.room_corners("Living room"), key=lambda corner: corner[1] - corner[0])
-    # Its top right corner, 30 px out to the right and up: the top stops at the outline.
-    shot.start_drag((x, y), (x + 30, y - 30))
+    # Its top right corner, 30 px out to the right and 60 px down: the right side stops at the
+    # kitchen, the top follows the pointer.
+    shot.start_drag((x, y), (x + 30, y + 60))
 
 
 def resize_snapped(shot: Shot) -> None:
@@ -690,7 +691,7 @@ STATES = [
     State(
         "corner-drag",
         "tools",
-        "Dragging the living room's top right corner out: the top stops at the outline",
+        "Dragging the living room's top right corner out and down: the side stops at the kitchen",
         corner_drag,
         phone=False,
     ),

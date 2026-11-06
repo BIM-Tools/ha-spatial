@@ -1,19 +1,20 @@
-// Picks where a drawn or moved point lands, so rooms drawn side by side share their walls exactly and stop at the outline.
+// Picks where a drawn or moved point lands, so rooms drawn side by side share their walls exactly and stop at the outline and each other.
 
 import type { Polygon } from "geojson";
-import { stopMoveAtOutline } from "./outline-stop";
 import type { LatticePoint, PlanFrame } from "./site-frame";
 import { distinctSources } from "./snap-highlight";
+import { type Rings, stopMoveAtWalls } from "./wall-stop";
 
 /** An edge in lattice units. */
 export type LatticeEdge = readonly [LatticePoint, LatticePoint];
 
-/** Room edges run along a site axis; outline edges are all of them. */
+/** Room edges run along a site axis; outline edges are all of them. `roomRings` are the rooms that stop a move, each whole; snapping does not read them. */
 export interface SnapCandidates {
   roomCorners: LatticePoint[];
   roomEdges: LatticeEdge[];
   outlineCorners: LatticePoint[];
   outlineEdges: LatticeEdge[];
+  roomRings: Rings[];
 }
 
 /** What a snap lights up: a corner as a dot, a wall as a line. The grid and the lattice light up nothing. */
@@ -50,14 +51,15 @@ const gapBetween = (a: readonly [number, number], b: readonly [number, number]) 
 
 /**
  * Every corner of every ring, outer and inner; of rooms only the edges that run along a site axis,
- * of the outline every edge, since every outline edge stops a moved or resized room.
+ * of the outline every edge, since every outline edge stops a moved or resized room; and each room's
+ * rings, since a room stops one too.
  */
 export function candidatesOf(frame: PlanFrame, rooms: Polygon[], outline: Polygon | undefined): SnapCandidates {
+  const ringsOf = (shape: Polygon): Rings => shape.coordinates.map((ring) => ring.slice(0, -1).map((corner) => frame.toLattice(corner)));
   const of = (shapes: Polygon[]) => {
     const corners: LatticePoint[] = [];
     const edges: LatticeEdge[] = [];
-    for (const ring of shapes.flatMap((shape) => shape.coordinates)) {
-      const points = ring.slice(0, -1).map((corner) => frame.toLattice(corner));
+    for (const points of shapes.flatMap(ringsOf)) {
       corners.push(...points);
       points.forEach((point, index) => edges.push([point, points[(index + 1) % points.length]]));
     }
@@ -70,12 +72,14 @@ export function candidatesOf(frame: PlanFrame, rooms: Polygon[], outline: Polygo
     roomEdges: room.edges.filter(isAxisEdge),
     outlineCorners: building.corners,
     outlineEdges: building.edges,
+    roomRings: rooms.map(ringsOf),
   };
 }
 
 /**
  * The candidates of a gesture: the footprints of the floor's areas and the outline, stored under
  * `outlineId`, without the shape `exclude` names, so a moved or resized shape does not snap to itself.
+ * The outline snaps to rooms but no room stops it, since it is the limit and not a room.
  */
 export function snapCandidatesFor(
   frame: PlanFrame,
@@ -85,8 +89,8 @@ export function snapCandidatesFor(
   exclude?: string,
 ): SnapCandidates {
   const rooms = floorAreaIds.filter((areaId) => areaId !== exclude).flatMap((areaId) => footprints.get(areaId) ?? []);
-  const outline = exclude === outlineId ? undefined : footprints.get(outlineId);
-  return candidatesOf(frame, rooms, outline);
+  if (exclude === outlineId) return { ...candidatesOf(frame, rooms, undefined), roomRings: [] };
+  return candidatesOf(frame, rooms, footprints.get(outlineId));
 }
 
 /**
@@ -153,7 +157,8 @@ export function snapPoint(
  * Custom. The delta for a room, given by its rings, moved by `delta`: per axis, the guide nearest
  * any moved corner (tier, then distance, as in `snapLine`) sets the delta; an axis without one moves
  * by whole grid steps, so the room keeps its offset to the grid. A room pushed into a corner thus
- * rests against both walls. Then the move stops at the outline (`stopMoveAtOutline`), with Alt too.
+ * rests against both walls. Then the move stops at the outline and the neighbours (`stopMoveAtWalls`),
+ * with Alt too.
  * `sources` is what lights up, as in `snapPoint`.
  */
 export function snapMove(
@@ -163,7 +168,7 @@ export function snapMove(
   options: SnapOptions,
 ): { delta: LatticePoint; sources: SnapSource[] } {
   const aligned = alignMove(rings, delta, candidates, options);
-  return stopMoveAtOutline(rings, aligned.delta, candidates) ?? aligned;
+  return stopMoveAtWalls(rings, aligned.delta, candidates) ?? aligned;
 }
 
 function alignMove(
