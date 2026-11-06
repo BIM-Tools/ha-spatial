@@ -3,8 +3,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import {
   EMPTY,
-  type Reply,
-  answer,
   buttonNamed,
   buttonsIn,
   fitBounds,
@@ -12,22 +10,30 @@ import {
   handlers,
   layers,
   mapCreated,
-  messageText,
+  guideText,
+  toastMessages,
+  toasts,
   onUpdateOf,
   mountPanel,
   queryRenderedFeatures,
   resetFakes,
+  rooms,
   setBearing,
   setStyle,
   settle,
   zoomIn,
   zoomOut,
   easeTo,
+  fakeMapLibre,
+  SITE,
   sources,
+  unprojectPixel,
 } from "./panel-harness";
+import { US_UNIT_M, siteFrameData } from "./site-frame-fixture";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
 
+import { PlanFrame } from "../src/site-frame";
 import "../src/spatial-panel";
 
 afterEach(resetFakes);
@@ -55,18 +61,27 @@ test("the panel says so when there are no rooms", async () => {
 });
 
 test("the panel says so when the map cannot load", async () => {
-  const { panel } = mountPanel(async () => {
-    throw new Error("connection lost");
+  const { panel } = mountPanel({
+    reply: async () => {
+      throw new Error("connection lost");
+    },
   });
   await vi.waitFor(() => expect(panel.shadowRoot?.textContent).toContain("Map could not load"));
+});
+
+test("the panel loads the MapLibre worker from next to its own bundle", async () => {
+  mountPanel();
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
+  // Here the panel module is the source file; in Home Assistant it is the served bundle.
+  expect(fakeMapLibre.setWorkerUrl).toHaveBeenCalledWith(expect.stringMatching(/^file:\/\/.*\/src\/maplibre-gl-worker\.js$/));
 });
 
 test("leaving the panel during startup leaves nothing behind", async () => {
   vi.useFakeTimers();
   const pending: (() => void)[] = [];
-  const { panel, connection, listeners, unsubscribe, unsubscribeEvents } = mountPanel(
-    (message) => new Promise((resolve) => pending.push(() => resolve(answer(message)))),
-  );
+  const { panel, connection, listeners, unsubscribe, unsubscribeEvents } = mountPanel({
+    reply: () => new Promise((resolve) => pending.push(() => resolve(undefined))),
+  });
   await vi.advanceTimersByTimeAsync(0);
   panel.remove();
   // Resolve every call the panel makes from here on, as they come.
@@ -81,15 +96,19 @@ test("leaving the panel during startup leaves nothing behind", async () => {
   expect(connection.subscribeEvents.mock.calls.length).toBe(unsubscribeEvents.mock.calls.length);
 });
 
-test("the panel has a header with back and help, the card none", async () => {
+test("the panel has a header, the editing tools and the area strip; the card has none of them", async () => {
   const { panel } = mountPanel();
   await vi.waitFor(() => expect(panel.shadowRoot?.querySelector("spatial-panel-header")).not.toBeNull());
   await settle(panel);
   expect(panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!.querySelector("[role=heading]")?.textContent).toBe("Spaces");
-  expect(headerButton(panel, "Help")).toMatchObject({ href: "https://github.com/BIM-Tools/ha-spatial", target: "_blank" });
-  const card = mountPanel(answer, {}, true).panel;
+  for (const name of ["Align", "Draw", "Adjust", "Undo", "Redo"]) expect(buttonNamed(panel, name)).toBeDefined();
+  expect(panel.shadowRoot!.querySelector("spatial-area-strip")).not.toBeNull();
+  const card = mountPanel({ card: true }).panel;
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalledTimes(2));
+  await settle(card);
   expect(card.shadowRoot?.querySelector("spatial-panel-header")).toBeNull();
+  expect(card.shadowRoot?.querySelector("spatial-area-strip")).toBeNull();
+  for (const name of ["Align", "Draw", "Adjust", "Undo", "Redo"]) expect(buttonNamed(card, name)).toBeUndefined();
 });
 
 const room = (floor_id: string | null, level: number | null) => ({
@@ -99,15 +118,11 @@ const room = (floor_id: string | null, level: number | null) => ({
 });
 
 test("the card has one button per floor in the rooms, named by Home Assistant", async () => {
-  const collection = {
-    type: "FeatureCollection",
-    features: [room("loft", 1), room("ground", 0), room("annex", 0), room(null, null)],
-  };
-  const { panel } = mountPanel(
-    async (message) => (message.type === "spatial/geojson" ? collection : answer(message)),
-    { ground: { name: "Ground floor" }, loft: { name: "Loft" } },
-    true,
-  );
+  const { panel } = mountPanel({
+    geojson: rooms(room("loft", 1), room("ground", 0), room("annex", 0), room(null, null)),
+    hassFloors: { ground: { name: "Ground floor" }, loft: { name: "Loft" } },
+    card: true,
+  });
   await vi.waitFor(() =>
     expect(floorButtonNames(panel)).toEqual(["All", "Ground floor", "annex", "Loft", "No floor"]),
   );
@@ -115,9 +130,7 @@ test("the card has one button per floor in the rooms, named by Home Assistant", 
 
 test("an update with a new site bearing turns the map", async () => {
   let bearing = 0;
-  const { connection } = mountPanel(async (message) =>
-    message.type === "spatial/site" ? { lon: 5, lat: 52, bearing_deg: bearing } : answer(message),
-  );
+  const { connection } = mountPanel({ site: () => ({ bearing_deg: bearing }) });
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
   bearing = 90;
   const [[onUpdate]] = connection.subscribeMessage.mock.calls as unknown as [[() => Promise<void>]];
@@ -162,23 +175,14 @@ const square = (floor_id: string, west: number, south: number) => ({
   properties: { floor_id, level: 0 },
 });
 
-const TWO_FLOORS = {
-  type: "FeatureCollection",
-  features: [square("ground", 5, 52), square("first", 6, 53)],
-};
+const TWO_FLOORS = rooms(square("ground", 5, 52), square("first", 6, 53));
 
-const mountStatic = (floor: string, geojson: () => object = () => TWO_FLOORS) =>
-  mountPanel(
-    async (message) => (message.type === "spatial/geojson" ? geojson() : answer(message)),
-    {},
-    true,
-    floor,
-  );
+const mountStatic = (floor: string, geojson: () => object = () => TWO_FLOORS) => mountPanel({ geojson, card: true, floor });
 
 const buttons = (panel: HTMLElement) => buttonsIn(panel.shadowRoot!).length;
 
 test("without a floor the map is interactive, with floor buttons", async () => {
-  const { panel } = mountPanel(answer, {}, true);
+  const { panel } = mountPanel({ card: true });
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
   expect(mapCreated.mock.calls[0][0]).not.toHaveProperty("interactive", false);
   expect(buttons(panel)).toBeGreaterThan(0);
@@ -207,7 +211,7 @@ test("a static map frames the rooms again on every update", async () => {
   let geojson: object = TWO_FLOORS;
   const { connection } = mountStatic("ground", () => geojson);
   await vi.waitFor(() => expect(fitBounds).toHaveBeenCalled());
-  geojson = { type: "FeatureCollection", features: [square("ground", 4, 51)] };
+  geojson = rooms(square("ground", 4, 51));
   const [[onUpdate]] = connection.subscribeMessage.mock.calls as unknown as [[() => Promise<void>]];
   await onUpdate();
   expect(fitBounds.mock.calls.at(-1)?.[0]).toEqual([4, 51, 5, 52]);
@@ -258,15 +262,8 @@ const updates = (connection: { sendMessagePromise: { mock: { calls: [{ type: str
     .map(([message]) => message)
     .filter((message) => message.type === "spatial/site/update");
 
-test("the panel has an Align button, the card does not", async () => {
-  const { panel } = mountPanel();
-  await vi.waitFor(() => expect(alignButton(panel)).toBeDefined());
-  const card = mountPanel(answer, {}, true).panel;
-  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalledTimes(2));
-  expect(alignButton(card)).toBeUndefined();
-});
 
-test("in Align a click on a building saves only the bearing of the wall nearest to it, and ends the mode", async () => {
+test("Align on an empty plan sends the bearing and the wall's left end as origin, and ends the mode", async () => {
   const { panel, connection } = mountPanel();
   // The buildings layer is one MultiPolygon per tile.
   const tile = { type: "MultiPolygon", coordinates: [SHED.coordinates, HOUSE.coordinates] };
@@ -275,16 +272,29 @@ test("in Align a click on a building saves only the bearing of the wall nearest 
   click();
   expect(updates(connection)).toEqual([]);
   await startAligning(panel);
-  await vi.waitFor(() => expect(messageText(panel)).toContain("Click your house near the wall the rooms follow"));
+  await vi.waitFor(() => expect(guideText(panel)).toBe("Click the wall your rooms follow"));
   click();
   expect(queryRenderedFeatures).toHaveBeenLastCalledWith({ x: 1, y: 2 }, { layers: ["building-3d"] });
-  const [saved] = updates(connection) as unknown as [{ bearing_deg: number }];
-  expect(Object.keys(saved)).toEqual(["type", "bearing_deg"]);
-  // The counter-clockwise ring runs north along the east wall.
-  expect(saved.bearing_deg).toBeCloseTo(0, 1);
+  // Which fields and their values are alignFields' rule; here only that the empty plan reaches it.
+  const [saved] = updates(connection);
+  expect(Object.keys(saved)).toEqual(["type", "bearing_deg", "origin"]);
   click();
   expect(updates(connection)).toHaveLength(1);
-  await vi.waitFor(() => expect(messageText(panel)).not.toContain("Click your house"));
+  await vi.waitFor(() => expect(guideText(panel)).not.toContain("Click the wall"));
+});
+
+const ROOM_FEED = rooms({ type: "Feature", id: "kitchen", geometry: SHED, properties: { floor_id: null, level: null } });
+
+test.each([
+  ["a footprint", ROOM_FEED, null],
+  ["an outline", EMPTY, SHED],
+])("Align with %s sends only the bearing", async (_name, feed, outline) => {
+  const { panel, connection } = mountPanel({ geojson: feed, site: { outline } });
+  queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
+  await startAligning(panel);
+  click();
+  const [saved] = updates(connection);
+  expect(Object.keys(saved)).toEqual(["type", "bearing_deg"]);
 });
 
 test("in Align a click turns the camera so the wall lies low in the view, and the update does not turn it again", async () => {
@@ -335,7 +345,7 @@ test("in Align a click without a building saves nothing", async () => {
   const { panel, connection } = mountPanel();
   await startAligning(panel);
   click();
-  await vi.waitFor(() => expect(messageText(panel)).toContain("No building here"));
+  await vi.waitFor(() => expect(toasts).toEqual([{ message: "No building here" }]));
   const buildingQueries = () =>
     queryRenderedFeatures.mock.calls.filter((call) => JSON.stringify(call).includes("building-3d")).length;
   const queried = buildingQueries();
@@ -346,12 +356,7 @@ test("in Align a click without a building saves nothing", async () => {
 
 test.each([false, true])("the stored outline is drawn on start and after updates (card %s)", async (card) => {
   let outline: object | null = HOUSE;
-  const { connection } = mountPanel(
-    async (message) =>
-      message.type === "spatial/site" ? { lon: 5, lat: 52, bearing_deg: 0, outline } : answer(message),
-    {},
-    card,
-  );
+  const { connection } = mountPanel({ site: () => ({ outline }), card });
   await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
   handlers["style.load"]();
   expect(layers.find((layer) => layer.id === "spatial-outline")).toMatchObject({
@@ -365,25 +370,97 @@ test.each([false, true])("the stored outline is drawn on start and after updates
   expect(sources.outline.data).toEqual(EMPTY);
 });
 
-test("in Align a failed save says so and turns the map back", async () => {
-  const { panel } = mountPanel(async (message) => {
-    if (message.type === "spatial/site/update") throw new Error("connection lost");
-    return answer(message);
+test("in Align a save Spatial refuses turns the map back and shows its reason, without Retry", async () => {
+  const refusal = { code: "outside_outline", message: "Beyond the building outline: kitchen" };
+  const { panel } = mountPanel({
+    reply: async (message) => {
+      if (message.type === "spatial/site/update") throw refusal;
+    },
   });
   queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
   vi.spyOn(console, "error").mockImplementationOnce(() => {});
   await startAligning(panel);
   click();
-  await vi.waitFor(() => expect(messageText(panel)).toContain("Could not save"));
+  await vi.waitFor(() => expect(toastMessages()).toEqual([refusal.message]));
+  expect(toasts[0].action).toBeUndefined();
+  expect(easeTo).toHaveBeenLastCalledWith({ bearing: 270 });
+});
+
+test("in Align a failed save turns the map back and offers Retry, which saves the same bearing again", async () => {
+  let fail = true;
+  const { panel, connection } = mountPanel({
+    reply: async (message) => {
+      if (message.type === "spatial/site/update" && fail) throw new Error("connection lost");
+    },
+  });
+  queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
+  vi.spyOn(console, "error").mockImplementationOnce(() => {});
+  await startAligning(panel);
+  click();
+  await vi.waitFor(() => expect(toastMessages()).toEqual(["Could not save"]));
+  const [failure] = toasts;
+  expect(failure).toMatchObject({ action: { text: "Retry" }, duration: -1, dismissable: true });
   // The fixture's stored bearing gives the same map bearing as the clicked wall.
   expect(easeTo).toHaveBeenLastCalledWith({ bearing: 270 });
+  fail = false;
+  failure.action!.action();
+  await vi.waitFor(() => expect(updates(connection)).toHaveLength(2));
+  expect(updates(connection)[1]).toEqual(updates(connection)[0]);
+});
+
+test("the header's Help opens a sheet of symbols and keys that Escape closes, giving focus back to Help", async () => {
+  const { panel } = mountPanel();
+  await vi.waitFor(() => expect(panel.shadowRoot?.querySelector("spatial-panel-header")).not.toBeNull());
+  await settle(panel);
+  const header = panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!;
+  const dialog = header.querySelector("dialog")!;
+  const help = headerButton(panel, "Help");
+  const focus = vi.spyOn(help, "focus");
+  expect(dialog.open).toBe(false);
+  help.click();
+  expect(dialog.open).toBe(true);
+  expect(dialog.textContent).toContain("No shape yet");
+  expect(dialog.textContent).toContain("Remove the active shape");
+  expect(dialog.querySelector("a")).toMatchObject({ href: "https://github.com/BIM-Tools/ha-spatial", target: "_blank" });
+  const escape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true, cancelable: true });
+  const editorKeys = vi.fn();
+  window.addEventListener("keydown", editorKeys);
+  dialog.dispatchEvent(escape);
+  window.removeEventListener("keydown", editorKeys);
+  expect(dialog.open).toBe(false);
+  expect(editorKeys).not.toHaveBeenCalled();
+  expect(focus).toHaveBeenCalled();
+  help.click();
+  headerButton(panel, "Close").click();
+  expect(dialog.open).toBe(false);
+  expect(focus).toHaveBeenCalledTimes(2);
+});
+
+test.each([
+  [false, true],
+  [true, false],
+])("Help on a coarse pointer (%s) names Alt for placing without snapping: %s", async (coarse, named) => {
+  const query = vi.spyOn(window, "matchMedia").mockImplementation(
+    (media: string) =>
+      ({
+        matches: coarse && media === "(pointer: coarse)",
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }) as unknown as MediaQueryList,
+  );
+  const { panel } = mountPanel();
+  await vi.waitFor(() => expect(panel.shadowRoot?.querySelector("spatial-panel-header")).not.toBeNull());
+  await settle(panel);
+  const dialog = panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!.querySelector("dialog")!;
+  expect(dialog.textContent?.includes("Hold Alt to place without snapping")).toBe(named);
+  query.mockRestore();
 });
 
 test("Align turns the map before the save is answered", async () => {
   let answerSave = () => {};
-  const { panel } = mountPanel(async (message) => {
-    if (message.type === "spatial/site/update") return new Promise<null>((resolve) => (answerSave = () => resolve(null)));
-    return answer(message);
+  const { panel } = mountPanel({
+    reply: async (message) =>
+      message.type === "spatial/site/update" ? new Promise<null>((resolve) => (answerSave = () => resolve(null))) : undefined,
   });
   queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
   await startAligning(panel);
@@ -416,9 +493,34 @@ test("the panel reads the areas and floors again on registry changes, until it i
 });
 
 test("the card does not follow the registries", async () => {
-  const { connection } = mountPanel(answer, {}, true);
+  const { connection } = mountPanel({ card: true });
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
   expect(connection.subscribeEvents).not.toHaveBeenCalled();
+});
+
+test("a unit system change uses the refetched frame", async () => {
+  let frame = siteFrameData(SITE, 0);
+  const { panel, connection } = mountPanel({ site: () => ({ frame }) });
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
+  await showNoFloor(panel);
+  buttonNamed(panel, "Draw")!.click();
+  await settle(panel);
+  frame = siteFrameData(SITE, 0, US_UNIT_M);
+  await onUpdateOf(connection)();
+  const mouse = (x: number, y: number) => {
+    const [lng, lat] = unprojectPixel([x, y]);
+    return { point: { x, y }, lngLat: { lng, lat }, originalEvent: { button: 0 }, preventDefault: vi.fn() };
+  };
+  handlers.mousedown(mouse(10.3, 0.2));
+  handlers.mousemove(mouse(47.1, 31.7));
+  handlers.mouseup(mouse(47.1, 31.7));
+  await vi.waitFor(() => expect(updates(connection)).toHaveLength(1));
+  const [{ outline }] = updates(connection) as unknown as [{ outline: { coordinates: number[][][] } }];
+  const inches = PlanFrame.fromSite(frame);
+  for (const corner of outline.coordinates[0]) {
+    for (const units of inches.toLatticeUnits(corner)) expect(Math.abs(units / 4 - Math.round(units / 4))).toBeLessThan(1e-6);
+  }
 });
 
 const pressedTools = (panel: HTMLElement) =>
@@ -503,9 +605,7 @@ test("Align turns the map on with the toggle disabled, and its end turns it off 
 
 test("the compass turns with the map", async () => {
   let bearing = 0;
-  const { panel, connection } = mountPanel(async (message) =>
-    message.type === "spatial/site" ? { lon: 5, lat: 52, bearing_deg: bearing, outline: null } : answer(message),
-  );
+  const { panel, connection } = mountPanel({ site: () => ({ bearing_deg: bearing }) });
   await vi.waitFor(() => expect(handlers.rotate).toBeDefined());
   await settle(panel);
   const needle = () => buttonNamed(panel, "Face the house")!.querySelector("ha-svg-icon")!.getAttribute("style");
@@ -518,11 +618,10 @@ test("the compass turns with the map", async () => {
   expect(needle()).toContain("rotate(0deg)");
 });
 
-const UNALIGNED_SITE: Reply = async (message) =>
-  message.type === "spatial/site" ? { lon: 5, lat: 52, bearing_deg: null, outline: null } : answer(message);
+const UNALIGNED = { site: { bearing_deg: null } };
 
 test("before any Align the map opens north up and the compass faces north, also in Draw", async () => {
-  const { panel } = mountPanel(UNALIGNED_SITE);
+  const { panel } = mountPanel(UNALIGNED);
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
   expect(mapCreated.mock.calls[0][0]).toMatchObject({ bearing: 0 });
   await showNoFloor(panel);
@@ -535,12 +634,7 @@ test("before any Align the map opens north up and the compass faces north, also 
 });
 
 test("before any Align a static card frames its rooms north up", async () => {
-  mountPanel(
-    async (message) => (message.type === "spatial/geojson" ? TWO_FLOORS : UNALIGNED_SITE(message)),
-    {},
-    true,
-    "all",
-  );
+  mountPanel({ ...UNALIGNED, geojson: TWO_FLOORS, card: true, floor: "all" });
   await vi.waitFor(() => expect(fitBounds).toHaveBeenCalled());
   expect(fitBounds.mock.calls[0][1]).toMatchObject({ bearing: 0 });
 });
@@ -590,32 +684,18 @@ const headerButton = (panel: HTMLElement, label: string) =>
     (button) => button.label === label,
   )!;
 
-test("Back from an entry Home Assistant did not push goes to the integration page, keeping its root mark", async () => {
-  history.replaceState({ root: true }, "", "/spatial");
-  const back = vi.spyOn(history, "back").mockImplementation(() => {});
+test("Back opens Spatial's integration page in Home Assistant, and is a link for a new tab", async () => {
+  history.replaceState(null, "", "/spatial");
   const changed = vi.fn();
   window.addEventListener("location-changed", changed);
   const { panel } = mountPanel();
   await settle(panel);
-  headerButton(panel, "Back").click();
-  expect(back).not.toHaveBeenCalled();
+  const back = headerButton(panel, "Back to Spatial");
+  expect(back.href).toBe("/config/integrations/integration/spatial");
+  back.click();
   expect(location.pathname).toBe("/config/integrations/integration/spatial");
-  expect(history.state).toEqual({ root: true });
   expect(changed).toHaveBeenCalledTimes(1);
   window.removeEventListener("location-changed", changed);
-  back.mockRestore();
-});
-
-test("Back goes back when Home Assistant's router brought the user here", async () => {
-  history.replaceState({ from: "/config/integrations" }, "", "/spatial");
-  const back = vi.spyOn(history, "back").mockImplementation(() => {});
-  const { panel } = mountPanel();
-  await settle(panel);
-  expect(headerButton(panel, "Back").href).toBe("/config/integrations/integration/spatial");
-  headerButton(panel, "Back").click();
-  expect(back).toHaveBeenCalledTimes(1);
-  expect(location.pathname).toBe("/spatial");
-  back.mockRestore();
 });
 
 test("on a phone the floors are chips under the header, the tools a bottom bar, and the map toggle round", async () => {
@@ -649,11 +729,29 @@ test("the rooms are painted from the theme's primary colour and follow a changed
   expect(paintOf("spatial-active")).toMatchObject({ "line-color": "rgba(200,0,100,1)", "line-width": 2 });
 });
 
-test("dark mode paints the rooms with the stronger dark fills", async () => {
+
+// Home Assistant can hand over its themes before it has resolved darkMode, and then resolve it much later.
+test("a dark Home Assistant without darkMode in its themes gets the dark map, and the light one once it says light", async () => {
+  const fetchMock = vi.mocked(fetch);
+  fetchMock.mockClear();
+  const query = vi.spyOn(window, "matchMedia").mockImplementation(
+    (media: string) =>
+      ({
+        matches: media === "(prefers-color-scheme: dark)",
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }) as unknown as MediaQueryList,
+  );
+  const unresolved = { default_theme: "default", default_dark_theme: null, themes: {} };
   const { panel } = mountPanel();
   panel.style.setProperty("--primary-color", "rgb(0, 128, 0)");
-  panel.hass = { ...panel.hass, themes: { darkMode: true } };
+  panel.hass = { ...panel.hass, themes: unresolved };
   await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  expect(fetchMock).toHaveBeenLastCalledWith("/static/map/dark.json");
   handlers["style.load"]();
   expect(paintOf("areas-2d")).toEqual({ "fill-color": "rgba(0,128,0,0.12)" });
+  panel.hass = { ...panel.hass, themes: { ...unresolved, darkMode: false } };
+  await vi.waitFor(() => expect(setStyle).toHaveBeenCalled());
+  expect(fetchMock).toHaveBeenLastCalledWith("/static/map/light.json");
+  query.mockRestore();
 });

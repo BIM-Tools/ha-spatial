@@ -1,0 +1,47 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start test server",
+      "detail": "Home Assistant on :8123 and the panel rebuilt on change",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "up", "-d", "homeassistant", "frontend"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Restart test server",
+      "detail": "Restart Home Assistant, for example after a Python change",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "restart", "homeassistant"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Wait for debugger",
+      "detail": "Until debugpy listens in the container (needs debugpy: in .ha-config)",
+      "type": "process",
+      "command": "docker",
+      "args": [
+        "compose", "exec", "-T", "homeassistant",
+        "timeout", "120", "sh", "-c", "until nc -z 127.0.0.1 5678; do sleep 1; done"
+      ],
+      "problemMatcher": [],
+      "hide": true
+    },
+    {
+      "label": "Start test server and wait for debugger",
+      "dependsOrder": "sequence",
+      "dependsOn": ["Start test server", "Wait for debugger"],
+      "problemMatcher": [],
+      "hide": true
+    },
+    {
+      "label": "Restart test server and wait for debugger",
+      "dependsOrder": "sequence",
+      "dependsOn": ["Restart test server", "Wait for debugger"],
+      "problemMatcher": [],
+      "hide": true
+    }
+  ]
+}

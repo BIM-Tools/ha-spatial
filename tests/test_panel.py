@@ -1,33 +1,54 @@
 """Proves the panel and the card are registered and versioned for the browser."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL
 from homeassistant.core import HomeAssistant
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockUser
+from pytest_homeassistant.typing import WebSocketGenerator
 
 import custom_components.spatial
-from custom_components.spatial.const import DOMAIN, STATIC_URL
+from custom_components.spatial.const import DOMAIN, PANEL_URL_PATH, STATIC_URL
+
+from .common import call, setup_entry
 
 
-async def setup_entry(hass: HomeAssistant) -> MockConfigEntry:
-    """Set up the integration with a config entry."""
-    entry = MockConfigEntry(domain=DOMAIN, title="Spatial")
-    entry.add_to_hass(hass)
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-    return entry
+async def panels_for_user(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> dict[str, Any]:
+    """Return the panels Home Assistant's frontend gets for the current user."""
+    msg = await call(await hass_ws_client(hass), type="get_panels")
+    assert msg["success"], msg
+    panels: dict[str, Any] = msg["result"]
+    return panels
 
 
-async def test_panel_registered_for_admins(hass: HomeAssistant) -> None:
-    """The panel is registered for admins, without a sidebar entry."""
+async def test_panel_for_admins_outside_the_sidebar(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Configure opens the panel, which has no sidebar entry.
+
+    Home Assistant's sidebar lists only panels with a title.
+    """
     await setup_entry(hass)
 
-    panel = hass.data["frontend_panels"]["spatial"]
-    assert panel.config_panel_domain == DOMAIN
-    assert panel.require_admin
-    assert panel.sidebar_title is None
+    panel = (await panels_for_user(hass, hass_ws_client))[PANEL_URL_PATH]
+    assert panel["require_admin"]
+    assert panel["title"] is None
+    assert panel["icon"] is None
+    assert panel["config_panel_domain"] == DOMAIN
+
+
+async def test_panel_hidden_from_non_admins(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, hass_admin_user: MockUser
+) -> None:
+    """A user without admin rights does not get the panel."""
+    await setup_entry(hass)
+    hass_admin_user.groups = []
+
+    assert PANEL_URL_PATH not in await panels_for_user(hass, hass_ws_client)
 
 
 async def test_panel_removed_on_unload_and_back_on_setup(hass: HomeAssistant) -> None:
@@ -85,15 +106,16 @@ def module_urls(hass: HomeAssistant) -> list[str]:
     return [url for url in hass.data[DATA_EXTRA_MODULE_URL].urls if url.startswith(STATIC_URL)]
 
 
-async def test_module_url_follows_either_bundle(hass: HomeAssistant, frontend_folder: Path) -> None:
-    """Rebuilding the card or the panel gives a new URL, so browsers do not keep the old one."""
+async def test_module_url_follows_every_bundle(hass: HomeAssistant, frontend_folder: Path) -> None:
+    """Rebuilding the card, the panel or the worker gives a new URL, so no browser keeps it."""
     (frontend_folder / "spatial-card.js").write_text("card")
     (frontend_folder / "spatial-panel.js").write_text("panel")
+    (frontend_folder / "maplibre-gl-worker.js").write_text("worker")
     entry = await setup_entry(hass)
     (url,) = module_urls(hass)
     seen = {url}
 
-    for bundle in ("spatial-panel.js", "spatial-card.js"):
+    for bundle in ("spatial-panel.js", "spatial-card.js", "maplibre-gl-worker.js"):
         assert await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
         (frontend_folder / bundle).write_text("rebuilt")

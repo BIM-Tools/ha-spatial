@@ -32,8 +32,11 @@ prefix `docker` commands with `MSYS_NO_PATHCONV=1`.
 | hassfest | `docker run --rm -v "$(pwd -W)":/github/workspace:ro ghcr.io/home-assistant/hassfest` |
 | Panel build, rebuilt on change | `docker compose up -d frontend` |
 | Real Home Assistant | `docker compose up homeassistant` |
+| Debug in VS Code | `debugpy:` in `.ha-config/configuration.yaml`, then launch config "Attach to Home Assistant" (starts the test server first) or "Restart and attach to Home Assistant"; the `frontend` service adds panel source maps. Tasks "Start test server" and "Restart test server" do the same without the debugger |
 | Frontend (typecheck, test, build) | `MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/frontend":/app -v "$(pwd -W)/custom_components":/custom_components -w /app node:24-alpine sh -c "npm ci && npm run typecheck && npm test && npm run build"` |
 | E2E smoke test (build the panel first) | `docker compose run --rm e2e; docker compose rm -sf homeassistant-e2e` |
+| State gallery: screenshots and contact sheets of every UI state in `gallery-out/`, and the documentation images in `docs/images/` (build the panel first; commit `docs/images/` only in a `docs:` pull request) | `docker compose run --rm gallery; docker compose rm -sf homeassistant-e2e` |
+| Release | `git tag -a vX.Y.Z -m "<release notes>" && git push origin vX.Y.Z`; the workflow builds `spatial.zip` and publishes the full release with it |
 | Sync frontend versions | `python tools/sync_frontend_versions.py` (`--check` only compares) |
 | Tools | Run them against the real Home Assistant, see `tools/README.md` |
 
@@ -44,18 +47,19 @@ Change these only through an issue that names the reason.
 | Area | Decision |
 | --- | --- |
 | Coordinates | WGS84 GeoJSON, the same world as Home Assistant zones |
-| Measurement | In the integration, local tangent plane with exact WGS84 radii; never UTM, national grids, Mercator or screen space |
+| Measurement | In the integration, in one fixed site frame: the local tangent plane at the origin, along the bearing, with exact WGS84 radii; never UTM, national grids, Mercator or screen space |
 | Footprint | One area has at most one `Polygon`, inner rings (holes) allowed; no MultiPolygon, its parts cannot carry identity |
 | Rooms across floors | `floors_up` per area: the Home Assistant floor is the main and lowest floor; the room occupies the floors above it, contiguous |
-| Adjacency | Derived from shared edges, outer and inner rings, on every floor a room occupies; interior walls on centrelines, exterior walls on a line inside the drawn facade at the options-flow offset (default by Home Assistant's country: 0.25 m, about 0.11 m for US and CA); both derived, never stored |
+| Adjacency | Derived from shared edges, outer and inner rings, on every floor a room occupies; room edges are wall axes, compared exactly on the lattice; never stored |
 | Address search | The backend may call OpenStreetMap Nominatim, only on an explicit search, with an identifying user agent and its rate limit; country geocoders and authoritative outlines stay outside the integration |
 | Home location | When the chosen building lies more than 25 m from Home Assistant's home, onboarding asks once whether to move the home there, and remembers the answer; a move changes latitude and longitude only, through core config, and can be undone |
 | Units | Display follows Home Assistant's unit system; storage stays metric WGS84 |
-| Area | `area_m2` is net: the drawn polygon shrunk by 50 mm on every side |
-| Outdoor, facade | `is_external` means an outdoor room (outside the outline, IFC `IsExternal`); `on_facade` is derived from touching the outline, with an optional override |
+| Area | `area_m2` is net: the axial polygon inset by half walls, half a grid step (5 cm, 2 in) interior and 15 cm (3 in) along the outline |
+| Outdoor, facade | The outline is the exterior wall axis and a hard limit: an indoor room never extends beyond it; `is_external` means a room outside it (IFC `IsExternal`); `on_facade` is derived from sharing the outline, with an optional override |
 | Building, sub-spaces | Home Assistant labels; no code |
+| Building name | Home Assistant's location name (`location_name` in core config); renaming the building in the panel renames the location; no own building name |
 | Site anchor | One direction per installation; the centre follows all footprints, else the outline; aligns views only, so stored geometry never moves with it, except through the explicit, confirmed and undoable "Change alignment" (rotation reduced to a right angle, then snapped to the grid, in one write) |
-| Site grid | A grid origin set at Align; drawing snaps to a 10 cm grid on the site axis from it |
+| Site grid | Stored as written in WGS84, read on a lattice of a quarter drawing grid step (2.5 cm or 1 in, from Home Assistant's unit system) in the frame of the site origin and bearing; drawing snaps to 10 cm (4 in); the integration publishes the frame in `spatial/site` and the panel draws in it; the first Align on an empty plan sets the origin to the left end of the picked wall |
 | Dependencies | Pure Python in the integration; no shapely or other compiled packages |
 | Finding the building | OSM buildings in Home Assistant's map tiles set the axis only, and may act as an unstored snap guide while the outline is drawn on the map |
 | Frontend packages | Packages shared with Home Assistant's frontend use the exact version that frontend ships |
@@ -72,15 +76,18 @@ In this order:
 3. A canonical algorithm, ported line for line with its licence notice and source link
    (see `_pnpoly` in `geometry.py`). Copied Home Assistant code names its source path
    (see `normalize_name` in `tools/import_geojson.py`).
-4. Only then custom code, marked as custom in its docstring (see `shared_edge_length_m`).
+4. Only then custom code, marked as custom in its docstring (see `shared_edge_length`).
 
 State known limits in the docstring, for example "a point exactly on an edge may fall either
 way".
 
 ## Single implementations
 
-- All measurement geometry is in `custom_components/spatial/geometry.py`. The panel's drawing geometry is turf in
-  `frontend/src/plan.ts`; the Align pick is in `frontend/src/outline.ts`.
+- All measurement geometry is in `custom_components/spatial/geometry.py`; the panel applies the frame
+  the integration publishes (`frontend/src/site-frame.ts`) and does its drawing geometry on lattice
+  integers in `frontend/src/plan.ts`, with turf only to join boxes, snapping in `snap.ts` (lit by
+  `snap-highlight.ts`), the stop at the outline and the neighbours in `wall-stop.ts` and edge and corner drags in `edge-drag.ts`;
+  the Align pick is in `frontend/src/outline.ts`.
 - Tools, bridges and frontends use only the websocket API; nothing else reads
   `.storage/spatial` or imports the integration.
 - Home Assistant owns areas and floors. Data is keyed by `area_id` and `floor_id`; names,
@@ -129,8 +136,22 @@ The panel and the card should look as if they were always part of Home Assistant
 
 ## Tests
 
-- A bug fix starts with a failing test.
+- A test guards a public input or output: a websocket command, an exported function, a
+  component's events and attributes, a callback a class calls. Never private fields, layer ids
+  or call order inside a module.
+- One rule, one test, at the lowest layer that owns it. Pure rules (geometry, lattice, snapping,
+  parsing, ordering) are tested as pure functions; a stateful shell (panel, editor, coordinator)
+  is tested only for its wiring: what it sends, records, reloads and shows.
+- Cases of one rule go in one `test.each` or `pytest.mark.parametrize` table, not in copies.
+- Stable modules keep only their API guards; a change touches a module's tests only where its
+  inputs or outputs changed.
+- A bug fix starts with a failing test, at the layer where the bug was.
 - No tests that read back what they just set, or that assert a mock's return value.
+- Logic sits in pure functions with plain input and output; classes hold state and call them.
+  A rule testable only through the panel harness is a reason to extract it.
+- An exported function's parameters or return shape, a callback interface, or a command's schema
+  or result changes only with a reason in the pull request body; tests of the old shape are
+  replaced, not added to.
 
 ## Changes and removals
 
@@ -148,16 +169,44 @@ The panel and the card should look as if they were always part of Home Assistant
   the module docstring in Python, a `//` comment in TypeScript and JavaScript, a `#` comment
   in YAML, Dockerfiles and shell scripts. JSON is exempt.
 - Each part has one README: why it exists, how to use it, its architecture in lists and
-  tables. No other Markdown files.
+  tables. The only other Markdown files are the user guide and the architecture in `docs/`.
 - Never add a `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md`: Claude Code then stops
   reading this file. CI fails on the first two.
 
 ## Commits and pull requests
 
-- One change per pull request, squash merged into `main`.
+- One change per pull request, squash merged into `main`. That holds for UI polish too: each
+  visible behaviour is its own pull request, and CI, tooling or dependency changes a feature
+  needs land first in their own.
+- Documentation screenshots in `docs/images/` are regenerated in their own `docs:` pull
+  request (for example before a release), never inside a feature or fix.
 - Conventional commits, subject at most 72 characters, a short body with what and why.
+- A pull request description is the squash commit message: plain text without Markdown, only
+  the why (one or two sentences, then a line per notable part with its reason); never the
+  discussion, alternatives, verification logs or review history.
 - No AI attribution in commits, pull requests or files: no `Co-Authored-By` trailers or
   "generated with" lines. The author is accountable for every line, however it was written.
+
+## Review checklist
+
+Run on every pull request before merge, item by item:
+
+1. One change; no unrelated edits, screenshots or polish.
+2. Tests follow "Tests": a bug fix has a test that failed before it; no rule tested twice or
+   through internals; tests of replaced code are gone.
+3. Every changed export, callback interface, command schema or result shape has a reason in the
+   body; callers, READMEs and `tools/` are updated.
+4. New logic is a pure function or sits in one; no new class state where a parameter would do.
+5. "Reuse before writing" and "Single implementations" hold; no second implementation of a rule.
+6. Every write command validates its input and requires admin; unknown references return
+   `not_found`, bad input `invalid_format`.
+7. No real location, address, footprint, token or search in code, fixtures, images or text.
+8. Each code file has its why header; names carry the meaning; comments only for a why; no em or
+   en dashes.
+9. UI changes use Home Assistant's theme and always-loaded components, are checked in light and
+   dark, and update `docs/user-guide.md`.
+10. Title is a conventional commit of at most 72 characters; body is plain text with only the
+    why; no AI attribution; required checks green; threads resolved.
 
 ## Real gates
 
@@ -168,12 +217,17 @@ What is and is not checked automatically:
   vitest, a build, `sync_frontend_versions.py --check`).
 - `E2E` runs on the same triggers but is not a required check yet: it covers one room drawn with
   the mouse in the panel of a fresh Home Assistant, and nothing else of the panel.
-- On a published GitHub release: `Release` builds the panel and uploads `spatial.zip` (the
-  integration with the bundle and licences, version taken from the tag). Untested until the
-  first release; check the zip then.
+- On a pushed `v*` tag: `Release` builds the panel and `spatial.zip` (the integration with the
+  bundle and licences, version taken from the tag), then creates the release with the zip and
+  the tag message as notes. The release-event version ran for v0.1.0 and its zip was checked;
+  the tag-push version is untested until the next release, check that release then.
 - `main` is protected by a ruleset: pull request required, review threads resolved, squash
   merge only, checks `test`, `hassfest`, `ruff`, `agents-file` and `hacs` required and up to
-  date with `main`, no force pushes or deletion. Copilot reviews every pull request.
+  date with `main`, no force pushes or deletion.
+- No automated review: the review checklist is run by hand or by a review agent on every pull
+  request; nothing checks that it was.
+- The frontend has no coverage floor, by choice: its tests are judged by the "Tests" rules, not
+  by covered lines.
 - `tools/sync_frontend_versions.py` has unit tests; `tools/import_geojson.py` has none, verify
   changes to it against a real Home Assistant.
 - Ruff reports `EXE002` on every file through the Windows bind mount; it is an artefact of the
@@ -202,3 +256,5 @@ What is and is not checked automatically:
   Assistant registers `/spatial_static` as a single file and the panel 404s until a restart.
 - `manifest.json`'s `version` in git is not the released one; the release workflow writes the
   tag into the zip.
+- HACS offers the newest full release; with only a pre-release its default Download is the
+  latest commit, which has no `spatial.zip` and fails. Publish releases as full releases.

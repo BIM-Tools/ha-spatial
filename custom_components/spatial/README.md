@@ -9,34 +9,10 @@
 ## How to use
 
 1. Install and add **Spatial** as in the root [README](../../README.md#install) (one instance).
-2. Draw footprints in the panel (Spatial > Configure, Draw; see Panel below), or import them
-   with `tools/import_geojson.py`.
-3. Show the rooms on a dashboard: add a card with `type: custom:spatial-map-card`, best in a
-   view of type Panel so the map fills it. Everyone who can see the dashboard sees the map.
-   The card has one option, in YAML:
-
-   | `floor` | Shows |
-   | --- | --- |
-   | not set | Floor buttons; pan, zoom and rotate |
-   | `all` | All floors in 3D, fixed |
-   | a `floor_id` | That floor as a plan, fixed |
-
-   A fixed view has no buttons, frames its rooms and follows changes. A dashboard view with
-   all three:
-
-   ```yaml
-   title: Floors
-   type: sections
-   sections:
-     - type: grid
-       cards:
-         - type: custom:spatial-map-card
-           floor: all
-         - type: custom:spatial-map-card
-           floor: ground_floor
-         - type: custom:spatial-map-card
-           floor: first_floor
-   ```
+2. Draw footprints in the panel and show them on a dashboard: see the
+   [user guide](../../docs/user-guide.md). Or import them with
+   [`tools/import_geojson.py`](../../tools/README.md).
+3. Read and write the data from elsewhere through the websocket API below.
 
 ## Architecture
 
@@ -44,101 +20,106 @@
 
 | Object | Keyed by | Fields | Owner of the key |
 | --- | --- | --- | --- |
-| Area footprint | `area_id` | `polygon` (GeoJSON, WGS84), `floors_up` (0), `on_facade_override` (null); `area_m2` is computed on read | Area registry |
+| Area footprint | `area_id` | `polygon` (GeoJSON, WGS84), `floors_up` (floors the room reaches above its own, 0), `on_facade_override` (null, true or false); `area_m2`, `floor_ids`, `on_facade` and `is_external` are computed on read | Area registry |
 | Floor | `floor_id` | `elevation_m`, `height_m` (both optional) | Floor registry |
-| Site | - | `bearing_deg` (null until the first Align), `origin` (`[lon, lat]` of the grid, or null), `outline` (the drawn facade, GeoJSON Polygon or null); the centre is derived, not stored | This integration |
+| Site | - | `bearing_deg` (null until the first Align), `origin` (`[lon, lat]` of the grid, or null until the first write), `outline` (the exterior wall axis, GeoJSON Polygon or null); the centre is derived, not stored | This integration |
 | Onboarding | - | `home_pin` (null) | This integration |
 
-- Stored in `.storage/spatial` as version 1.2, written atomically 2 seconds after the last change, and on unload and shutdown.
-- Data saved by an older release is migrated on load: every key is present afterwards, and a stored `area_m2` and the site's `lon` and `lat` are dropped. An older release drops the newer fields on its first save.
-- `floors_up`, `on_facade_override` and `home_pin` keep their defaults; no command sets them yet.
+- Stored in `.storage/spatial` as version 1.3, written atomically 2 seconds after the last change, and on unload and shutdown.
+- Data saved by an older release is migrated on load: every key is present afterwards, and a stored `area_m2` and the site's `lon` and `lat` are dropped. A site saved before 1.3 without an origin gets the default origin below, so its plans are measured; no stored geometry moves. An older release drops the newer fields on its first save.
+- `home_pin` keeps its default; no command sets it yet.
 - Each area entry and the site have a `rev`: the first 12 hex characters of the sha256 of the entry as sorted JSON. Derived, never stored; it changes exactly when the content changes, whoever changed it.
 - Names, levels and floor assignment are read from Home Assistant's registries, never copied.
 - Deleting an area or floor in Home Assistant deletes its spatial data.
 - Floors without data stack 3 m per level.
 - Site centre: the middle of the bounding box of all footprints, computed on every read; else the building outline, else the home location. The bearing is null until the first Align.
-- Site origin: the grid origin; the 10 cm drawing grid runs along the site bearing from it. Set at Align and never moved automatically; the centre may move, the origin does not.
+- Site origin: the grid origin; the 10 cm (4 in) drawing grid runs along the site bearing from it, or north before the first Align. Set by Align, with the bearing, to the left end of the picked wall while the plan is empty; never moved automatically; the centre may move, the origin does not. The first write to a site without an origin, unless it sets one, stores the default origin: the first corner of the outline, else of the first footprint, else the home location. A site whose origin was removed reads on that default.
+- Site frame and lattice: the origin, the bearing and the WGS84 radii at the origin's latitude give one plane per site. Coordinates are stored exactly as written; every read snaps them to the lattice in that plane (a quarter of the drawing grid of Home Assistant's unit system: 2.5 cm, or 1 in for US customary; a unit switch reads everything again on the new lattice), and every derived value is computed from those lattice points. Reads return the snapped coordinates, which snap to themselves again. A new bearing or origin moves no stored data, only the lattice it is read on.
+- Site frame as published: `frame` holds the effective origin and bearing (after the defaults), `unit_m` (the lattice unit), `units_per_step` and `to_lattice`, the 2 x 2 matrix that maps `[lon - lon0, lat - lat0]` to lattice units; its inverse maps back. Clients apply it instead of computing their own.
 
 ### Websocket API
 
 | Command | Admin | Input | Result |
 | --- | --- | --- | --- |
-| `spatial/geojson` | no | `floor_id`? | FeatureCollection of footprints, JSON-FG conformant (`conformsTo`), each feature with `featureType` `https://w3id.org/bot#Space` |
-| `spatial/query_point` | no | `lon`, `lat`, `floor_id`? | `{area_id}` (smallest match, or null) |
+| `spatial/geojson` | no | `floor_id`? (the areas occupying that floor) | FeatureCollection of footprints, JSON-FG conformant (`conformsTo`), each feature with `featureType` `https://w3id.org/bot#Space` |
+| `spatial/query_point` | no | `lon`, `lat`, `floor_id`? (among the areas occupying that floor) | `{area_id}` (smallest match, or null) |
 | `spatial/area/adjacent` | no | `area_id` | `{area_ids}` |
-| `spatial/site` | no | - | `{lon, lat, bearing_deg, origin, outline, rev}` (`bearing_deg` null until the first Align; centre derived from the footprints, else the outline, else the home location) |
+| `spatial/site` | no | - | `{lon, lat, bearing_deg, origin, outline, rev, frame, api_version}`: `lon` and `lat` are the site centre, the outline is on the lattice, `frame` is the site frame as published (see Data), `api_version` is the contract (see Compatibility) |
 | `spatial/subscribe` | no | - | An empty event message on every change, until `unsubscribe_events` |
-| `spatial/area/update_geometries` | yes | `areas`?: `{area_id: polygon or null}` (null removes); `site`?: `{bearing_deg?, origin?, outline?}` (null removes one); `expected_rev`?: `{area_id: rev or null}` (null: expect no footprint); `expected_site_rev`?; areas and/or site | `{area_m2: {area_id: m²}, rev: {area_id: rev or null}, site_rev}` |
+| `spatial/area/update_geometries` | yes | `areas`?: `{area_id: polygon or null}` (null removes); `properties`?: `{area_id: {floors_up?, on_facade_override?}}` (for areas with a footprint after the change; omitted ones are kept); `site`?: `{bearing_deg?, origin?, outline?}` (null removes one); `expected_rev`?: `{area_id: rev or null}` (null: expect no footprint); `expected_site_rev`?; areas, properties and/or site | `{area_m2: {area_id: m²}, rev: {area_id: rev or null}, site_rev}` (`rev` of every area in areas or properties) |
 | `spatial/floor/update` | yes | `floor_id`, `elevation_m`?, `height_m`? (null clears one; omitted ones are kept) | - |
 | `spatial/site/update` | yes | `bearing_deg`? (0 to under 360, or null to remove), `origin`? (`[lon, lat]`, or null to remove), `outline`? (Polygon, or null to remove); at least one; `expected_rev`? (the site rev) | `{site_rev}` |
-| `spatial/geocode` | yes | `query` (1 to 200 characters), `limit`? (1 to 10, default 5) | `{results: [{name, lat, lon, bbox}], attribution: "Search by OpenStreetMap"}` (`bbox` is `[west, south, east, north]` or null) |
+| `spatial/address/search` | yes | `query` (3 to 200 characters after trimming) | `{places: [{label, lat, lon, bbox}]}`: up to 5 places from OpenStreetMap Nominatim, places near Home Assistant's home preferred; `bbox` is `[west, south, east, north]` or null |
 
-- Feature properties: `area_id`, `name`, `floor_id`, `level`, `area_m2`, `base_m`, `top_m`
-  (ready for MapLibre `fill-extrusion`), `rev`.
+- Feature properties, ready for automations and exports:
+
+  | Property | Meaning |
+  | --- | --- |
+  | `area_id`, `name` | The area, named as in Home Assistant |
+  | `floor_id`, `level` | Its Home Assistant floor, the lowest one it occupies (null for a site-level area) |
+  | `area_m2` | Net area in m² |
+  | `base_m`, `top_m` | Bottom of its floor and top of the highest floor it occupies (ready for MapLibre `fill-extrusion`) |
+  | `floors_up` | Stored: floors it reaches above its own, such as a stairwell or a double-height living room |
+  | `floor_ids` | Derived: the floors it occupies, lowest first (empty without a floor) |
+  | `on_facade_override` | Stored: null, or the value that replaces the derived `on_facade` |
+  | `on_facade` | Derived: the room shares at least 0.3 m of the outline, unless overridden |
+  | `is_external` | Derived: an outdoor room (IFC `Pset_SpaceCommon.IsExternal`): it lies outside the outline, touching allowed; false without an outline |
+  | `rev` | The rev of its entry |
+
 - `spatial/site/update` and the `site` part of `spatial/area/update_geometries` accept the same fields and check `expected_rev` the same way as `expected_site_rev`.
-- `spatial/area/update_geometries` is one change: areas and site are written together, saved once
+- `properties` in `spatial/area/update_geometries`: `floors_up` is a whole number from 0 up to
+  the number of floors with a higher level than the area's floor (0 without a floor, or on a
+  floor without a level); `on_facade_override` is null, true or false. An area without a
+  footprint, or more floors than exist, return `invalid_format`. Changing only properties keeps
+  the polygon.
+- `spatial/area/update_geometries` is one change: areas, properties and site are written together, saved once
   and announced with one event, or not at all. With expected revs it writes only if every one
   still matches, so an undo never overwrites a change made elsewhere; without them the last
   writer wins.
-- Errors: `not_found` (unknown area or floor), `invalid_format` (bad input), `conflict` (an
-  expected rev no longer matches; the message lists the area ids and `site`), `unauthorized`.
-- `spatial/geocode` finds the home by address during onboarding, when no map building lies under
-  Home Assistant's home location. It searches OpenStreetMap Nominatim only when called, through
-  Home Assistant's shared HTTP session, with the User-Agent `HomeAssistant-Spatial/<version>
-  (+<repository URL>)`. Following Nominatim's usage policy it sends at most one request per
-  second for the whole installation: a search within a second of the last one waits for the rest
-  of it, and one queued for more than 5 seconds gives up. The answer carries the attribution to
-  show with the results.
-- The server is the option "Address search server" in Spatial's options flow (`geocode_url`, an
-  http or https base URL, default `https://nominatim.openstreetmap.org`), read on every search, so
-  a change needs no restart. The public server is for light use only; for heavy use, point the
-  option at your own Nominatim, which may be plain http on your network.
-- Its errors: `geocode_unavailable` (Nominatim cannot be reached or does not answer within 10
-  seconds), `geocode_failed` (an HTTP error or an unreadable answer), `geocode_rate_limited`
-  (Nominatim answered 429, or the search queued too long), plus `invalid_format` and
-  `unauthorized`.
-- Privacy: an address search is personal data. Spatial never logs the query, the results or the
-  home location, and checks the query itself so that Home Assistant's schema errors do not log it
-  either. Home Assistant's own debug log for `websocket_api`, when enabled, records every
-  websocket message, searches included.
-- Event `spatial_updated` fires after every change; non-admin users follow it through `spatial/subscribe`.
+- Errors: `not_found` (unknown area or floor), `invalid_format` (bad input, a polygon that fails on the lattice, or a room without net area; the message names the area or `outline`), `outside_outline` (an indoor room would extend beyond the outline: a written room, or any room when the outline, origin or bearing changes, lies across it; the message lists the area ids), `conflict` (an
+  expected rev no longer matches; the message lists the area ids and `site`), `search_failed` (the search server could not be reached or gave no usable answer; the message says which, so a client can offer to try again), `unauthorized`.
+- `spatial/address/search` sends the query to OpenStreetMap Nominatim, one request per second at most across the integration (a search waits for the previous one), with Home Assistant's language and an identifying user agent; see [Privacy](../../README.md#privacy).
+- Event `spatial_updated` fires after every change, including every floor registry change (it can change the floors a room occupies); non-admin users follow it through `spatial/subscribe`.
 
-### Panel
+### Compatibility
 
-Settings > Devices & services > Spatial > Configure opens the admin-only Spatial panel.
+The `spatial/*` commands are a public contract for tools, bridges and cards.
 
-- A Home Assistant subpage header, "Spaces", with Back and a Help link to the documentation; the map fills the rest and the controls float on it.
-- Home Assistant's own map: its shipped light or dark style, following the theme, with tiles from the `map_tiles` proxy.
-- Centred on the site, rotated so the site direction (the picked wall) is horizontal; north up before any Align.
-- "All" stacks the floors in 3D; a button per floor (named as in Home Assistant, ordered by level) shows that floor as a flat plan with room outlines; "No floor" shows areas without one.
-- Updates through `spatial/subscribe`; shows "No rooms yet" without footprints.
-- Floor buttons list every floor of the floor registry, plus "No floor"; the card lists only floors with rooms.
-- Exactly one tool is active: Align, Draw or Adjust, Adjust by default. On "All" every tool, Undo and Redo are disabled. On a phone (600 px wide or less) the floors are a chip row under the header and the tools a bar at the bottom.
-- The map stack: the map toggle (on by default, remembered per browser, forced on during Align; off shows the plan on the page colour without vector tiles), zoom in, zoom out and a compass that turns with the map; a click returns to the site direction ("Face the house"), or to north before any Align ("Face north"); also in Draw, which keeps that view.
-- **Draw**, on a floor: a strip lists a Building pill, then the floor's areas from the area registry, those without a footprint first. Building is highlighted first on every floor while there is no outline; its boxes are saved with `spatial/site/update` `outline`, its undo of the first box with `outline: null`. Pressing and dragging, or two clicks or taps, draws a box along the site direction (north up before any Align); it is saved at once to the highlighted area with one `spatial/area/update_geometries`, joined to its footprint when they touch ("A room is one shape: draw against it" when they do not); a drag that starts inside the highlighted space moves it. The next area without a footprint is highlighted next. "+ New area" creates "Room 1" (the first free number) on the floor with `config/area_registry/create`; tapping the highlighted area renames it with `config/area_registry/update`. Space plus drag pans, Escape cancels a box; "All" does not draw.
-- **Adjust**, on a floor: a tap on a room makes its area active; when it is a rectangle along the site direction, a tap on a side length opens a number field, and Enter saves the side at that length (at least 0.20 m) with one `spatial/area/update_geometries`, or `spatial/site/update` for the outline. **Undo** and **Redo** (Ctrl+Z, Ctrl+Shift+Z) send the previous or next footprints of the session as one batch; undo never deletes an area from the registry.
-- **Align**, on a floor: one click on an OSM building from the map tiles, near a wall, saves that wall's bearing with one `spatial/site/update` `bearing_deg`, then Adjust is active again; without a building it says "No building here". The outline is drawn on the map in the panel and the card.
-- The card `custom:spatial-map-card` shows the same view on a dashboard, for every user, without the header, the toolbar, the map stack and the strip; it fills a panel view and is 400 px high elsewhere. Its `floor` option fixes the view: MapLibre's `interactive: false`, framed with `fitBounds` on every update.
-- Source in `frontend/` at the repository root; it builds the bundles and MapLibre's worker into `frontend/` here. They are not in git; the release zip contains them.
+- `api_version` in the `spatial/site` result is a whole number, now 1. Check it before relying on
+  the other commands, and stop or warn on a version you do not know.
+- A breaking change to a command's input schema or result shape raises `api_version` and is
+  named in the release notes.
+- Additions do not raise it: a new optional input, a new result field, a new command. Ignore
+  fields you do not know.
+- Before 1.0 a breaking change can still happen, but never silently.
+
+### Panel and card
+
+The integration serves the admin-only panel at `/spatial` and the dashboard card
+`custom:spatial-map-card`. How to open and use them is in the
+[user guide](../../docs/user-guide.md); their source, build and the commands each action sends
+are in the [frontend README](../../frontend/README.md).
 
 ### Rules
 
 | Rule | Value |
 | --- | --- |
-| Polygon | RFC 7946 `Polygon`, closed rings, at least 4 positions; holes (inner rings) allowed, never a MultiPolygon. Rejected with `invalid_format`; footprints and outlines name the reason: "A ring needs at least three corners", "A polygon may have at most 500 corners", "A ring crosses itself", "Rings must not cross or share an edge", "A hole must lie inside the outline", "A hole must not lie inside another hole", "Holes must not split the area". Rings may touch in single points that leave the area in one piece; tests are exact in degrees |
-| Adjacency | Same floor, edges of outer and inner rings within 0.05 m over at least 0.3 m, so a room filling a hole is adjacent to the room around it |
-| Area | `area_m2` is the net area: local tangent plane with exact WGS84 radii, holes subtracted, shrunk by 50 mm on every side (exact for right angles) |
-| Point in polygon | PNPOLY; a point in a hole is outside the room; a point exactly on an edge may fall either way |
+| Polygon | RFC 7946 `Polygon`, closed rings, at least 4 positions; holes (inner rings) allowed, never a MultiPolygon. Checked on the lattice as it will be read, rejected with `invalid_format` and the reason: "A ring needs at least three corners" (also when corners snap together), "A polygon may have at most 500 corners", "A ring crosses itself", "Rings must not cross or share an edge", "A hole must lie inside the outline", "A hole must not lie inside another hole", "Holes must not split the area", "A corner must be between 45 and 315 degrees", "An edge must be at least one grid step" (10 cm, or 4 in). Rings may touch in single points that leave the area in one piece |
+| Adjacency | On every floor both rooms occupy (site-level rooms only with each other), wall axes of outer and inner rings coinciding exactly on the lattice over at least 0.3 m, so a room filling a hole is adjacent to the room around it |
+| Rooms across floors | A room occupies its Home Assistant floor and the `floors_up` floors with the next higher levels (floors on one level ordered by `floor_id`); a floor deleted later shortens `floor_ids`, `floors_up` stays as stored |
+| Outline | The exterior wall axis. A room lies inside it or outside it, touching allowed; tested exactly on the lattice (edges crossing, outline edges running through the room, then the side of one piece of the room's boundary) |
+| Area | `area_m2` is the net area: the lattice polygon, holes subtracted, with each edge piece moved in by half a wall: 15 cm (3 in) where it lies on the outline, unless `on_facade_override` is false, 5 cm (2 in) elsewhere, in whole lattice units (6 and 2 of 2.5 cm, 3 and 2 of 1 in). Exact for right angles; a diagonal corner between unequal insets is approximated |
+| Point in polygon | PNPOLY on the lattice; a point in a hole is outside the room; a point exactly on an edge may fall either way |
 | Overlaps | `query_point` returns the smallest containing area |
 
 ### Modules
 
 | File | Responsibility |
 | --- | --- |
-| `__init__.py` | Setup, `runtime_data`, websocket registration, admin-only `spatial` panel and the card module (bundles in `frontend/`, served at `/spatial_static`) |
-| `config_flow.py` | Single-instance config flow; options flow with the address search server |
+| `__init__.py` | Setup, `runtime_data`, websocket registration, admin-only `spatial` panel behind Configure, without a sidebar entry, and the card module (bundles in `frontend/`, served at `/spatial_static`) |
+| `config_flow.py` | Single-instance config flow, with a link to the editor on its success step |
 | `coordinator.py` | Data access, registry sync, queries |
 | `store.py` | Persistence and migration of data saved by older releases |
-| `geometry.py` | All geometry: validation, m², point in polygon, shared edges |
-| `geocode.py` | Address search with OpenStreetMap Nominatim, rate limited |
+| `geometry.py` | All geometry: the site frame and lattice, validation, net area, point in polygon, shared edges, the room's relation to the outline |
 | `websocket_api.py` | Websocket commands and validation |
+| `address_search.py` | The address search request to Nominatim, its rate limit and the mapping of its answer |

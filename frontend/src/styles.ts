@@ -5,6 +5,9 @@ import { css } from "lit";
 /** A light primary tint for what is selected or switched on; text keeps --primary-text-color for contrast. */
 export const selectedFill = css`color-mix(in srgb, var(--primary-color) 14%, transparent)`;
 
+/** The fill of a space that has a shape, in its pill's square and in the help sheet. */
+export const shapeFill = css`color-mix(in srgb, var(--primary-color) 28%, transparent)`;
+
 /** A card that floats on the map; each control sets its own radius. */
 export const floatingSurface = css`
   background: var(--card-background-color);

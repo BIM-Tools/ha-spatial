@@ -1,7 +1,7 @@
 // The space editor panel; the dashboard card embeds it to show the rooms on the map.
 
 import { lineString } from "@turf/helpers";
-import type { Feature, FeatureCollection, MultiPolygon, Polygon, Position } from "geojson";
+import type { MultiPolygon, Polygon, Position } from "geojson";
 import { LitElement, type PropertyValues, css, html, nothing } from "lit";
 import {
   type GeoJSONSource,
@@ -15,15 +15,21 @@ import type { Floor, FloorChoice } from "./floor-selector";
 import "./floor-selector";
 import "./map-stack";
 import { type MapPaint, layerColours, readMapPaint, repaint } from "./map-paint";
-import { bounds, floorsByLevel, mapBearing, styleUrl, withMapTilesToken } from "./map-view";
-import { buildingAt, wallAt, wallBearingAt } from "./outline";
+import { type ThemeState, bounds, darkModeOf, mapBearing, styleUrl, withMapTilesToken, workerUrl } from "./map-view";
+import { type AlignFields, alignFields, buildingAt, wallAt } from "./outline";
 import "./panel-header";
-import { RoomEditor, type Tool } from "./room-editor";
+import { EMPTY, PanelState } from "./panel-state";
+import { BUILDING } from "./area-strip";
+import { type Guide, RoomEditor, type Toast, type Tool } from "./room-editor";
 import { type AreaInfo, RoomLabels, roomLabelStyles } from "./room-labels";
 import { floatingSurface, phoneBar } from "./styles";
+import type { HassUnits } from "./units";
 
 // The parts of Home Assistant's `hass` object this panel uses.
-interface Hass {
+interface Hass extends HassUnits {
+  // The location name is the building's name.
+  config: HassUnits["config"] & { location_name: string };
+  user?: { is_admin: boolean };
   connection: {
     sendMessagePromise<T>(message: { type: string; [key: string]: unknown }): Promise<T>;
     subscribeMessage(callback: () => void, message: { type: string }): Promise<() => Promise<void>>;
@@ -33,23 +39,15 @@ interface Hass {
   };
   areas?: Record<string, AreaInfo>;
   floors?: Record<string, { name: string }>;
-  themes: { darkMode: boolean };
+  themes: ThemeState["themes"];
+  selectedTheme?: ThemeState["selectedTheme"];
 }
 
-interface Site {
-  lon: number;
-  lat: number;
-  // Null until the first Align.
-  bearing_deg: number | null;
-  outline: Polygon | null;
-}
-
-const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
-const EAST_DEG = 90;
 // Share of the map height the aligned wall sits below the centre.
 const WALL_OFFSET_SHARE = 0.3;
 const REGISTRY_EVENTS = ["area_registry_updated", "floor_registry_updated"];
 const PHONE_QUERY = "(max-width: 600px)";
+const DARK_QUERY = "(prefers-color-scheme: dark)";
 const MAP_SHOWN_KEY = "spatial-show-map";
 
 // Core rotates the map tiles token every 30 minutes and keeps two live; this
@@ -100,14 +98,10 @@ class SpatialPanel extends LitElement {
     // Set by the card's `floor` option: a fixed, static view of "all" or one floor_id.
     floor: { attribute: false },
     panel: { attribute: false },
-    _floors: { state: true },
-    _floor: { state: true },
     _failed: { state: true },
-    _message: { state: true },
+    _hovered: { state: true },
     _mapShown: { state: true },
     _phone: { state: true },
-    // The stored site direction, which names the compass.
-    _bearing: { state: true },
   };
 
   static styles = [
@@ -169,26 +163,48 @@ class SpatialPanel extends LitElement {
       right: var(--ha-space-3);
       bottom: auto;
     }
-    .messages {
+    /* A row of its own, so it sits centred under the floors and tools. */
+    .guide-row {
       display: flex;
       flex-basis: 100%;
-      flex-direction: column;
-      align-items: center;
-      gap: var(--ha-space-2);
+      justify-content: center;
       margin-top: 14px;
+      pointer-events: none;
     }
-    .top.phone .messages {
+    .top.phone .guide-row {
       margin-top: 0;
     }
-    .messages span {
+    .guide {
       display: flex;
       align-items: center;
+      gap: 10px;
+      min-width: 0;
       min-height: 40px;
       box-sizing: border-box;
       padding: 0 var(--ha-space-4);
       ${floatingSurface}
-      border-radius: var(--ha-border-radius-2xl);
+      border-radius: 20px;
       font-size: var(--ha-font-size-m);
+      pointer-events: auto;
+    }
+    .top.phone .guide {
+      gap: var(--ha-space-2);
+    }
+    .guide .text {
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .guide .step {
+      flex: none;
+      color: var(--secondary-text-color);
+    }
+    /* MapLibre's attribution sits bottom right, where a wide strip would cover it. */
+    .stage.with-strip .maplibregl-ctrl-bottom-right {
+      bottom: 68px;
+    }
+    .stage.with-strip .maplibregl-ctrl-bottom-right .maplibregl-ctrl {
+      margin: 0 var(--ha-space-4) var(--ha-space-1) 0;
     }
     /* Centred by its margins, so it can grow to the full stage width before it scrolls. */
     .strip {
@@ -220,14 +236,13 @@ class SpatialPanel extends LitElement {
   declare card: boolean;
   declare floor: string | undefined;
   declare panel: object | undefined;
-  declare _floors: (string | null)[] | undefined;
-  declare _floor: Floor;
   declare _failed: boolean;
-  declare _message: string;
+  declare _hovered: string | undefined;
   declare _mapShown: boolean;
   declare _phone: boolean;
-  declare _bearing: number | null;
 
+  // The site, its frame, the rooms and the floor in view.
+  private readonly _state = new PanelState(this);
   private _map?: MapLibreMap;
   private _started = false;
   // Bumped on disconnect, so a startup still awaiting creates nothing.
@@ -240,8 +255,6 @@ class SpatialPanel extends LitElement {
   private _token = "";
   private _tokenTimer?: ReturnType<typeof setInterval>;
   private _unsubscribe?: () => void;
-  private _areas: FeatureCollection = EMPTY;
-  private _outline: Polygon | FeatureCollection = EMPTY;
   private _labels?: RoomLabels;
   // Only the admin panel edits; the card stays read-only.
   private _editor?: RoomEditor;
@@ -250,11 +263,9 @@ class SpatialPanel extends LitElement {
   constructor() {
     super();
     this.card = false;
-    this._floor = "all";
-    this._message = "";
+    this._hovered = undefined;
     this._mapShown = readMapShown();
     this._phone = false;
-    this._bearing = null;
   }
 
   connectedCallback() {
@@ -267,13 +278,13 @@ class SpatialPanel extends LitElement {
     this._phone = this._phoneQuery.matches;
   };
 
-  // The site's x-axis, clockwise from north. Before any Align it points east, so the view is north up.
-  private get _axisDeg(): number {
-    return this._bearing ?? EAST_DEG;
-  }
-
   private get _aligning() {
     return this._editor?.tool === "align";
+  }
+
+  // Read on every use: when Home Assistant resolves darkMode later, it hands over new themes, which updates the panel.
+  private get _darkMode() {
+    return darkModeOf(this.hass!, window.matchMedia(DARK_QUERY).matches);
   }
 
   // The card keeps the map until it has its own option.
@@ -284,16 +295,15 @@ class SpatialPanel extends LitElement {
   render() {
     const editor = this._editor;
     const phone = this._phone && !this.card;
-    const onFloor = this._floor !== "all";
     return html`
       <link rel="stylesheet" href="/static/map/maplibre-gl.css" />
       ${this.card ? nothing : html`<spatial-panel-header ?narrow=${phone}></spatial-panel-header>`}
       ${phone ? this._floorSelector(true) : nothing}
-      <div class="stage">
+      <div class="stage ${editor && !phone ? "with-strip" : ""}">
         <div id="map"></div>
         <div class="top ${phone ? "phone" : ""}">
           ${phone ? nothing : this._floorSelector(false)}
-          ${editor && !phone ? this._toolbar(editor, false) : nothing} ${this._messages()}
+          ${editor && !phone ? this._toolbar(editor, false) : nothing} ${this._guide()}
         </div>
         ${editor
           ? html`<spatial-map-stack
@@ -302,16 +312,16 @@ class SpatialPanel extends LitElement {
               .mapShown=${this._mapShown}
               .mapForced=${this._aligning}
               .bearing=${this._mapBearingDeg}
-              .aligned=${this._bearing !== null}
+              .aligned=${this._state.bearing !== null}
               @map-toggle=${this._toggleMap}
               @zoom-in=${() => this._map?.zoomIn()}
               @zoom-out=${() => this._map?.zoomOut()}
               @compass=${this._faceSite}
             ></spatial-map-stack>`
           : nothing}
-        ${editor && onFloor && !phone ? html`<div class="strip">${editor.render()}</div>` : nothing}
+        ${editor && !phone ? html`<div class="strip" @area-hover=${this._hoverFromStrip}>${editor.render(this._hovered)}</div>` : nothing}
       </div>
-      ${editor && onFloor && phone ? html`<div class="strip-bar">${editor.render()}</div>` : nothing}
+      ${editor && phone ? html`<div class="strip-bar" @area-hover=${this._hoverFromStrip}>${editor.render(this._hovered)}</div>` : nothing}
       ${editor && phone ? this._toolbar(editor, true) : nothing}
     `;
   }
@@ -322,7 +332,7 @@ class SpatialPanel extends LitElement {
     return html`<spatial-floor-selector
       ?chips=${chips}
       .choices=${choices}
-      .selected=${this._floor}
+      .selected=${this._state.floor}
       @floor-select=${(event: CustomEvent<{ floor: Floor }>) => this._show(event.detail.floor)}
     ></spatial-floor-selector>`;
   }
@@ -331,7 +341,7 @@ class SpatialPanel extends LitElement {
     return html`<spatial-editor-toolbar
       class=${bar ? "" : "toolbar"}
       ?bar=${bar}
-      ?disabled=${this._floor === "all"}
+      ?disabled=${this._state.floor === "all"}
       .tool=${editor.tool}
       .canUndo=${editor.canUndo}
       .canRedo=${editor.canRedo}
@@ -341,21 +351,35 @@ class SpatialPanel extends LitElement {
     ></spatial-editor-toolbar>`;
   }
 
-  private _messages() {
-    const noRooms =
-      this._floors &&
-      (this.floor && this.floor !== "all" ? !this._floors.includes(this.floor) : this._floors.length === 0);
-    const messages = [
-      noRooms ? "No rooms yet" : "",
-      this._aligning ? "Click your house near the wall the rooms follow" : "",
-      this._message,
-      this._editor?.message ?? "",
-      this._failed ? "Map could not load" : "",
-    ].filter(Boolean);
-    if (!messages.length) return nothing;
-    return html`<div class="messages">
-      ${messages.map((message) => html`<span>${message}</span>`)}
+  // One line at a time, and only when there is something to say; what went wrong first.
+  private _guide() {
+    const noRooms = this._state.hasNoRooms(this.floor);
+    const guide: Guide | undefined = this._failed
+      ? { text: "Map could not load" }
+      : (this._editor?.guide ?? (noRooms ? { text: "No rooms yet" } : undefined));
+    if (!guide) return nothing;
+    return html`<div class="guide-row">
+      <div class="guide" role="status">
+        <span class="text">${guide.text}</span>${guide.step ? html`<span class="step">${guide.step}</span>` : nothing}
+      </div>
     </div>`;
+  }
+
+  /** Fires Home Assistant's toast, which its notification manager shows and announces. */
+  private _toast(toast: Toast) {
+    this.dispatchEvent(new CustomEvent("hass-notification", { detail: toast, bubbles: true, composed: true }));
+  }
+
+  private _hoverFromStrip = (event: CustomEvent<{ areaId: string | undefined }>) => this._hover(event.detail.areaId);
+
+  // Pointing at a pill outlines its room and pointing at a room outlines its pill, so the strip is the legend.
+  private _hover(areaId: string | undefined) {
+    this._hovered = areaId;
+    this._labels?.point(areaId === BUILDING ? undefined : areaId);
+    const map = this._map;
+    if (!map?.getLayer("spatial-hover")) return;
+    map.setFilter("spatial-hover", ["==", ["get", "area_id"], areaId ?? ""]);
+    map.setLayoutProperty("spatial-hover-building", "visibility", areaId === BUILDING ? "visible" : "none");
   }
 
   updated(changed: PropertyValues<this>) {
@@ -365,7 +389,8 @@ class SpatialPanel extends LitElement {
     if (previous && this.hass) {
       // Home Assistant hands over a new themes object only when the theme changes.
       if (previous.themes !== this.hass.themes) this._repaint();
-      if (previous.areas !== this.hass.areas) this._showLabels();
+      const unitsChanged = previous.config !== this.hass.config || previous.locale !== this.hass.locale;
+      if (previous.areas !== this.hass.areas || unitsChanged) this._showLabels();
     }
     // A render queued by _stop must not start a map for a panel that has left.
     if (!this.hass || !this.isConnected) return;
@@ -391,7 +416,7 @@ class SpatialPanel extends LitElement {
   }
 
   private _wantedStyleKey() {
-    return `${this.hass!.themes.darkMode} ${this._mapVisible}`;
+    return `${this._darkMode} ${this._mapVisible}`;
   }
 
   // Resolves to undefined when a newer style was asked for in the meantime. A failed fetch
@@ -399,7 +424,7 @@ class SpatialPanel extends LitElement {
   private async _loadStyle(): Promise<StyleSpecification | undefined> {
     const key = this._wantedStyleKey();
     this._pendingStyleKey = key;
-    const darkMode = this.hass!.themes.darkMode;
+    const darkMode = this._darkMode;
     try {
       const style = this._mapVisible
         ? await loadStyle(darkMode)
@@ -443,28 +468,36 @@ class SpatialPanel extends LitElement {
   private async _start(hass: Hass) {
     const run = this._run;
     const stopped = () => run !== this._run;
-    const call = <T>(type: string) => hass.connection.sendMessagePromise<T>({ type });
-    this._floor = this.floor ?? "all";
+    this._state.floor = this.floor ?? "all";
     await this._refreshToken();
     if (stopped()) return;
     this._tokenTimer = setInterval(this._keepToken, TOKEN_REFRESH_MS);
     hass.connection.addEventListener("ready", this._keepToken);
 
     const loadAreas = async () => {
-      const feed = call<FeatureCollection>("spatial/geojson");
-      const site = call<Site>("spatial/site");
-      await editor?.refresh(feed, site);
-      this._areas = await feed;
-      this._floors = floorsByLevel(this._areas);
-      this._map?.getSource<GeoJSONSource>("areas")?.setData(this._areas);
-      this._outline = (await site).outline ?? EMPTY;
-      this._map?.getSource<GeoJSONSource>("outline")?.setData(this._outline);
+      const site = await this._state.load(hass.connection, editor);
+      this._map?.getSource<GeoJSONSource>("areas")?.setData(this._state.areas);
+      this._map?.getSource<GeoJSONSource>("outline")?.setData(this._state.outline);
       this._showLabels();
       return site;
     };
     const editor = this.card
       ? undefined
-      : new RoomEditor(hass.connection, () => this.requestUpdate(), loadAreas, () => this._axisDeg);
+      : new RoomEditor(hass.connection, {
+          requestUpdate: () => this.requestUpdate(),
+          reloadRooms: async () => {
+            await loadAreas();
+          },
+          siteBearing: () => this._state.axisDeg,
+          siteFrame: () => this._state.frame,
+          units: () => this.hass!,
+          selectTool: (tool) => this._selectTool(tool),
+          toast: (toast) => this._toast(toast),
+          buildingName: () => this._buildingName(),
+          // Renaming writes Home Assistant's core config, which only an admin may change.
+          canRenameBuilding: () => this.hass?.user?.is_admin === true,
+          hideLabels: (areaIds) => this._labels?.hide(areaIds),
+        });
     this._editor = editor;
     const site = await loadAreas();
     if (stopped()) return;
@@ -473,13 +506,13 @@ class SpatialPanel extends LitElement {
     const onUpdate = async () => {
       const { bearing_deg } = await loadAreas();
       if (this.floor) {
-        this._bearing = bearing_deg;
+        this._state.bearing = bearing_deg;
         this._fit();
         return;
       }
-      if (bearing_deg === this._bearing) return;
-      this._bearing = bearing_deg;
-      this._map?.setBearing(mapBearing(this._axisDeg));
+      if (bearing_deg === this._state.bearing) return;
+      this._state.bearing = bearing_deg;
+      this._map?.setBearing(mapBearing(this._state.axisDeg));
     };
     // The editor's strip and floor buttons name areas and floors, which change outside this panel.
     const rereadRegistries = () => {
@@ -498,30 +531,30 @@ class SpatialPanel extends LitElement {
     }
     this._unsubscribe = unsubscribe;
 
-    this._bearing = site.bearing_deg;
+    this._state.bearing = site.bearing_deg;
     const style = await this._loadStyle();
     if (stopped() || !style) return;
-    setWorkerUrl("/spatial_static/maplibre-gl-worker.mjs");
-    this._mapBearingDeg = mapBearing(this._axisDeg);
+    setWorkerUrl(workerUrl(import.meta.url));
+    this._mapBearingDeg = mapBearing(this._state.axisDeg);
     const map = new MapLibreMap({
       container: this.renderRoot.querySelector<HTMLElement>("#map")!,
       style,
       transformRequest: (url) => withMapTilesToken(url, location.origin, this._token),
       center: [site.lon, site.lat],
       zoom: 19,
-      pitch: this._floor === "all" ? 50 : 0,
+      pitch: this._state.floor === "all" ? 50 : 0,
       bearing: this._mapBearingDeg,
       interactive: !this.floor,
     });
     this._map = map;
-    this._labels = new RoomLabels(map, !this.card);
+    this._labels = new RoomLabels(map, !this.card, () => this.hass!, () => this._buildingName());
     this._showLabels();
     map.on("style.load", () => this._addAreas());
     map.on("mousemove", (event) => {
       this._previewWall(event);
       this._pointAt(event);
     });
-    map.on("mouseout", () => this._labels?.point(undefined));
+    map.on("mouseout", () => this._hover(undefined));
     if (editor) {
       this._showBearing(this._mapBearingDeg);
       map.on("rotate", () => this._showBearing(map.getBearing()));
@@ -543,13 +576,9 @@ class SpatialPanel extends LitElement {
 
   // Frames the rooms in view, keeping the picked wall horizontal.
   private _fit() {
-    const box = bounds(
-      this._areas.features.filter(
-        (f) => this._floor === "all" || f.properties?.floor_id === this._floor,
-      ),
-    );
+    const box = bounds(this._state.roomsInView());
     if (box) {
-      this._map?.fitBounds(box, { bearing: mapBearing(this._axisDeg), padding: 16, animate: false });
+      this._map?.fitBounds(box, { bearing: mapBearing(this._state.axisDeg), padding: 16, animate: false });
     }
   }
 
@@ -557,7 +586,7 @@ class SpatialPanel extends LitElement {
   private _addAreas() {
     const map = this._map!;
     const colours = layerColours(this._readPaint());
-    map.addSource("areas", { type: "geojson", data: this._areas });
+    map.addSource("areas", { type: "geojson", data: this._state.areas });
     map.addLayer({
       id: "areas-3d",
       type: "fill-extrusion",
@@ -576,13 +605,31 @@ class SpatialPanel extends LitElement {
       source: "areas",
       paint: { ...colours["areas-outline"], "line-width": 1.5 },
     });
-    map.addSource("outline", { type: "geojson", data: this._outline });
+    if (this._editor) {
+      map.addLayer({
+        id: "spatial-hover",
+        type: "line",
+        source: "areas",
+        filter: ["==", ["get", "area_id"], this._hovered ?? ""],
+        paint: { ...colours["spatial-hover"], "line-width": 2 },
+      });
+    }
+    map.addSource("outline", { type: "geojson", data: this._state.outline });
     map.addLayer({
       id: "spatial-outline",
       type: "line",
       source: "outline",
       paint: { ...colours["spatial-outline"], "line-width": 2 },
     });
+    if (this._editor) {
+      map.addLayer({
+        id: "spatial-hover-building",
+        type: "line",
+        source: "outline",
+        layout: { visibility: this._hovered === BUILDING ? "visible" : "none" },
+        paint: { ...colours["spatial-hover-building"], "line-width": 2 },
+      });
+    }
     map.addSource("spatial-wall", { type: "geojson", data: EMPTY });
     map.addLayer({
       id: "spatial-wall",
@@ -597,12 +644,12 @@ class SpatialPanel extends LitElement {
   private _groundColour(): string {
     return (
       getComputedStyle(this).getPropertyValue("--primary-background-color").trim() ||
-      (this.hass!.themes.darkMode ? "#111111" : "#fafafa")
+      (this._darkMode ? "#111111" : "#fafafa")
     );
   }
 
   private _readPaint(): MapPaint {
-    return readMapPaint(this, this.hass!.themes.darkMode);
+    return readMapPaint(this, this._darkMode);
   }
 
   // A new primary colour repaints the rooms; dark mode also reloads the style, which adds them again.
@@ -616,21 +663,23 @@ class SpatialPanel extends LitElement {
     });
   }
 
+  private _buildingName() {
+    return this.hass?.config.location_name || "Building";
+  }
+
   // Labels name the rooms of one floor; the 3D view of all floors has none.
   private _showLabels() {
     if (!this._labels) return;
-    const onFloor = this._floor !== "all";
-    const rooms = onFloor
-      ? (this._areas.features.filter((feature) => feature.properties?.floor_id === this._floor) as Feature<Polygon>[])
-      : [];
-    const outline = onFloor && this._outline.type === "Polygon" ? this._outline : undefined;
+    const onFloor = this._state.floor !== "all";
+    const rooms = onFloor ? this._state.roomsInView() : [];
+    const outline = onFloor && this._state.outline.type === "Polygon" ? this._state.outline : undefined;
     this._labels.show(rooms, outline, this.hass?.areas ?? {});
   }
 
   private _pointAt(event: MapMouseEvent) {
     if (!this._map?.getLayer("areas-2d")) return;
     const [room] = this._map.queryRenderedFeatures(event.point, { layers: ["areas-2d"] });
-    this._labels?.point(room?.properties?.area_id === undefined ? undefined : String(room.properties.area_id));
+    this._hover(room?.properties?.area_id === undefined ? undefined : String(room.properties.area_id));
   }
 
   // The panel lists every registered floor, so an empty one can be drawn; the card only those with rooms.
@@ -638,7 +687,7 @@ class SpatialPanel extends LitElement {
     if (this.floor) return [];
     const floors: Floor[] = this._editor
       ? ["all", ...this._editor.floors.map((entry) => entry.floor_id), null]
-      : ["all", ...(this._floors ?? [])];
+      : ["all", ...(this._state.floorsWithRooms ?? [])];
     return floors.map((floor) => ({ floor, name: this._floorName(floor) }));
   }
 
@@ -653,14 +702,13 @@ class SpatialPanel extends LitElement {
   // The compass turns the house back the way Align set it, or north up before any Align.
   // Draw keeps this view, so it is safe there too.
   private _faceSite() {
-    this._map?.easeTo({ bearing: mapBearing(this._axisDeg) });
+    this._map?.easeTo({ bearing: mapBearing(this._state.axisDeg) });
   }
 
   private _selectTool(tool: Tool) {
     const editor = this._editor;
     if (!editor || editor.tool === tool) return;
     if (editor.tool === "align") this._showWall();
-    this._message = "";
     editor.setTool(tool);
   }
 
@@ -701,43 +749,53 @@ class SpatialPanel extends LitElement {
     const building = this._buildingUnder(event);
     this._selectTool("adjust");
     if (!building) {
-      this._message = "No building here";
+      this._toast({ message: "No building here" });
       return;
     }
-    const previousBearing = this._bearing;
-    const newBearing = wallBearingAt(building, [event.lngLat.lng, event.lngLat.lat]);
-    this._bearing = newBearing;
+    const at: Position = [event.lngLat.lng, event.lngLat.lat];
+    const fields = alignFields(building, at, this._editor?.hasShapes ?? false);
     // The picked wall lies low in the view with the building above it, its outside facing the viewer.
     const wallBelowCentre = (this._map?.getContainer().clientHeight ?? 0) * WALL_OFFSET_SHARE;
-    this._map?.easeTo({ bearing: mapBearing(newBearing), center: event.lngLat, offset: [0, wallBelowCentre] });
-    this.hass!.connection.sendMessagePromise({ type: "spatial/site/update", bearing_deg: newBearing }).then(
-      () => {
-        this._message = "";
-      },
-      (err) => {
-        console.error(err);
-        this._message = "Could not save";
-        this._bearing = previousBearing;
-        this._map?.easeTo({ bearing: mapBearing(this._axisDeg) });
-      },
-    );
+    this._map?.easeTo({ bearing: mapBearing(fields.bearing_deg), center: event.lngLat, offset: [0, wallBelowCentre] });
+    this._saveBearing(fields, this._state.bearing);
+  }
+
+  // A failed save turns the view back. A refusal shows Spatial's reason, as trying again would not
+  // help; otherwise Retry turns the view to the picked wall again and saves the same fields once more.
+  private _saveBearing(fields: AlignFields, previousBearing: number | null) {
+    const newBearing = fields.bearing_deg;
+    this._state.bearing = newBearing;
+    this.hass!.connection.sendMessagePromise({ type: "spatial/site/update", ...fields }).catch((err) => {
+      console.error(err);
+      this._state.bearing = previousBearing;
+      this._map?.easeTo({ bearing: mapBearing(this._state.axisDeg) });
+      if (typeof err?.code === "string" && typeof err.message === "string") {
+        this._toast({ message: err.message });
+        return;
+      }
+      const retry = () => {
+        this._map?.easeTo({ bearing: mapBearing(newBearing) });
+        this._saveBearing(fields, previousBearing);
+      };
+      this._toast({ message: "Could not save", action: { text: "Retry", action: retry }, duration: -1, dismissable: true });
+    });
   }
 
   private _applyFloor() {
     const map = this._map!;
-    const flat = this._floor !== "all";
+    const flat = this._state.floor !== "all";
     map.setLayoutProperty("areas-3d", "visibility", flat ? "none" : "visible");
     for (const id of ["areas-2d", "areas-outline"]) {
       map.setLayoutProperty(id, "visibility", flat ? "visible" : "none");
-      map.setFilter(id, flat ? ["==", ["get", "floor_id"], this._floor] : null);
+      map.setFilter(id, flat ? ["==", ["get", "floor_id"], this._state.floor] : null);
     }
   }
 
   private _show(floor: Floor) {
-    if (floor === this._floor) return;
+    if (floor === this._state.floor) return;
     // All is a view only; Align would stay pressed on a disabled toolbar.
     if (floor === "all" && this._aligning) this._selectTool("adjust");
-    this._floor = floor;
+    this._state.floor = floor;
     this._editor?.setFloor(floor);
     this._showLabels();
     // Before the style has loaded, `_addAreas` applies the floor.

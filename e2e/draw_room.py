@@ -1,4 +1,4 @@
-"""Smoke test: a fresh Home Assistant, the Spatial panel, one room drawn with the mouse."""
+"""Smoke test: a fresh Home Assistant, the Spatial panel, rooms drawn and resized with the mouse."""
 
 import json
 import os
@@ -90,13 +90,82 @@ class Websocket:
         return reply["result"]
 
 
-def kitchen_features(websocket):
+def features_named(websocket, name):
     features = websocket.call("spatial/geojson")["features"]
-    return [feature for feature in features if feature["properties"]["name"] == "Kitchen"]
+    return [feature for feature in features if feature["properties"]["name"] == name]
 
 
-def draw_kitchen(websocket):
-    """Drags a box in the panel; returns the Kitchen features once the save has arrived."""
+def wait_for_features(websocket, name):
+    """The area's features once its save has arrived, or none after 10 s."""
+    deadline = time.monotonic() + 10
+    while not (features := features_named(websocket, name)) and time.monotonic() < deadline:
+        time.sleep(0.5)
+    return features
+
+
+def drag(page, start, end):
+    page.mouse.move(*start)
+    page.mouse.down()
+    page.mouse.move(*end, steps=10)
+    page.mouse.up()
+
+
+def corners_on_screen(panel, ring):
+    """Page pixels of the ring's corners, without the closing one."""
+    return panel.evaluate(
+        """(panel, ring) => {
+            const map = panel._map;
+            const box = map.getContainer().getBoundingClientRect();
+            return ring.map((at) => {
+                const point = map.project(at);
+                return [box.left + point.x, box.top + point.y];
+            });
+        }""",
+        ring[:-1],
+    )
+
+
+def top_right_on_screen(panel, ring):
+    """Page pixels of the ring's corner furthest right and up on the screen."""
+    return max(corners_on_screen(panel, ring), key=lambda corner: corner[0] - corner[1])
+
+
+def wait_for_larger(websocket, name, area_m2):
+    """The area's feature once its area_m2 exceeds the given one, or as it is after 10 s."""
+    deadline = time.monotonic() + 10
+    while True:
+        feature = features_named(websocket, name)[0]
+        if feature["properties"]["area_m2"] > area_m2 or time.monotonic() > deadline:
+            return feature
+        time.sleep(0.5)
+
+
+def resize_kitchen(page, panel, websocket, kitchen):
+    """In Adjust drags Kitchen's left edge 40 px left, then its top left corner 30 px out."""
+    panel.get_by_role("button", name="Adjust", exact=True).click()
+    panel.get_by_role("button", name="Kitchen", exact=True).click()
+    left_corners = sorted(corners_on_screen(panel, kitchen["geometry"]["coordinates"][0]))[:2]
+    x = (left_corners[0][0] + left_corners[1][0]) / 2
+    y = (left_corners[0][1] + left_corners[1][1]) / 2
+    drag(page, (x, y), (x - 40, y))
+    stretched = wait_for_larger(websocket, "Kitchen", kitchen["properties"]["area_m2"])
+    # The store can answer before the panel has its save reply, and a press while it saves does
+    # nothing; the side chips show again once the save has settled.
+    panel.locator("button.side-chip").first.wait_for(state="visible")
+    # The top left corner faces free space; Bedroom lies to the right.
+    corner_x, corner_y = min(
+        corners_on_screen(panel, stretched["geometry"]["coordinates"][0]),
+        key=lambda corner: corner[0] + corner[1],
+    )
+    drag(page, (corner_x, corner_y), (corner_x - 30, corner_y - 30))
+    cornered = wait_for_larger(websocket, "Kitchen", stretched["properties"]["area_m2"])
+    return stretched, cornered
+
+
+def draw_rooms(websocket, kitchen_id):
+    """Draws Kitchen, then Bedroom from 5 px right of Kitchen's top right corner, then resizes
+    Kitchen; returns Kitchen as drawn, Bedroom, Kitchen's neighbours then, and Kitchen after
+    each resize."""
     with sync_playwright() as playwright:
         page = playwright.chromium.launch().new_page(viewport={"width": 1280, "height": 800})
         # Proves the panel draws without map tiles.
@@ -114,14 +183,18 @@ def draw_kitchen(websocket):
         box = panel.locator("#map").bounding_box()
         x = box["x"] + box["width"] / 2 - 75
         y = box["y"] + box["height"] / 2 - 75
-        page.mouse.move(x, y)
-        page.mouse.down()
-        page.mouse.move(x + 150, y + 150, steps=10)
-        page.mouse.up()
-        deadline = time.monotonic() + 10
-        while not (features := kitchen_features(websocket)) and time.monotonic() < deadline:
-            time.sleep(0.5)
-        return features
+        drag(page, (x, y), (x + 150, y + 150))
+        kitchen = wait_for_features(websocket, "Kitchen")
+        assert len(kitchen) == 1, kitchen
+        # After a first shape the editor moves on, here to the building's pill; then pick Bedroom.
+        panel.get_by_role("button", name="Kitchen", exact=True, pressed=False).wait_for()
+        panel.get_by_role("button", name="Bedroom", exact=True).click()
+        corner_x, corner_y = top_right_on_screen(panel, kitchen[0]["geometry"]["coordinates"][0])
+        drag(page, (corner_x + 5, corner_y), (corner_x + 155, corner_y + 150))
+        bedroom = wait_for_features(websocket, "Bedroom")
+        # Before the resizes, as the dragged corner leaves Bedroom's wall.
+        adjacent = websocket.call("spatial/area/adjacent", area_id=kitchen_id)["area_ids"]
+        return kitchen, bedroom, adjacent, resize_kitchen(page, panel, websocket, kitchen[0])
 
 
 def main():
@@ -130,19 +203,29 @@ def main():
     add_spatial(token)
     websocket = Websocket(token)
     floor = websocket.call("config/floor_registry/create", name="Ground", level=0)
-    # Onboarding creates Kitchen.
-    kitchen = next(
-        area for area in websocket.call("config/area_registry/list") if area["name"] == "Kitchen"
-    )
-    websocket.call(
-        "config/area_registry/update", area_id=kitchen["area_id"], floor_id=floor["floor_id"]
-    )
+    # Onboarding creates Kitchen and Bedroom.
+    areas = {area["name"]: area for area in websocket.call("config/area_registry/list")}
+    for name in ("Kitchen", "Bedroom"):
+        websocket.call(
+            "config/area_registry/update",
+            area_id=areas[name]["area_id"],
+            floor_id=floor["floor_id"],
+        )
     websocket.call("spatial/site/update", bearing_deg=20)
 
-    features = draw_kitchen(websocket)
-    assert len(features) == 1, features
-    assert features[0]["properties"]["area_m2"] > 0, features[0]
-    print(f"PASS: Kitchen drawn, {features[0]['properties']['area_m2']} m2")
+    kitchen, bedroom, adjacent, (stretched, cornered) = draw_rooms(
+        websocket, areas["Kitchen"]["area_id"]
+    )
+    assert kitchen[0]["properties"]["area_m2"] > 0, kitchen[0]
+    print(f"PASS: Kitchen drawn, {kitchen[0]['properties']['area_m2']} m2")
+    assert len(bedroom) == 1, bedroom
+    assert areas["Bedroom"]["area_id"] in adjacent, adjacent
+    print("PASS: Bedroom snapped to Kitchen")
+    drawn_m2 = kitchen[0]["properties"]["area_m2"]
+    assert stretched["properties"]["area_m2"] > drawn_m2, stretched
+    print(f"PASS: Kitchen edge dragged, {stretched['properties']['area_m2']} m2")
+    assert cornered["properties"]["area_m2"] > stretched["properties"]["area_m2"], cornered
+    print(f"PASS: Kitchen corner dragged, {cornered['properties']['area_m2']} m2")
 
 
 if __name__ == "__main__":

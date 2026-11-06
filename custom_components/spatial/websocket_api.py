@@ -12,16 +12,16 @@ from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import floor_registry as fr
 
-from .const import DOMAIN, ERR_CONFLICT, EVENT_SPATIAL_UPDATED, SITE_FIELD_NAMES
-from .coordinator import SpatialCoordinator
-from .geocode import (
-    ATTRIBUTION,
-    DEFAULT_LIMIT,
-    MAX_LIMIT,
-    MAX_QUERY_LENGTH,
-    GeocodeError,
-    async_get_nominatim_client,
+from .address_search import AddressSearchError, address_search
+from .const import (
+    API_VERSION,
+    DOMAIN,
+    ERR_CONFLICT,
+    ERR_SEARCH_FAILED,
+    EVENT_SPATIAL_UPDATED,
+    SITE_FIELD_NAMES,
 )
+from .coordinator import SpatialCoordinator
 from .geometry import validate_polygon
 
 POSITIVE_METRES = vol.All(vol.Coerce(float), vol.Range(min=0, min_included=False))
@@ -44,6 +44,21 @@ def _footprint(value: Any) -> dict[str, Any]:
         raise vol.Invalid(str(err)) from err
 
 
+def _whole_number(value: Any) -> int:
+    """Return value if it is an int; voluptuous's int also lets True and False through."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise vol.Invalid("Expected a whole number")
+    return value
+
+
+ROOM_PROPERTIES = vol.All(
+    {
+        vol.Optional("floors_up"): vol.All(_whole_number, vol.Range(min=0)),
+        vol.Optional("on_facade_override"): vol.Any(None, bool),
+    },
+    vol.Length(min=1),
+)
+
 SITE_FIELDS = {
     vol.Optional("bearing_deg"): BEARING_OR_NONE,
     vol.Optional("origin"): vol.Any(None, LON_LAT),
@@ -62,7 +77,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_site)
     websocket_api.async_register_command(hass, ws_update_site)
     websocket_api.async_register_command(hass, ws_subscribe)
-    websocket_api.async_register_command(hass, ws_geocode)
+    websocket_api.async_register_command(hass, ws_address_search)
 
 
 def _coordinator(hass: HomeAssistant) -> SpatialCoordinator:
@@ -90,18 +105,42 @@ def _apply_unless_changed(
     *,
     polygons: dict[str, dict[str, Any] | None],
     site_fields: dict[str, Any],
+    room_properties: dict[str, dict[str, Any]],
     expected_area_revs: dict[str, str | None],
     expected_site_rev: str | None,
 ) -> dict[str, float] | None:
-    """Apply one change and return the m² set, or send a conflict error and return None.
+    """Apply one change and return the m² set, or send an error and return None.
 
-    Without expected revs the last writer wins.
+    A conflict is reported before a problem with the geometry, as the client
+    worked on old data. Without expected revs the last writer wins.
     """
     coordinator = _coordinator(hass)
     if changed := coordinator.conflicts(expected_area_revs, expected_site_rev):
         connection.send_error(msg_id, ERR_CONFLICT, f"Changed meanwhile: {', '.join(changed)}")
         return None
-    return coordinator.async_apply_change(polygons, site_fields)
+    if problem := coordinator.change_problem(polygons, site_fields, room_properties):
+        connection.send_error(msg_id, *problem)
+        return None
+    return coordinator.async_apply_change(polygons, site_fields, room_properties)
+
+
+def _room_property_problems(
+    coordinator: SpatialCoordinator,
+    polygons: dict[str, dict[str, Any] | None],
+    room_properties: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Return why room properties cannot be set: no footprint, or floors that do not exist."""
+    problems = []
+    for area_id, fields in sorted(room_properties.items()):
+        if area_id in polygons:
+            has_footprint = polygons[area_id] is not None
+        else:
+            has_footprint = coordinator.has_footprint(area_id)
+        if not has_footprint:
+            problems.append(f"{area_id} has no footprint")
+        elif fields.get("floors_up", 0) > (floors := coordinator.max_floors_up(area_id)):
+            problems.append(f"{area_id} has {floors} floors above it")
+    return problems
 
 
 @websocket_api.websocket_command(
@@ -149,6 +188,7 @@ def ws_adjacent_areas(
     {
         vol.Required("type"): "spatial/area/update_geometries",
         vol.Optional("areas", default={}): {str: vol.Any(_footprint, None)},
+        vol.Optional("properties", default={}): {str: ROOM_PROPERTIES},
         vol.Optional("site"): vol.All(SITE_FIELDS, vol.Length(min=1)),
         vol.Optional("expected_rev"): {str: vol.Any(None, str)},
         vol.Optional("expected_site_rev"): str,
@@ -159,24 +199,30 @@ def ws_adjacent_areas(
 def ws_update_area_geometries(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Set (polygon) or remove (null) footprints and set site fields in one change.
+    """Set (polygon) or remove (null) footprints, room properties and site fields in one change.
 
-    Everything is checked first: if any area (written or expected) is unknown, or any expected rev
-    differs from the current one, nothing changes. Without expected revs the
-    last writer wins.
+    Everything is checked first: if any area (written or expected) is unknown, any
+    room property cannot be set, or any expected rev differs from the current one,
+    nothing changes. Without expected revs the last writer wins.
     """
-    if not msg["areas"] and "site" not in msg:
-        connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT, "Give areas and/or site")
+    if not msg["areas"] and not msg["properties"] and "site" not in msg:
+        connection.send_error(
+            msg["id"], websocket_api.ERR_INVALID_FORMAT, "Give areas, properties and/or site"
+        )
         return
     area_registry = ar.async_get(hass)
     if missing := sorted(
         area_id
-        for area_id in {*msg["areas"], *msg.get("expected_rev", {})}
+        for area_id in {*msg["areas"], *msg["properties"], *msg.get("expected_rev", {})}
         if area_registry.async_get_area(area_id) is None
     ):
         connection.send_error(
             msg["id"], websocket_api.ERR_NOT_FOUND, f"Areas not found: {', '.join(missing)}"
         )
+        return
+    coordinator = _coordinator(hass)
+    if problems := _room_property_problems(coordinator, msg["areas"], msg["properties"]):
+        connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT, "; ".join(problems))
         return
     area_m2 = _apply_unless_changed(
         hass,
@@ -184,17 +230,18 @@ def ws_update_area_geometries(
         msg["id"],
         polygons=msg["areas"],
         site_fields=msg.get("site", {}),
+        room_properties=msg["properties"],
         expected_area_revs=msg.get("expected_rev", {}),
         expected_site_rev=msg.get("expected_site_rev"),
     )
     if area_m2 is None:
         return
-    coordinator = _coordinator(hass)
+    written = dict.fromkeys([*msg["areas"], *msg["properties"]])
     connection.send_result(
         msg["id"],
         {
             "area_m2": area_m2,
-            "rev": {area_id: coordinator.area_rev(area_id) for area_id in msg["areas"]},
+            "rev": {area_id: coordinator.area_rev(area_id) for area_id in written},
             "site_rev": coordinator.site_rev(),
         },
     )
@@ -229,8 +276,11 @@ def ws_update_floor(
 def ws_site(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Return the site centre, bearing (null until the first Align), origin, outline and rev."""
-    connection.send_result(msg["id"], _coordinator(hass).get_site())
+    """Return the site centre, bearing (null until the first Align), origin, outline and rev.
+
+    It also carries `api_version`, so a client learns the contract from its first read.
+    """
+    connection.send_result(msg["id"], {**_coordinator(hass).get_site(), "api_version": API_VERSION})
 
 
 @websocket_api.websocket_command(
@@ -258,6 +308,7 @@ def ws_update_site(
         msg["id"],
         polygons={},
         site_fields=fields,
+        room_properties={},
         expected_area_revs={},
         expected_site_rev=msg.get("expected_rev"),
     )
@@ -286,33 +337,29 @@ def ws_subscribe(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "spatial/geocode",
-        vol.Required("query"): object,
-        vol.Optional("limit", default=DEFAULT_LIMIT): vol.All(int, vol.Range(min=1, max=MAX_LIMIT)),
+        vol.Required("type"): "spatial/address/search",
+        vol.Required("query"): str,
     }
 )
 @websocket_api.require_admin
 @websocket_api.async_response
-async def ws_geocode(
+async def ws_address_search(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Search an address with OpenStreetMap Nominatim.
+    """Return up to five places for an address, sent to the search server only on this call.
 
-    The query is checked here, not in the schema: Home Assistant logs a schema
-    error with the offending value, and an address search must never be logged.
+    The length is checked here, not in the schema: Home Assistant logs a schema error
+    with the value, and the query is personal data.
     """
-    query = msg["query"].strip() if isinstance(msg["query"], str) else ""
-    if not 0 < len(query) <= MAX_QUERY_LENGTH:
+    query = msg["query"].strip()
+    if not 3 <= len(query) <= 200:
         connection.send_error(
-            msg["id"],
-            websocket_api.ERR_INVALID_FORMAT,
-            f"Give a query of 1 to {MAX_QUERY_LENGTH} characters",
+            msg["id"], websocket_api.ERR_INVALID_FORMAT, "Give 3 to 200 characters to search for"
         )
         return
-    client = await async_get_nominatim_client(hass)
     try:
-        results = await client.search(query, msg["limit"])
-    except GeocodeError as err:
-        connection.send_error(msg["id"], err.code, str(err))
+        places = await address_search(hass).async_search(query)
+    except AddressSearchError as err:
+        connection.send_error(msg["id"], ERR_SEARCH_FAILED, str(err))
         return
-    connection.send_result(msg["id"], {"results": results, "attribution": ATTRIBUTION})
+    connection.send_result(msg["id"], {"places": places})

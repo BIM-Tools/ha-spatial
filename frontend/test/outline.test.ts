@@ -4,7 +4,7 @@ import destination from "@turf/destination";
 import { polygon } from "@turf/helpers";
 import type { Polygon } from "geojson";
 import { expect, test } from "vitest";
-import { buildingAt, wallAt, wallBearingAt } from "../src/outline";
+import { alignFields, buildingAt, wallAt, wallBearingAt } from "../src/outline";
 
 type Pos = [number, number];
 
@@ -42,4 +42,16 @@ test("wallAt gives the two ends of the wall nearest to the point, counter-clockw
   expect(wallAt(building, midpoint(p1, p2))).toEqual([p1, p2]);
   const clockwise = polygon([[p0, p3, p2, p1, p0]]).geometry as Polygon;
   expect(wallAt(clockwise, midpoint(p0, p1))).toEqual([p0, p1]);
+});
+
+test.each([
+  ["an empty plan", p0, p1, false, 20, p0],
+  ["an empty plan", p1, p2, false, 290, p1],
+  ["a plan with shapes", p0, p1, true, 20, undefined],
+  ["a plan with shapes", p2, p3, true, 200, undefined],
+])("alignFields on %s near the wall from %j writes its bearing and its left end as origin only when empty", (_plan, from, to, hasShapes, bearing, origin) => {
+  const fields = alignFields(building, midpoint(from, to), hasShapes);
+  expect(Math.abs(fields.bearing_deg - bearing)).toBeLessThan(0.5);
+  expect(fields.origin).toEqual(origin);
+  expect("origin" in fields).toBe(origin !== undefined);
 });

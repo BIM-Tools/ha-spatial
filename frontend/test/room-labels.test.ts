@@ -3,6 +3,7 @@
 import type { Feature, Polygon } from "geojson";
 import { afterEach, expect, test, vi } from "vitest";
 import { fakeMapLibre, liveMarkers, resetFakes, unprojectPixel } from "./panel-harness";
+import { METRIC_UNITS, US_UNITS } from "./units-fixture";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
 
@@ -21,8 +22,8 @@ const pixelRoom = (areaId: string, [x1, y1]: [number, number], [x2, y2]: [number
   properties: { area_id: areaId, area_m2: areaM2 },
 });
 
-const mountLabels = (rooms: Feature<Polygon>[], withSize = true, areas = {}, outline?: Polygon) => {
-  const labels = new RoomLabels(new fakeMapLibre.Map({}) as never, withSize);
+const mountLabels = (rooms: Feature<Polygon>[], withSize = true, areas = {}, outline?: Polygon, units = METRIC_UNITS) => {
+  const labels = new RoomLabels(new fakeMapLibre.Map({}) as never, withSize, () => units, () => "Building");
   labels.show(rooms, outline, areas);
   return labels;
 };
@@ -71,6 +72,11 @@ test("an area without an icon shows Home Assistant's home icon", () => {
   expect(shown("living")?.icon).toBe("mdi:home-outline");
 });
 
+test("in US customary units a room's size is in whole square feet", () => {
+  mountLabels([pixelRoom("living", [0, 0], [200, 120])], true, AREAS, undefined, US_UNITS);
+  expect(shown("living")?.size).toBe("133 ft²");
+});
+
 test("the card's labels have no m²", () => {
   mountLabels([pixelRoom("living", [0, 0], [200, 120])], false, AREAS);
   expect(shown("living")).toEqual({ icon: "mdi:sofa", name: "Living room", size: undefined, chip: undefined });
@@ -83,6 +89,15 @@ test("an icon-only room names itself in a chip while pointed at", () => {
   expect(shown("wc")?.chip).toBe("WC");
   labels.point(undefined);
   expect(shown("wc")?.chip).toBeUndefined();
+});
+
+test("a hidden room has no label until it is shown again, and the others keep theirs", () => {
+  const labels = mountLabels([pixelRoom("living", [0, 0], [200, 120]), pixelRoom("hall", [300, 0], [380, 50])], true, AREAS);
+  labels.hide(["living"]);
+  expect(shown("living")).toBeUndefined();
+  expect(shown("hall")?.name).toBe("Hall");
+  labels.hide([]);
+  expect(shown("living")?.name).toBe("Living room");
 });
 
 test("the outline is labelled Building only while the floor has no rooms", () => {

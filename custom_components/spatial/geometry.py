@@ -1,18 +1,25 @@
-"""All geometry in one place, in pure Python, measured in a local tangent plane.
+"""All geometry in one place, in pure Python, measured on the site's lattice.
 
-Each function is a cited canonical algorithm or marked as custom.
+Each function is a cited canonical algorithm or marked as custom. Measurement
+works on lattice coordinates: whole numbers of lattice units in the site frame,
+so equal positions, collinear edges and touching rings are compared exactly.
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
+from fractions import Fraction
 from itertools import combinations, pairwise
 from numbers import Real
-from typing import Any
+from typing import Any, Literal
+
+from .const import LATTICE_UNITS_PER_STEP
 
 type Point = tuple[float, float]
 type Ring = list[Point]
 type Segment = tuple[Point, Point]
+type OutlineRelation = Literal["inside", "outside", "crossing"]
 
 # Bounds the quadratic ring checks, which run on the event loop.
 MAX_CORNERS = 500
@@ -39,23 +46,87 @@ def metres_per_degree(lat: float) -> tuple[float, float]:
     )
 
 
-def _origin(polygon: dict[str, Any]) -> tuple[float, float]:
-    """Return the first vertex of a polygon."""
-    return polygon["coordinates"][0][0][0], polygon["coordinates"][0][0][1]
+class SiteFrame:
+    """A fixed plane for one site, in lattice units, and the way back to WGS84.
 
+    Custom. The local tangent plane at the origin with the WGS84 radii of the
+    origin's latitude (metres_per_degree), turned so x runs along the bearing
+    (clockwise from north) and y to its left, divided into lattice units. A
+    position snaps to the nearest lattice point; snapping a snapped position again
+    gives the same lattice point, also after a JSON round trip, because the way
+    back is off by far less than half a unit. Distances are exact to the plane,
+    which departs from the ellipsoid by well under a millimetre within a few
+    hundred metres of the origin.
+    """
 
-def _rings_m(polygon: dict[str, Any], lon0: float, lat0: float) -> list[Ring]:
-    """Return the polygon's rings in metres east/north of (lon0, lat0)."""
-    m_per_deg_lon, m_per_deg_lat = metres_per_degree(lat0)
-    return [
-        [((lon - lon0) * m_per_deg_lon, (lat - lat0) * m_per_deg_lat) for lon, lat, *_ in ring]
-        for ring in polygon["coordinates"]
-    ]
+    def __init__(self, origin: Sequence[float], bearing_deg: float, unit_m: Fraction) -> None:
+        """Set up the frame at origin [lon, lat], along the bearing, with lattice unit unit_m."""
+        self._lon0, self._lat0 = origin[0], origin[1]
+        self._m_per_deg_lon, self._m_per_deg_lat = metres_per_degree(self._lat0)
+        bearing = math.radians(bearing_deg)
+        self._sin, self._cos = math.sin(bearing), math.cos(bearing)
+        self.unit_m = unit_m
+        self.bearing_deg = bearing_deg
 
+    def to_lattice_units(self, lon: float, lat: float) -> Point:
+        """Return a position in lattice units, not rounded."""
+        east = (lon - self._lon0) * self._m_per_deg_lon
+        north = (lat - self._lat0) * self._m_per_deg_lat
+        along = east * self._sin + north * self._cos
+        across = -east * self._cos + north * self._sin
+        return along / self.unit_m, across / self.unit_m
 
-def _shoelace_area(ring: Ring) -> float:
-    """Return the unsigned area of a closed ring (shoelace formula)."""
-    return abs(sum(x1 * y2 - x2 * y1 for (x1, y1), (x2, y2) in pairwise(ring))) / 2
+    def lattice_transform(self) -> tuple[list[float], list[list[float]]]:
+        """Return the origin [lon, lat] and the matrix from degrees to lattice units.
+
+        The matrix is [[a, b], [c, d]] with x = a (lon - lon0) + b (lat - lat0) and
+        y = c (lon - lon0) + d (lat - lat0). It is exactly the affine map that
+        to_lattice_units applies, so a client that applies it lands on the same
+        unrounded lattice position; its inverse is to_wgs84 before the unit scaling.
+        """
+        unit = float(self.unit_m)
+        mlon, mlat = self._m_per_deg_lon, self._m_per_deg_lat
+        return (
+            [self._lon0, self._lat0],
+            [
+                [mlon * self._sin / unit, mlat * self._cos / unit],
+                [-mlon * self._cos / unit, mlat * self._sin / unit],
+            ],
+        )
+
+    def _snap(self, position: Sequence[float]) -> Point:
+        """Return the lattice point nearest to a [lon, lat] position."""
+        along, across = self.to_lattice_units(position[0], position[1])
+        return round(along), round(across)
+
+    def to_wgs84(self, point: Point) -> list[float]:
+        """Return [lon, lat] of a lattice point."""
+        # Multiplying by the exact fraction rounds once, so whole lattice units
+        # become the nearest double of their decimal value in metres.
+        along = float(point[0] * self.unit_m)
+        across = float(point[1] * self.unit_m)
+        east = along * self._sin - across * self._cos
+        north = along * self._cos + across * self._sin
+        return [self._lon0 + east / self._m_per_deg_lon, self._lat0 + north / self._m_per_deg_lat]
+
+    def snap(self, polygon: dict[str, Any]) -> list[Ring]:
+        """Return the corners of every ring of a GeoJSON Polygon, snapped to the lattice.
+
+        Corners that snap onto their predecessor are dropped, so an edge shorter
+        than half a unit disappears.
+        """
+        return [
+            _corners([self._snap(position) for position in ring]) for ring in polygon["coordinates"]
+        ]
+
+    def to_polygon(self, rings: list[Ring]) -> dict[str, Any]:
+        """Return a GeoJSON Polygon with closed rings through lattice corners."""
+        return {
+            "type": "Polygon",
+            "coordinates": [
+                [self.to_wgs84(point) for point in [*corners, corners[0]]] for corners in rings
+            ],
+        }
 
 
 def _pnpoly(vertx: list[float], verty: list[float], testx: float, testy: float) -> bool:
@@ -145,19 +216,26 @@ def _segments_intersect(p1: Point, p2: Point, p3: Point, p4: Point) -> bool:
         return False
 
 
+def _segments_cross_properly(p1: Point, p2: Point, p3: Point, p4: Point) -> bool:
+    """Return True if each segment has its ends strictly on both sides of the other.
+
+    The first case of SEGMENTS-INTERSECT, same source as _direction.
+    """
+    return (
+        _direction(p3, p4, p1) * _direction(p3, p4, p2) < 0
+        and _direction(p1, p2, p3) * _direction(p1, p2, p4) < 0
+    )
+
+
 def _segments_cross_or_overlap(p1: Point, p2: Point, p3: Point, p4: Point) -> bool:
     """Return True if two segments cross each other or run along each other.
 
     Custom, built on _direction: touching in a single point is allowed, as
     rings of a polygon may touch in points. Segments must have a length.
     """
-    d1 = _direction(p3, p4, p1)
-    d2 = _direction(p3, p4, p2)
-    d3 = _direction(p1, p2, p3)
-    d4 = _direction(p1, p2, p4)
-    if d1 * d2 < 0 and d3 * d4 < 0:
+    if _segments_cross_properly(p1, p2, p3, p4):
         return True
-    if d1 != 0 or d2 != 0:
+    if _direction(p3, p4, p1) != 0 or _direction(p3, p4, p2) != 0:
         return False
     # Collinear: compare extents along the axis on which they are longest, so a
     # vertical pair is not compared on its zero-width x extent.
@@ -169,20 +247,30 @@ def _segments_cross_or_overlap(p1: Point, p2: Point, p3: Point, p4: Point) -> bo
     )
 
 
-def _corners(ring: list[list[float]]) -> Ring:
+def _corners(ring: Sequence[Sequence[float]]) -> Ring:
     """Return the corners of a closed ring, without repeated positions or the closing one."""
     corners: Ring = []
-    for lon, lat, *_ in ring[:-1]:
-        if not corners or corners[-1] != (lon, lat):
-            corners.append((lon, lat))
+    for x, y, *_ in ring[:-1]:
+        if not corners or corners[-1] != (x, y):
+            corners.append((x, y))
     if len(corners) > 1 and corners[0] == corners[-1]:
         corners.pop()
     return corners
 
 
+def _edges(rings: list[Ring]) -> list[Segment]:
+    """Return the edges of rings given by their corners."""
+    return [edge for corners in rings for edge in pairwise([*corners, corners[0]])]
+
+
+def _on_edge(edge: Segment, point: Point) -> bool:
+    """Return True if the point lies on the edge, its ends included."""
+    return _direction(*edge, point) == 0 and _on_segment(*edge, point)
+
+
 def _on_boundary(point: Point, edges: list[Segment]) -> bool:
     """Return True if the point lies exactly on one of the edges."""
-    return any(_direction(a, b, point) == 0 and _on_segment(a, b, point) for a, b in edges)
+    return any(_on_edge(edge, point) for edge in edges)
 
 
 def _inside(point: Point, corners: Ring) -> bool:
@@ -190,25 +278,24 @@ def _inside(point: Point, corners: Ring) -> bool:
     return _pnpoly([c[0] for c in corners], [c[1] for c in corners], *point)
 
 
-def _piece_midpoints(edge: tuple[Point, Point], cut_points: Ring) -> Ring:
-    """Return the midpoints of the pieces into which the cut points on the edge split it."""
+def _midpoint(piece: Segment) -> Point:
+    """Return the middle of a segment; exact for lattice points, as halves are exact floats."""
+    (x1, y1), (x2, y2) = piece
+    return (x1 + x2) / 2, (y1 + y2) / 2
+
+
+def _edge_pieces(edge: Segment, cut_points: Ring) -> list[Segment]:
+    """Return the pieces into which the cut points lying on the edge split it, in order.
+
+    Custom. Cut points are ordered by their exact projection on the edge.
+    """
     start, end = edge
-    axis = 0 if abs(end[0] - start[0]) >= abs(end[1] - start[1]) else 1
+    dx, dy = end[0] - start[0], end[1] - start[1]
     cuts = sorted(
-        {0.0, 1.0}
-        | {
-            (point[axis] - start[axis]) / (end[axis] - start[axis])
-            for point in cut_points
-            if _direction(start, end, point) == 0 and _on_segment(start, end, point)
-        }
+        {point for point in cut_points if _on_edge(edge, point)} - {start, end},
+        key=lambda point: (point[0] - start[0]) * dx + (point[1] - start[1]) * dy,
     )
-    return [
-        (
-            start[0] + (end[0] - start[0]) * (low + high) / 2,
-            start[1] + (end[1] - start[1]) * (low + high) / 2,
-        )
-        for low, high in pairwise(cuts)
-    ]
+    return list(pairwise([start, *cuts, end]))
 
 
 def _touches_split_interior(ring_corners: list[Ring], ring_edges: list[list[Segment]]) -> bool:
@@ -241,8 +328,8 @@ def _touches_split_interior(ring_corners: list[Ring], ring_edges: list[list[Segm
     return False
 
 
-def _validate_rings(rings: list[list[list[float]]]) -> None:
-    """Raise ValueError unless the rings form a valid polygon with holes.
+def validate_rings(ring_corners: list[Ring]) -> None:
+    """Raise ValueError unless rings, given by their corners, form a valid polygon with holes.
 
     Custom. Every ring must be simple: no two of its edges meet, except
     neighbours at their shared corner. Two rings must not cross or run along
@@ -252,11 +339,9 @@ def _validate_rings(rings: list[list[list[float]]]) -> None:
     where other rings touch them (the only places an edge can pass to the other
     side), skipping probes on the other ring.
 
-    Known limit: tests are exact in longitude and latitude, so a corner meant
-    to lie on another ring but off by rounding counts as off it. Time grows with
-    the square of the number of corners, hence MAX_CORNERS.
+    Exact on lattice coordinates. Time grows with the square of the number of
+    corners, hence MAX_CORNERS.
     """
-    ring_corners = [_corners(ring) for ring in rings]
     if any(len(corners) < 3 for corners in ring_corners):
         raise ValueError("A ring needs at least three corners")
     if sum(len(corners) for corners in ring_corners) > MAX_CORNERS:
@@ -282,7 +367,7 @@ def _validate_rings(rings: list[list[list[float]]]) -> None:
             p for ring, corners in enumerate(ring_corners) if ring != index + 1 for p in corners
         ]
         probes = hole_corners[index] + [
-            midpoint for edge in edges for midpoint in _piece_midpoints(edge, other_corners)
+            _midpoint(piece) for edge in edges for piece in _edge_pieces(edge, other_corners)
         ]
         for probe in probes:
             if not _on_boundary(probe, shell_edges) and not _inside(probe, shell_corners):
@@ -299,14 +384,37 @@ def _validate_rings(rings: list[list[list[float]]]) -> None:
         raise ValueError("Holes must not split the area")
 
 
+def validate_lattice_polygon(ring_corners: list[Ring]) -> None:
+    """Raise ValueError unless a snapped polygon is valid and can be built.
+
+    Custom. On top of validate_rings: every corner has an interior angle from 45
+    to 315 degrees, so there are no spikes, compared in whole numbers: the turn at a corner
+    is beyond 135 degrees exactly when the dot product u.w of its edges is negative
+    and 2 (u.w)² > |u|² |w|². Every edge is at least one grid step long
+    (LATTICE_UNITS_PER_STEP lattice units), also compared in whole numbers.
+    """
+    validate_rings(ring_corners)
+    for corners in ring_corners:
+        for previous, corner, following in zip(
+            [corners[-1], *corners[:-1]], corners, [*corners[1:], corners[0]], strict=True
+        ):
+            ux, uy = corner[0] - previous[0], corner[1] - previous[1]
+            wx, wy = following[0] - corner[0], following[1] - corner[1]
+            if ux * ux + uy * uy < LATTICE_UNITS_PER_STEP**2:
+                raise ValueError("An edge must be at least one grid step")
+            dot = ux * wx + uy * wy
+            if dot < 0 and 2 * dot * dot > (ux * ux + uy * uy) * (wx * wx + wy * wy):
+                raise ValueError("A corner must be between 45 and 315 degrees")
+
+
 def validate_polygon(value: Any) -> dict[str, Any]:
-    """Return value if it is a valid GeoJSON Polygon, else raise ValueError.
+    """Return value if it is a GeoJSON Polygon in WGS84, else raise ValueError.
 
     Checks RFC 7946 section 3.1.6 (linear rings: closed, at least four
-    positions) and 4 (WGS84 longitude, latitude), then the rings themselves
-    with _validate_rings. Only Polygon is accepted: one area is one polygon,
-    holes are inner rings. Each message names one problem, so a frontend can
-    map it.
+    positions) and 4 (WGS84 longitude, latitude). Only Polygon is accepted: one
+    area is one polygon, holes are inner rings. The rings themselves are checked
+    on the lattice, with validate_lattice_polygon. Each message names one problem,
+    so a frontend can map it.
     """
     if not isinstance(value, dict) or value.get("type") != "Polygon":
         raise ValueError("Expected a GeoJSON Polygon")
@@ -327,71 +435,164 @@ def validate_polygon(value: Any) -> dict[str, Any]:
                 raise ValueError("Coordinates must be WGS84 longitude and latitude")
         if ring[0] != ring[-1]:
             raise ValueError("A ring must be closed")
-    _validate_rings(rings)
     return value
 
 
-def _perimeter(ring: Ring) -> float:
-    """Return the length of a closed ring."""
-    return sum(math.hypot(x2 - x1, y2 - y1) for (x1, y1), (x2, y2) in pairwise(ring))
+def _twice_signed_area(corners: Ring) -> float:
+    """Return twice the area of a ring, positive when it runs counter-clockwise (shoelace)."""
+    return sum(x1 * y2 - x2 * y1 for (x1, y1), (x2, y2) in pairwise([*corners, corners[0]]))
 
 
-def net_area_m2(polygon: dict[str, Any], inset_m: float) -> float:
-    """Return the area in square metres of a polygon shrunk by inset_m on every side.
+def _interior_on_the_left(ring_corners: list[Ring]) -> list[Ring]:
+    """Return the rings turned so the polygon's interior lies on their left.
 
-    Custom, from Steiner's formula for a parallel body: shrinking a polygon with
-    area A and perimeter P by d leaves A - P * d + 4 * d * d (convex minus reflex
-    corners is always four for a simple ring; the d² term is exact for right
-    angles). A hole grows by d, so it takes away A + P * d + 4 * d * d. Exact for
-    right-angled polygons; with diagonal walls the corner term is an approximation.
-    A shape thinner than twice inset_m has no net area: the result is clamped to zero.
-    A part narrower than twice inset_m within a larger shape is miscounted, because the
-    formula assumes the shape keeps its topology.
+    The outer ring then runs counter-clockwise and holes run clockwise.
     """
-    exterior, *holes = _rings_m(polygon, *_origin(polygon))
-    corners = 4 * inset_m * inset_m
-    area = _shoelace_area(exterior) - _perimeter(exterior) * inset_m + corners
-    for hole in holes:
-        area -= _shoelace_area(hole) + _perimeter(hole) * inset_m + corners
-    return max(area, 0.0)
+    return [
+        corners if (_twice_signed_area(corners) > 0) == (index == 0) else corners[::-1]
+        for index, corners in enumerate(ring_corners)
+    ]
 
 
-def polygon_contains(polygon: dict[str, Any], lon: float, lat: float) -> bool:
-    """Return True if the point is inside the polygon and not inside a hole.
+def contains(ring_corners: list[Ring], point: Point) -> bool:
+    """Return True if the point is inside the polygon and not inside a hole (PNPOLY).
 
-    Uses PNPOLY directly on longitude/latitude, which is exact enough at the
-    scale of a building. Points exactly on an edge may fall either way; on a
-    shared wall centreline a point belongs to both rooms anyway.
+    A point exactly on an edge may fall either way; on a shared wall axis a point
+    belongs to both rooms anyway.
     """
     inside = False
-    for ring in polygon["coordinates"]:
-        if _pnpoly([p[0] for p in ring], [p[1] for p in ring], lon, lat):
+    for corners in ring_corners:
+        if _inside(point, corners):
             inside = not inside
     return inside
 
 
-def shared_edge_length_m(
-    polygon_a: dict[str, Any], polygon_b: dict[str, Any], tolerance_m: float
-) -> float:
-    """Return the length in metres along which the boundaries of two polygons coincide.
+def shared_edge_length(rings_a: list[Ring], rings_b: list[Ring]) -> float:
+    """Return the length in lattice units along which the boundaries of two polygons coincide.
 
-    Custom (no library equivalent without shapely): an edge of polygon_b lies
-    on an edge of polygon_a when both its end points are within tolerance_m of
-    the line through that edge; the shared length is their overlap along it.
+    Custom (no library equivalent without shapely): an edge of b lies on an edge
+    of a when both its ends are on the line through that edge (exact on the
+    lattice); the shared length is their overlap along it, measured as the
+    difference of the projections on the edge divided by its length.
     """
-    origin = _origin(polygon_a)
-    edges_a = [edge for ring in _rings_m(polygon_a, *origin) for edge in pairwise(ring)]
-    edges_b = [edge for ring in _rings_m(polygon_b, *origin) for edge in pairwise(ring)]
-
     total = 0.0
-    for (ax1, ay1), (ax2, ay2) in edges_a:
-        length = math.hypot(ax2 - ax1, ay2 - ay1)
-        if length == 0:
-            continue
-        ux, uy = (ax2 - ax1) / length, (ay2 - ay1) / length
+    edges_b = _edges(rings_b)
+    for start, end in _edges(rings_a):
+        dx, dy = end[0] - start[0], end[1] - start[1]
+        squared_length = dx * dx + dy * dy
         for b1, b2 in edges_b:
-            along = [(bx - ax1) * ux + (by - ay1) * uy for bx, by in (b1, b2)]
-            across = [abs((by - ay1) * ux - (bx - ax1) * uy) for bx, by in (b1, b2)]
-            if max(across) <= tolerance_m:
-                total += max(0.0, min(length, max(along)) - max(0.0, min(along)))
+            if _direction(start, end, b1) != 0 or _direction(start, end, b2) != 0:
+                continue
+            along = [(x - start[0]) * dx + (y - start[1]) * dy for x, y in (b1, b2)]
+            overlap = min(squared_length, max(along)) - max(0, min(along))
+            if overlap > 0:
+                total += overlap / math.sqrt(squared_length)
     return total
+
+
+def net_area(
+    room: list[Ring], outline: list[Ring] | None, interior_inset: int, exterior_inset: int
+) -> float:
+    """Return the net area of a room in square lattice units: its axial polygon inset by half walls.
+
+    Custom, from Steiner's formula for a parallel body with one inset per edge:
+    net = A - sum(d_i L_i) + sum over corners of d_in d_out tan(theta / 2), where
+    theta is the turn at the corner (plus at a convex corner, minus at a reflex
+    one, zero at a straight joint), computed as cross / (|u| |w| + dot) of the
+    edges u and w meeting there. Edges are split at outline corners lying on them;
+    a piece lying on the outline is inset by exterior_inset, every other piece by
+    interior_inset. Holes grow the same way, as their rings run with the interior
+    on the left. The result is clamped between zero and the gross area, and is zero
+    when every edge of the outer ring is used up by the corners at its ends (each
+    corner shortens an edge by the other inset times tan(theta / 2)): there the
+    formula would multiply two negative widths into a positive area.
+
+    Exact for right angles and for diagonal corners between equal insets. Known
+    limits: at a diagonal corner between unequal insets the corner term is an
+    approximation, off by (d_in - d_out)² cot(theta) / 2; a part narrower than the
+    two insets across it is miscounted, as the formula assumes the shape keeps its
+    topology.
+    """
+    outline_edges = _edges(outline) if outline else []
+    outline_corners = [point for corners in outline or [] for point in corners]
+    twice_gross = 0.0
+    removed = 0.0
+    corner_terms = 0.0
+    for index, corners in enumerate(_interior_on_the_left(room)):
+        twice_gross += _twice_signed_area(corners)
+        pieces = [
+            (
+                piece,
+                exterior_inset
+                if any(
+                    _on_edge(edge, piece[0]) and _on_edge(edge, piece[1]) for edge in outline_edges
+                )
+                else interior_inset,
+            )
+            for edge in pairwise([*corners, corners[0]])
+            for piece in _edge_pieces(edge, outline_corners)
+        ]
+        lengths = [math.hypot(end[0] - start[0], end[1] - start[1]) for (start, end), _ in pieces]
+        shortened = [0.0] * len(pieces)
+        for k, (((start, end), inset), ((_, following), next_inset)) in enumerate(
+            pairwise([*pieces, pieces[0]])
+        ):
+            ux, uy = end[0] - start[0], end[1] - start[1]
+            wx, wy = following[0] - end[0], following[1] - end[1]
+            removed += inset * lengths[k]
+            denominator = math.sqrt((ux * ux + uy * uy) * (wx * wx + wy * wy)) + ux * wx + uy * wy
+            # Zero only where a ring folds straight back, which validation rejects.
+            if denominator > 0:
+                tan_half_turn = (ux * wy - uy * wx) / denominator
+                corner_terms += inset * next_inset * tan_half_turn
+                shortened[k] += next_inset * tan_half_turn
+                shortened[(k + 1) % len(pieces)] += inset * tan_half_turn
+        if index == 0 and all(
+            length <= used for length, used in zip(lengths, shortened, strict=True)
+        ):
+            return 0.0
+    gross = twice_gross / 2
+    return min(max(gross - removed + corner_terms, 0.0), gross)
+
+
+def _side_of_outline(piece: Segment, outline: list[Ring], outline_edges: list[Segment]) -> bool:
+    """Return True if the room along a piece of its boundary lies inside the outline.
+
+    The piece touches the outline at most at its ends or runs along one of its
+    edges. Along an edge, with both rings running with their interior on the
+    left, the room is inside exactly when both run the same way.
+    """
+    middle = _midpoint(piece)
+    for edge in outline_edges:
+        if _on_edge(edge, middle):
+            (x1, y1), (x2, y2) = piece
+            (ex1, ey1), (ex2, ey2) = edge
+            return (x2 - x1) * (ex2 - ex1) + (y2 - y1) * (ey2 - ey1) > 0
+    return contains(outline, middle)
+
+
+def outline_relation(room: list[Ring], outline: list[Ring]) -> OutlineRelation:
+    """Return whether a room lies inside the outline, outside it, or crosses it.
+
+    Custom, exact on the lattice. Touching, also along a whole edge, is allowed
+    on either side. The room crosses when an edge of each crosses the other's, or
+    when the outline runs through the room's interior: the middle of a piece of an
+    outline edge, between room corners on it, lies inside the room. Otherwise the
+    whole room lies on one side, which any piece of its boundary, split at outline
+    corners, tells (_side_of_outline). Pieces split this way touch the other
+    boundary only at their ends or run along it, so their middles decide.
+    """
+    room = _interior_on_the_left(room)
+    outline = _interior_on_the_left(outline)
+    room_edges, outline_edges = _edges(room), _edges(outline)
+    if any(_segments_cross_properly(*a, *b) for a in room_edges for b in outline_edges):
+        return "crossing"
+    room_corners = [point for corners in room for point in corners]
+    for edge in outline_edges:
+        for piece in _edge_pieces(edge, room_corners):
+            middle = _midpoint(piece)
+            if not _on_boundary(middle, room_edges) and contains(room, middle):
+                return "crossing"
+    outline_corners = [point for corners in outline for point in corners]
+    first_piece = _edge_pieces(room_edges[0], outline_corners)[0]
+    return "inside" if _side_of_outline(first_piece, outline, outline_edges) else "outside"

@@ -3,31 +3,57 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Any, TypedDict
+from typing import Any, NamedTuple, TypedDict
 
+from homeassistant.components.websocket_api import ERR_INVALID_FORMAT
+from homeassistant.const import EVENT_CORE_CONFIG_UPDATE
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import floor_registry as fr
 from homeassistant.helpers.json import json_bytes_sorted
+from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
 from .const import (
-    ADJACENCY_MIN_SHARED_M,
-    ADJACENCY_TOLERANCE_M,
     BOT_SPACE,
     DEFAULT_FLOOR_HEIGHT_M,
+    ERR_OUTSIDE_OUTLINE,
     EVENT_SPATIAL_UPDATED,
     JSONFG_CORE,
     JSONFG_TYPES_SCHEMAS,
-    NET_INSET_M,
+    LATTICE_UNITS_PER_STEP,
+    METRIC_GRID,
+    MIN_SHARED_EDGE_M,
     REV_LENGTH,
+    ROOM_PROPERTY_NAMES,
     SITE_FIELD_NAMES,
+    US_CUSTOMARY_GRID,
+    UnitGrid,
 )
-from .geometry import net_area_m2, polygon_contains, shared_edge_length_m
-from .store import AreaSpatial, Site, SpatialStore, new_area
+from .geometry import (
+    OutlineRelation,
+    Ring,
+    SiteFrame,
+    contains,
+    net_area,
+    outline_relation,
+    shared_edge_length,
+    validate_lattice_polygon,
+)
+from .store import AreaSpatial, Site, SpatialStore, default_origin, new_area
+
+
+class SiteFrameView(TypedDict):
+    """The frame a site is read on, as published: origin, bearing, lattice unit and matrix."""
+
+    origin: list[float]
+    bearing_deg: float
+    unit_m: float
+    units_per_step: int
+    to_lattice: list[list[float]]
 
 
 class SiteView(TypedDict):
-    """The site as clients read it: the stored fields plus the derived centre and rev."""
+    """The site as clients read it: the stored fields plus the derived centre, rev and frame."""
 
     lon: float
     lat: float
@@ -35,11 +61,25 @@ class SiteView(TypedDict):
     origin: list[float] | None
     outline: dict[str, Any] | None
     rev: str
+    frame: SiteFrameView
 
 
-def _net_size(polygon: dict[str, Any]) -> float:
-    """Return the net area in m² of a footprint, computed on every read."""
-    return round(net_area_m2(polygon, NET_INSET_M), 2)
+class _SiteGeometry(NamedTuple):
+    """The frame of a site, the grid of the unit system in use and the outline on the lattice."""
+
+    frame: SiteFrame
+    grid: UnitGrid
+    outline: list[Ring] | None
+
+
+class _Footprint(NamedTuple):
+    """A footprint read on the lattice and every fact derived from it."""
+
+    corners: list[Ring]
+    geometry: dict[str, Any]
+    net_m2: float
+    facade_m: float
+    relation: OutlineRelation | None
 
 
 def content_rev(entry: AreaSpatial | Site) -> str:
@@ -51,6 +91,122 @@ def content_rev(entry: AreaSpatial | Site) -> str:
     return hashlib.sha256(json_bytes_sorted(entry)).hexdigest()[:REV_LENGTH]
 
 
+def _exterior_inset(grid: UnitGrid, on_facade_override: bool | None) -> int:
+    """Return the inset along the outline: half an exterior wall, unless marked off the facade."""
+    return grid.interior_inset_units if on_facade_override is False else grid.exterior_inset_units
+
+
+def _measure(
+    polygon: dict[str, Any], on_facade_override: bool | None, site: _SiteGeometry
+) -> _Footprint:
+    """Return a footprint snapped to the lattice with its net area, facade length and relation."""
+    grid, outline = site.grid, site.outline
+    corners = site.frame.snap(polygon)
+    exterior_inset = _exterior_inset(grid, on_facade_override)
+    unit_m = float(grid.lattice_unit_m)
+    return _Footprint(
+        corners,
+        site.frame.to_polygon(corners),
+        net_area(corners, outline, grid.interior_inset_units, exterior_inset) * unit_m * unit_m,
+        shared_edge_length(corners, outline) * unit_m if outline else 0.0,
+        outline_relation(corners, outline) if outline else None,
+    )
+
+
+def change_refusal(
+    stored: dict[str, list[Ring]],
+    written: dict[str, list[Ring] | None],
+    outline: list[Ring] | None,
+    on_facade_overrides: dict[str, bool | None],
+    grid: UnitGrid,
+    *,
+    outline_written: bool,
+    frame_changed: bool,
+) -> tuple[str, str] | None:
+    """Return the error code and message that refuse a change, or None if it can be applied.
+
+    Custom. Every ring is on the lattice of the site after the change: `written`
+    holds the footprints the change sets or removes (None), `outline` the outline
+    after it, and `stored` the stored footprints. `stored` is read only when the
+    outline is written or the frame changes, to check every room against the
+    outline; otherwise only the rooms written are checked and it may be empty.
+    Footprints written, and an outline written, must be valid lattice polygons;
+    the first invalid one is named, rooms before the outline. Indoor rooms may not
+    extend beyond the outline: the rooms written, or all rooms when the outline or the frame changes
+    (both move what the lattice reads), must lie inside it or outside it. Rooms
+    written must keep a net area, with their on_facade_overrides after the change
+    (missing means None). Known limit: stored footprints are not validated again.
+    """
+    footprints_set = {
+        area_id: corners for area_id, corners in written.items() if corners is not None
+    }
+    to_validate = list(footprints_set.items())
+    if outline_written and outline is not None:
+        to_validate.append(("outline", outline))
+    for name, corners in to_validate:
+        try:
+            validate_lattice_polygon(corners)
+        except ValueError as err:
+            return ERR_INVALID_FORMAT, f"{err} ({name})"
+
+    rooms_after = {
+        **{area_id: c for area_id, c in stored.items() if area_id not in written},
+        **footprints_set,
+    }
+    checked = rooms_after if outline_written or frame_changed else footprints_set
+    if outline is not None and (
+        beyond := sorted(
+            area_id
+            for area_id, corners in checked.items()
+            if outline_relation(corners, outline) == "crossing"
+        )
+    ):
+        return ERR_OUTSIDE_OUTLINE, f"Beyond the building outline: {', '.join(beyond)}"
+    if empty := sorted(
+        area_id
+        for area_id, corners in footprints_set.items()
+        if net_area(
+            corners,
+            outline,
+            grid.interior_inset_units,
+            _exterior_inset(grid, on_facade_overrides.get(area_id)),
+        )
+        <= 0
+    ):
+        return ERR_INVALID_FORMAT, f"No net area: {', '.join(empty)}"
+    return None
+
+
+def floors_above(floor_id: str | None, levels: dict[str, int | None]) -> list[str]:
+    """Return the floors with a higher level than a floor, lowest first.
+
+    `levels` maps every floor_id to its level. A floor without a level, or not
+    in `levels`, has no floors above it, and a floor without a level is above
+    none. Floors on the same level are ordered by floor_id.
+    """
+    if (base_level := levels.get(floor_id) if floor_id else None) is None:
+        return []
+    above = sorted(
+        (level, other_id)
+        for other_id, level in levels.items()
+        if level is not None and level > base_level
+    )
+    return [other_id for _, other_id in above]
+
+
+def occupied_floor_ids(
+    floor_id: str | None, floors_up: int, levels: dict[str, int | None]
+) -> list[str]:
+    """Return the floors a room occupies: its own and floors_up above it, lowest first.
+
+    Empty for a site-level room without a floor. When floors above were deleted
+    after floors_up was set, the room reaches only the remaining ones.
+    """
+    if floor_id is None:
+        return []
+    return [floor_id, *floors_above(floor_id, levels)[:floors_up]]
+
+
 class SpatialCoordinator:
     """Keeps area footprints and floor dimensions in sync with the registries."""
 
@@ -59,14 +215,18 @@ class SpatialCoordinator:
         self.hass = hass
         self.store = SpatialStore(hass)
         self._unsubscribe: list[Any] = []
+        # Footprints as read, until the next change of the data or the core config.
+        self._footprints: dict[str, _Footprint] = {}
         self.card_url = ""
 
     async def async_setup(self) -> None:
-        """Load stored data and follow registry removals."""
+        """Load stored data and follow registry removals and core config changes."""
         await self.store.async_load()
+        self._footprints.clear()
         self._unsubscribe = [
             self.hass.bus.async_listen(ar.EVENT_AREA_REGISTRY_UPDATED, self._async_area_updated),
             self.hass.bus.async_listen(fr.EVENT_FLOOR_REGISTRY_UPDATED, self._async_floor_updated),
+            self.hass.bus.async_listen(EVENT_CORE_CONFIG_UPDATE, self._async_core_config_updated),
         ]
 
     async def async_teardown(self) -> None:
@@ -85,13 +245,25 @@ class SpatialCoordinator:
 
     @callback
     def _async_floor_updated(self, event: Event[fr.EventFloorRegistryUpdatedData]) -> None:
-        """Drop the dimensions of a removed floor."""
+        """Drop the dimensions of a removed floor; announce every floor change.
+
+        Any floor change can change the floors a room reaching up occupies.
+        """
         if event.data["action"] == "remove" and event.data["floor_id"] in self.store.floors:
             del self.store.floors[event.data["floor_id"]]
             self._changed()
+        else:
+            self.hass.bus.async_fire(EVENT_SPATIAL_UPDATED)
+
+    @callback
+    def _async_core_config_updated(self, event: Event) -> None:
+        """Read every footprint again: the unit system sets the lattice, home the default origin."""
+        self._footprints.clear()
+        self.hass.bus.async_fire(EVENT_SPATIAL_UPDATED)
 
     def _changed(self) -> None:
         """Schedule a save and notify listeners."""
+        self._footprints.clear()
         self.store.async_schedule_save()
         self.hass.bus.async_fire(EVENT_SPATIAL_UPDATED)
 
@@ -117,29 +289,118 @@ class SpatialCoordinator:
             changed.append("site")
         return changed
 
+    def _site_after(self, site_fields: dict[str, Any]) -> Site:
+        """Return the site with the given fields set.
+
+        The first write to a site without an origin, unless it sets one, also
+        stores the default origin, so the lattice stays put while rooms are added.
+        """
+        site = self.store.site.copy()
+        for key in SITE_FIELD_NAMES:
+            if key in site_fields:
+                site[key] = site_fields[key]
+        if site["origin"] is None and "origin" not in site_fields:
+            site["origin"] = default_origin(self.hass, site, self.store.areas)
+        return site
+
+    def _site_geometry(self, site: Site) -> _SiteGeometry:
+        """Return the frame of a site, with its outline on the lattice.
+
+        Every site has a frame: a site without an origin uses the default one, and
+        one without a bearing, before the first Align, faces north. The lattice is a
+        quarter of the drawing grid of the unit system in use.
+        """
+        grid = US_CUSTOMARY_GRID if self.hass.config.units is US_CUSTOMARY_SYSTEM else METRIC_GRID
+        frame = SiteFrame(
+            site["origin"] or default_origin(self.hass, site, self.store.areas),
+            site["bearing_deg"] or 0.0,
+            grid.lattice_unit_m,
+        )
+        outline = frame.snap(site["outline"]) if site["outline"] else None
+        return _SiteGeometry(frame, grid, outline)
+
+    def change_problem(
+        self,
+        polygons: dict[str, dict[str, Any] | None],
+        site_fields: dict[str, Any],
+        room_properties: dict[str, dict[str, Any]],
+    ) -> tuple[str, str] | None:
+        """Return the error code and message that refuse a change, or None if it can be applied.
+
+        Reads the footprints and the outline on the lattice of the site after the
+        change, as they will be read, and leaves the rules to change_refusal. Stored
+        footprints are read only when the outline or the frame changes.
+        """
+        site_after = self._site_after(site_fields)
+        site = self._site_geometry(site_after)
+        outline_written = site_fields.get("outline") is not None
+        frame_changed = any(
+            site_after[key] != self.store.site[key] for key in ("origin", "bearing_deg")
+        )
+        return change_refusal(
+            {
+                area_id: site.frame.snap(entry["polygon"])
+                for area_id, entry in self.store.areas.items()
+            }
+            if outline_written or frame_changed
+            else {},
+            {
+                area_id: site.frame.snap(polygon) if polygon is not None else None
+                for area_id, polygon in polygons.items()
+            },
+            site.outline,
+            {
+                area_id: self._override_after(area_id, room_properties)
+                for area_id, polygon in polygons.items()
+                if polygon is not None
+            },
+            site.grid,
+            outline_written=outline_written,
+            frame_changed=frame_changed,
+        )
+
+    def _override_after(
+        self, area_id: str, room_properties: dict[str, dict[str, Any]]
+    ) -> bool | None:
+        """Return the on_facade_override an area will have after a change."""
+        fields = room_properties.get(area_id, {})
+        if "on_facade_override" in fields:
+            override: bool | None = fields["on_facade_override"]
+            return override
+        entry = self.store.areas.get(area_id)
+        return entry["on_facade_override"] if entry else None
+
     @callback
     def async_apply_change(
-        self, polygons: dict[str, dict[str, Any] | None], site_fields: dict[str, Any]
+        self,
+        polygons: dict[str, dict[str, Any] | None],
+        site_fields: dict[str, Any],
+        room_properties: dict[str, dict[str, Any]],
     ) -> dict[str, float]:
-        """Set or remove (None) footprints and set site fields in one change.
+        """Set or remove (None) footprints, room properties and site fields in one change.
 
-        Return the m² of the footprints set. Other fields of an area's entry are kept.
+        Return the net m² of the footprints set. Fields not given are kept. Room
+        properties apply to areas that have a footprint after the polygons are set.
         """
-        sizes: dict[str, float] = {}
+        self.store.site.update(self._site_after(site_fields))
         for area_id, polygon in polygons.items():
             if polygon is None:
                 self.store.areas.pop(area_id, None)
-                continue
-            sizes[area_id] = _net_size(polygon)
-            if (entry := self.store.areas.get(area_id)) is not None:
+            elif (entry := self.store.areas.get(area_id)) is not None:
                 entry["polygon"] = polygon
             else:
                 self.store.areas[area_id] = new_area(polygon)
-        for key in SITE_FIELD_NAMES:
-            if key in site_fields:
-                self.store.site[key] = site_fields[key]
+        for area_id, fields in room_properties.items():
+            entry = self.store.areas[area_id]
+            for name in ROOM_PROPERTY_NAMES:
+                if name in fields:
+                    entry[name] = fields[name]
         self._changed()
-        return sizes
+        return {
+            area_id: self._area_m2(area_id)
+            for area_id, polygon in polygons.items()
+            if polygon is not None
+        }
 
     @callback
     def async_update_floor(self, floor_id: str, fields: dict[str, float | None]) -> None:
@@ -150,16 +411,33 @@ class SpatialCoordinator:
                 floor[key] = fields[key]
         self._changed()
 
+    def _footprint(self, area_id: str) -> _Footprint:
+        """Return an area's footprint on the lattice, measured once until the next change."""
+        if (footprint := self._footprints.get(area_id)) is None:
+            data = self.store.areas[area_id]
+            site = self._site_geometry(self.store.site)
+            footprint = _measure(data["polygon"], data["on_facade_override"], site)
+            self._footprints[area_id] = footprint
+        return footprint
+
+    def _area_m2(self, area_id: str) -> float:
+        """Return an area's net m² to two decimals."""
+        return round(self._footprint(area_id).net_m2, 2)
+
     def get_site(self) -> SiteView:
         """Return the site: the centre of the bounding box, the stored fields and the rev.
 
         Custom code. Computed on read, so it follows every edit. The box covers the
-        footprints, else the outline, and is taken in lon/lat degrees, which is
-        accurate enough at building scale but not across the antimeridian. Without
-        either the centre is the home location.
+        footprints, else the outline, as read, and is taken in lon/lat degrees,
+        which is accurate enough at building scale but not across the antimeridian.
+        Without either the centre is the home location.
         """
-        outline = self.store.site["outline"]
-        rings = [data["polygon"]["coordinates"][0] for data in self.store.areas.values()]
+        site = self._site_geometry(self.store.site)
+        outline = site.frame.to_polygon(site.outline) if site.outline else None
+        origin, to_lattice = site.frame.lattice_transform()
+        rings = [
+            self._footprint(area_id).geometry["coordinates"][0] for area_id in self.store.areas
+        ]
         if not rings and outline:
             rings = [outline["coordinates"][0]]
         points = [position for ring in rings for position in ring]
@@ -175,6 +453,13 @@ class SpatialCoordinator:
             "origin": self.store.site["origin"],
             "outline": outline,
             "rev": self.site_rev(),
+            "frame": {
+                "origin": origin,
+                "bearing_deg": site.frame.bearing_deg,
+                "unit_m": float(site.grid.lattice_unit_m),
+                "units_per_step": LATTICE_UNITS_PER_STEP,
+                "to_lattice": to_lattice,
+            },
         }
 
     def _floor_of(self, area_id: str) -> str | None:
@@ -192,32 +477,71 @@ class SpatialCoordinator:
         base = elevation if elevation is not None else level * DEFAULT_FLOOR_HEIGHT_M
         return base, base + (height if height is not None else DEFAULT_FLOOR_HEIGHT_M)
 
+    def _floor_levels(self) -> dict[str, int | None]:
+        """Return the level of every floor in the registry, by floor_id."""
+        return {
+            floor.floor_id: floor.level for floor in fr.async_get(self.hass).async_list_floors()
+        }
+
+    def max_floors_up(self, area_id: str) -> int:
+        """Return how many floors an area can reach above its own floor."""
+        return len(floors_above(self._floor_of(area_id), self._floor_levels()))
+
+    def has_footprint(self, area_id: str) -> bool:
+        """Return True if an area has a stored footprint."""
+        return area_id in self.store.areas
+
+    def _floor_ids(self, area_id: str, data: AreaSpatial) -> list[str]:
+        """Return the floors an area occupies, lowest first, from the registry as it is now."""
+        return occupied_floor_ids(self._floor_of(area_id), data["floors_up"], self._floor_levels())
+
+    def _levels(self, area_id: str, data: AreaSpatial) -> set[str | None]:
+        """Return the floors an area occupies, with None standing for the site level."""
+        return set(self._floor_ids(area_id, data)) or {None}
+
+    def _on_facade(self, area_id: str) -> bool:
+        """Return the override, else whether the footprint shares enough of the outline."""
+        if (override := self.store.areas[area_id]["on_facade_override"]) is not None:
+            return override
+        return self._footprint(area_id).facade_m >= MIN_SHARED_EDGE_M
+
+    def _is_external(self, area_id: str) -> bool:
+        """Return True if the footprint lies outside the outline; False without one."""
+        return self._footprint(area_id).relation == "outside"
+
     def get_geojson(self, floor_id: str | None = None) -> dict[str, Any]:
-        """Return all area footprints as a GeoJSON FeatureCollection."""
+        """Return the area footprints, all or those occupying a floor, as a FeatureCollection."""
         area_registry = ar.async_get(self.hass)
         floor_registry = fr.async_get(self.hass)
         features = []
         for area_id, data in self.store.areas.items():
+            floor_ids = self._floor_ids(area_id, data)
+            if floor_id and floor_id not in floor_ids:
+                continue
             area = area_registry.async_get_area(area_id)
             area_floor_id = area.floor_id if area else None
-            if floor_id and area_floor_id != floor_id:
-                continue
             floor = floor_registry.async_get_floor(area_floor_id) if area_floor_id else None
-            base, top = self._floor_bounds(area_floor_id)
+            base, _ = self._floor_bounds(area_floor_id)
+            _, top = self._floor_bounds(floor_ids[-1] if floor_ids else None)
             features.append(
                 {
                     "type": "Feature",
                     "id": area_id,
                     "featureType": BOT_SPACE,
-                    "geometry": data["polygon"],
+                    "geometry": self._footprint(area_id).geometry,
                     "properties": {
                         "area_id": area_id,
                         "name": area.name if area else area_id,
                         "floor_id": area_floor_id,
                         "level": floor.level if floor else None,
-                        "area_m2": _net_size(data["polygon"]),
+                        "area_m2": self._area_m2(area_id),
                         "base_m": base,
                         "top_m": top,
+                        "floors_up": data["floors_up"],
+                        "floor_ids": floor_ids,
+                        "on_facade_override": data["on_facade_override"],
+                        "on_facade": self._on_facade(area_id),
+                        "is_external": self._is_external(area_id),
                         "rev": content_rev(data),
                     },
                 }
@@ -229,25 +553,31 @@ class SpatialCoordinator:
         }
 
     def query_point(self, lon: float, lat: float, floor_id: str | None = None) -> str | None:
-        """Return the smallest area containing the point, optionally on one floor."""
+        """Return the smallest area containing the point, optionally among those on one floor."""
+        point = self._site_geometry(self.store.site).frame.to_lattice_units(lon, lat)
         matches = [
-            (_net_size(data["polygon"]), area_id)
+            (footprint.net_m2, area_id)
             for area_id, data in self.store.areas.items()
-            if (floor_id is None or self._floor_of(area_id) == floor_id)
-            and polygon_contains(data["polygon"], lon, lat)
+            if (floor_id is None or floor_id in self._floor_ids(area_id, data))
+            and contains((footprint := self._footprint(area_id)).corners, point)
         ]
         return min(matches)[1] if matches else None
 
     def adjacent_areas(self, area_id: str) -> list[str]:
-        """Return the areas on the same floor sharing a wall centreline with an area."""
+        """Return the areas sharing a wall axis with an area on a floor both occupy.
+
+        Site-level areas, without a floor, are adjacent only to each other.
+        """
         if (data := self.store.areas.get(area_id)) is None:
             return []
-        floor_id = self._floor_of(area_id)
+        levels = self._levels(area_id, data)
+        corners = self._footprint(area_id).corners
+        unit_m = float(self._site_geometry(self.store.site).grid.lattice_unit_m)
         return sorted(
             other_id
             for other_id, other in self.store.areas.items()
             if other_id != area_id
-            and self._floor_of(other_id) == floor_id
-            and shared_edge_length_m(data["polygon"], other["polygon"], ADJACENCY_TOLERANCE_M)
-            >= ADJACENCY_MIN_SHARED_M
+            and not levels.isdisjoint(self._levels(other_id, other))
+            and shared_edge_length(corners, self._footprint(other_id).corners) * unit_m
+            >= MIN_SHARED_EDGE_M
         )

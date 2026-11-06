@@ -1,33 +1,20 @@
 // Gives the panel Home Assistant's subpage header, built here because `hass-subpage` is lazy loaded and undefined on a deep link.
 
-import { mdiArrowLeft, mdiArrowRight, mdiHelpCircleOutline } from "@mdi/js";
-import { LitElement, css, html } from "lit";
+import { mdiArrowLeft, mdiArrowRight, mdiClose, mdiHelpCircleOutline } from "@mdi/js";
+import { LitElement, css, html, nothing } from "lit";
 import manifest from "../../custom_components/spatial/manifest.json";
+import { shapeFill } from "./styles";
 
-// The integration's page, where the panel is opened from.
-const BACK_FALLBACK = "/config/integrations/integration/spatial";
+const KEYS: [key: string, does: string][] = [
+  ["Space + drag", "Pan"],
+  ["Ctrl Z", "Undo"],
+  ["Ctrl Shift Z", "Redo"],
+  ["Esc", "Cancel the box"],
+  ["Delete", "Remove the active shape"],
+];
 
-/**
- * Port of canGoBack and the fallback branch of goBack and performNavigation in home-assistant/frontend
- * src/common/navigate.ts, release 20260930.3:
- * https://github.com/home-assistant/frontend/blob/20260930.3/src/common/navigate.ts
- * Copyright Home Assistant contributors, Apache License 2.0.
- *
- * Home Assistant's navigate() stamps `from` on every entry it pushes, so an entry without it was
- * not reached inside the app (deep link, login redirect, fresh tab) and back would leave it.
- * Dialog handling and unsaved-changes guards are left out: the panel opens neither.
- */
-const goBack = (fallbackPath: string) => {
-  if (history.state?.from !== undefined) {
-    history.back();
-    return;
-  }
-  // A replaced entry keeps its predecessor, so it keeps `from`.
-  const { root, from } = history.state ?? {};
-  const data = root ? { root: true } : undefined;
-  history.replaceState(from === undefined ? (data ?? null) : { ...data, from }, "", fallbackPath);
-  window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: true } }));
-};
+// The integration's page, whose Configure opens the editor.
+const INTEGRATION_PAGE = "/config/integrations/integration/spatial";
 
 class SpatialPanelHeader extends LitElement {
   static properties = {
@@ -88,6 +75,106 @@ class SpatialPanelHeader extends LitElement {
     :host([narrow]) .main-title {
       margin-inline-start: var(--ha-space-2);
     }
+    /* Home Assistant's dialog is lazy loaded too, so the help is a native dialog in its look. */
+    dialog {
+      box-sizing: border-box;
+      width: min(400px, calc(100vw - 32px));
+      max-height: calc(100dvh - 32px);
+      padding: var(--ha-space-2) var(--ha-space-6) var(--ha-space-6);
+      border: none;
+      border-radius: var(--ha-dialog-border-radius, var(--ha-border-radius-3xl, 24px));
+      background: var(--card-background-color);
+      color: var(--primary-text-color);
+      box-shadow: var(--ha-box-shadow-l, 0 8px 24px rgba(0, 0, 0, 0.24));
+      font-family: var(--ha-font-family-body, Roboto, sans-serif);
+      font-size: var(--ha-font-size-m);
+      line-height: var(--ha-line-height-normal);
+    }
+    dialog::backdrop {
+      background: var(--mdc-dialog-scrim-color, rgba(0, 0, 0, 0.32));
+    }
+    .title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-inline-end: calc(-1 * var(--ha-space-4));
+    }
+    h2 {
+      margin: 0;
+      font-size: var(--ha-font-size-xl);
+      font-weight: var(--ha-font-weight-normal);
+    }
+    h3 {
+      margin: var(--ha-space-4) 0 var(--ha-space-2);
+      color: var(--secondary-text-color);
+      font-size: var(--ha-font-size-s);
+      font-weight: var(--ha-font-weight-medium, 500);
+    }
+    ul {
+      display: grid;
+      gap: var(--ha-space-2);
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    li {
+      display: flex;
+      align-items: center;
+      gap: var(--ha-space-3);
+    }
+    .symbol {
+      display: flex;
+      flex: none;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+    }
+    .square {
+      width: 12px;
+      height: 12px;
+      box-sizing: border-box;
+      border: 1.5px solid var(--primary-color);
+      border-radius: 3px;
+      background: ${shapeFill};
+    }
+    .square.empty {
+      border: 1.5px dashed var(--secondary-text-color);
+      background: none;
+    }
+    .handle {
+      width: 12px;
+      height: 12px;
+      box-sizing: border-box;
+      border: 2px solid var(--primary-color);
+      border-radius: 50%;
+      background: var(--card-background-color);
+    }
+    .given-up {
+      width: 20px;
+      height: 14px;
+      box-sizing: border-box;
+      border: 2px dashed var(--warning-color);
+      background: color-mix(in srgb, var(--warning-color) 16%, transparent);
+    }
+    kbd {
+      flex: none;
+      min-width: 96px;
+      font-family: inherit;
+      font-size: var(--ha-font-size-s);
+    }
+    kbd span {
+      padding: 2px 6px;
+      border: 1px solid var(--divider-color);
+      border-radius: 4px;
+    }
+    .hint {
+      margin: var(--ha-space-3) 0 0;
+    }
+    .docs {
+      display: inline-block;
+      margin-top: var(--ha-space-5);
+      color: var(--primary-color);
+    }
   `;
 
   declare narrow: boolean;
@@ -103,26 +190,72 @@ class SpatialPanelHeader extends LitElement {
       <div class="toolbar-content">
         <ha-icon-button
           .path=${document.dir === "rtl" ? mdiArrowRight : mdiArrowLeft}
-          .label=${"Back"}
-          .href=${BACK_FALLBACK}
+          .label=${"Back to Spatial"}
+          .href=${INTEGRATION_PAGE}
           @click=${this._back}
         ></ha-icon-button>
         <div class="main-title" role="heading" aria-level="1">Spaces</div>
         <ha-icon-button
+          class="help"
           .path=${mdiHelpCircleOutline}
           .label=${"Help"}
-          .href=${manifest.documentation}
-          .target=${"_blank"}
-          .rel=${"noreferrer"}
+          aria-haspopup="dialog"
+          @click=${this._openHelp}
         ></ha-icon-button>
       </div>
+      <dialog aria-labelledby="help-title" @keydown=${this._helpKey} @close=${this._helpClosed}>
+        <div class="title">
+          <h2 id="help-title">Help</h2>
+          <ha-icon-button class="close" .path=${mdiClose} .label=${"Close"} @click=${this._closeHelp}></ha-icon-button>
+        </div>
+        <h3>Symbols</h3>
+        <ul>
+          <li><span class="symbol"><span class="square"></span></span>Has a shape</li>
+          <li><span class="symbol"><span class="square empty"></span></span>No shape yet</li>
+          <li><span class="symbol"><span class="handle"></span></span>A corner of the active shape</li>
+          <li><span class="symbol"><span class="given-up"></span></span>Given up: the box does not touch the shape it would join</li>
+        </ul>
+        <h3>Keys</h3>
+        <ul>
+          ${KEYS.map(([key, does]) => html`<li><kbd><span>${key}</span></kbd>${does}</li>`)}
+        </ul>
+        ${window.matchMedia("(pointer: coarse)").matches ? nothing : html`<p class="hint">Hold Alt to place without snapping</p>`}
+        <a class="docs" href=${manifest.documentation} target="_blank" rel="noreferrer">Documentation</a>
+      </dialog>
     `;
+  }
+
+  private get _dialog() {
+    return this.renderRoot.querySelector("dialog")!;
+  }
+
+  private _openHelp() {
+    this._dialog.showModal();
+  }
+
+  private _closeHelp() {
+    this._dialog.close();
+  }
+
+  // Closed here rather than by the browser alone, so Escape works the same everywhere. No key
+  // reaches the editor behind the sheet, where Delete or Ctrl Z would change the plan unseen.
+  private _helpKey(event: KeyboardEvent) {
+    event.stopPropagation();
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    this._closeHelp();
+  }
+
+  private _helpClosed() {
+    this.renderRoot.querySelector<HTMLElement>("ha-icon-button.help")?.focus();
   }
 
   private _back(event: MouseEvent) {
     if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
-    goBack(BACK_FALLBACK);
+    history.pushState(null, "", INTEGRATION_PAGE);
+    // Home Assistant's router listens for this event rather than for pushState.
+    window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
   }
 }
 

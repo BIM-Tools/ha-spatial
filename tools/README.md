@@ -4,8 +4,9 @@ Development tools. Not part of the integration.
 
 ## Why
 
-- Get footprints into Home Assistant before there is an editor.
-- See the result in the panel on Home Assistant's own map.
+- Get footprints drawn elsewhere into Home Assistant in one go.
+- Keep the frontend's packages at the versions Home Assistant's frontend ships.
+- Try the panel, the card and the state gallery on an example house without drawing one.
 
 ## How to use
 
@@ -13,6 +14,7 @@ Development tools. Not part of the integration.
 | --- | --- |
 | Start Home Assistant | `docker compose up homeassistant` (finish onboarding, add Spatial, create a token) |
 | Import the example | `docker compose run --rm test python tools/import_geojson.py tools/example_house.geojson --url http://host.docker.internal:8123 --token <token>` |
+| Sync frontend package versions with Home Assistant | `python tools/sync_frontend_versions.py`, or with `--check` to only compare |
 
 ## Architecture
 
@@ -21,7 +23,7 @@ Development tools. Not part of the integration.
 | File | Purpose |
 | --- | --- |
 | `import_geojson.py` | Imports a GeoJSON file over the websocket API |
-| `example_house.geojson` | A fictional 10 x 8.5 m house on a public square: ground floor, first floor and attic, nine rooms drawn to wall centrelines |
+| `example_house.geojson` | A fictional 10 x 8.5 m house on a public square: ground floor, first floor and attic, nine rooms on wall axes on the 2.5 cm lattice, inside an outline on the exterior wall axis, and five areas still to draw (one per floor, two without a floor) |
 | `sync_frontend_versions.py` | Sets the `home-assistant-frontend` pin in `requirements_test.txt` and the versions in `frontend/package.json` and `frontend/.nvmrc` to what Home Assistant's frontend ships; `--check` lists differences and exits 1 |
 | `brand/icon.svg` | Source of `custom_components/spatial/brand/icon.png` and `icon@2x.png`: a zoning plan on Home Assistant map colours, rendered with headless Chromium at 256 and 512 px |
 
@@ -29,9 +31,9 @@ Development tools. Not part of the integration.
 
 | Part | Content |
 | --- | --- |
-| `features[]` | `Polygon` with properties `area` (name), `floor` (name) and optionally `icon` (an `mdi:` name, set on the area) |
+| `features[]` | A `Polygon`, or `null` for an area without a shape yet, with properties `area` (name), optionally `floor` (name; none for an area without a floor) and optionally `icon` (an `mdi:` name, set on the area) |
 | `floors[]` (optional) | `name`, `level`, `elevation_m`, `height_m` |
-| `site` (optional) | `bearing_deg`, sent only when present (`lon` and `lat` in older files are ignored) |
+| `site` (optional) | `bearing_deg`, `origin` and `outline`, sent with the footprints in one change, so they are read in its frame (`lon` and `lat` in older files are ignored) |
 
 - Names match the way Home Assistant matches them (case and spaces ignored).
 - Missing floors and areas are created with Home Assistant's own registry commands.

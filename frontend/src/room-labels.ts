@@ -5,6 +5,7 @@ import type { Feature, Polygon } from "geojson";
 import { css } from "lit";
 import { Marker, type Map as MapLibreMap } from "maplibre-gl";
 import polylabel from "polylabel";
+import { type HassUnits, formatArea } from "./units";
 
 type Point = [number, number];
 
@@ -149,12 +150,15 @@ export class RoomLabels {
   private _outline?: Polygon;
   private _areas: Record<string, AreaInfo> = {};
   private _pointed?: string;
+  private _hidden = new Set<string>();
   private _labels = new Map<string, Label>();
   private _building?: Marker;
 
   constructor(
     private readonly _map: MapLibreMap,
     private readonly _withSize: boolean,
+    private readonly _units: () => HassUnits,
+    private readonly _buildingName: () => string,
   ) {
     _map.on("move", this.update);
     _map.on("resize", this.update);
@@ -181,10 +185,17 @@ export class RoomLabels {
     this.update();
   }
 
+  /** The rooms whose labels step aside while a draft over them shows its own numbers; none shows them all. */
+  hide(areaIds: readonly string[]) {
+    this._hidden = new Set(areaIds);
+    this.update();
+  }
+
   update = () => {
     const kept = new Set<string>();
     for (const room of this._rooms) {
       const areaId = String(room.properties?.area_id ?? room.id);
+      if (this._hidden.has(areaId)) continue;
       const rings = room.geometry.coordinates.map((ring) => ring.map((position) => this._toScreen(position)));
       const space = labelSpace(rings);
       const step = labelStep(rings, space.at, this._withSize);
@@ -194,7 +205,7 @@ export class RoomLabels {
       const area = this._areas[areaId];
       const name = area?.name ?? String(room.properties?.name ?? areaId);
       const icon = area?.icon || FALLBACK_ICON;
-      const size = step === "size" ? `${Number(room.properties?.area_m2).toFixed(1)} m²` : "";
+      const size = step === "size" ? formatArea(Number(room.properties?.area_m2), this._units()) : "";
       const chip = step === "icon" && areaId === this._pointed;
       const shown = JSON.stringify([step, name, icon, size, chip, Math.floor(space.width)]);
       if (shown !== label.shown) {
@@ -257,9 +268,12 @@ export class RoomLabels {
     const left = Math.min(...corners.map(([x]) => x)) + BUILDING_INSET[0];
     const top = Math.min(...corners.map(([, y]) => y)) + BUILDING_INSET[1];
     if (!this._building) {
-      const element = Object.assign(document.createElement("div"), { className: "building-label", textContent: "Building" });
+      const element = Object.assign(document.createElement("div"), { className: "building-label" });
       this._building = new Marker({ element, anchor: "top-left" }).setLngLat([0, 0]).addTo(this._map);
     }
+    const element = this._building.getElement();
+    const name = this._buildingName();
+    if (element.textContent !== name) element.textContent = name;
     this._building.setLngLat(this._map.unproject([left, top]));
   }
 }

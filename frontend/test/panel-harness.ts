@@ -3,6 +3,10 @@ import bearing from "@turf/bearing";
 import destination from "@turf/destination";
 import distance from "@turf/distance";
 import { vi } from "vitest";
+import type { SiteFrameData } from "../src/site-frame";
+import { siteFrameData } from "./site-frame-fixture";
+import type { HassUnits } from "../src/units";
+import { METRIC_UNITS } from "./units-fixture";
 
 export const mapCreated = vi.fn();
 export const setBearing = vi.fn();
@@ -24,10 +28,13 @@ export let layers: {
   paint?: Record<string, unknown>;
 }[] = [];
 export let mapBearingNow = 0;
+// The canvas of the latest map, whose style carries the cursor.
+export let mapCanvas = document.createElement("canvas");
 
 export interface FakeMarker {
   removed: boolean;
   element: HTMLElement;
+  lngLat?: [number, number];
 }
 export let markers: FakeMarker[] = [];
 export const liveMarkers = () => markers.filter((marker) => !marker.removed);
@@ -72,11 +79,13 @@ export const fakeMapLibre = {
   Marker: class implements FakeMarker {
     removed = false;
     element: HTMLElement;
+    lngLat?: [number, number];
     constructor(options: { element?: HTMLElement } = {}) {
       this.element = options.element ?? document.createElement("div");
       markers.push(this);
     }
-    setLngLat() {
+    setLngLat(lngLat: [number, number]) {
+      this.lngLat = lngLat;
       return this;
     }
     getElement() {
@@ -95,6 +104,7 @@ export const fakeMapLibre = {
     dragRotate = dragRotate;
     touchZoomRotate = touchZoomRotate;
     touchPitch = handler();
+    canvas = (mapCanvas = document.createElement("canvas"));
     constructor(options: { bearing?: number }) {
       mapCreated(options);
       handlers = {};
@@ -113,6 +123,9 @@ export const fakeMapLibre = {
     remove() {}
     getContainer() {
       return document.body;
+    }
+    getCanvas() {
+      return this.canvas;
     }
     addSource(id: string, source: { data: unknown }) {
       sources[id] = { data: source.data };
@@ -189,19 +202,71 @@ export const fakeMapLibre = {
 
 export const EMPTY = { type: "FeatureCollection", features: [] };
 
-export type Reply = (message: { type: string; [key: string]: unknown }) => Promise<unknown>;
+/** A `spatial/geojson` reply with these room features. */
+export const rooms = (...features: object[]) => ({ type: "FeatureCollection", features });
 
-export const answer: Reply = async ({ type }) => {
-  if (type === "map_tiles/access_token") return { token: "t" };
-  if (type === "spatial/site") return { lon: 5, lat: 52, bearing_deg: 0, outline: null };
-  if (type === "spatial/site/update") return null;
-  if (type === "spatial/geojson") return EMPTY;
-  if (type === "config/area_registry/list" || type === "config/floor_registry/list") return [];
-  throw new Error(type);
+export interface SiteFields {
+  bearing_deg?: number | null;
+  outline?: unknown;
+  frame?: SiteFrameData;
+}
+
+/** A `spatial/site` reply at the site centre; its frame has its origin there and follows the bearing (null faces north). */
+export const siteReply = (fields: SiteFields = {}) => {
+  const bearing = fields.bearing_deg === undefined ? 0 : fields.bearing_deg;
+  return { lon: 5, lat: 52, origin: null, outline: null, frame: siteFrameData(SITE, bearing ?? 0), ...fields, bearing_deg: bearing };
 };
 
-export const mountPanel = (reply: Reply = answer, floors = {}, card = false, floor?: string) => {
-  const sendMessagePromise = vi.fn(reply);
+/** A floor registry entry. */
+export const floorEntry = (floor_id: string, name: string, level: number | null = 0) => ({ floor_id, name, level });
+
+/** An area registry entry. */
+export const areaEntry = (area_id: string, name: string, floor_id: string | null) => ({ area_id, name, floor_id });
+
+export type Reply = (message: { type: string; [key: string]: unknown }) => Promise<unknown>;
+
+// A fixed value, or one read again on every message, for a test that changes it between updates.
+type Live<T> = T | (() => T);
+const now = <T>(value: Live<T>): T => (typeof value === "function" ? (value as () => T)() : value);
+
+/** What Home Assistant and Spatial hold; each part has a default, so a test names only what it is about. */
+export interface Home {
+  site?: Live<SiteFields>;
+  geojson?: Live<object>;
+  floors?: Live<object[]>;
+  areas?: Live<object[]>;
+}
+
+/** Answers the panel's reads and writes from `home`. */
+export const homeReply =
+  ({ site = {}, geojson = EMPTY, floors = [], areas = [] }: Home = {}): Reply =>
+  async ({ type }) => {
+    if (type === "map_tiles/access_token") return { token: "t" };
+    if (type === "spatial/site") return siteReply(now(site));
+    if (type === "spatial/site/update") return null;
+    if (type === "spatial/geojson") return now(geojson);
+    if (type === "config/floor_registry/list") return now(floors);
+    if (type === "config/area_registry/list") return now(areas);
+    throw new Error(type);
+  };
+
+export interface Mount extends Home {
+  /** Answers first; a reply of undefined leaves the message to the home. */
+  reply?: Reply;
+  /** `hass.floors`: Home Assistant's floor names. */
+  hassFloors?: Record<string, { name: string }>;
+  card?: boolean;
+  /** The card's fixed floor option. */
+  floor?: string;
+  units?: HassUnits;
+}
+
+export const mountPanel = ({ reply, hassFloors = {}, card = false, floor, units = METRIC_UNITS, ...home }: Mount = {}) => {
+  const fromHome = homeReply(home);
+  const sendMessagePromise = vi.fn<Reply>(async (message) => {
+    const answered = reply && (await reply(message));
+    return answered === undefined ? fromHome(message) : answered;
+  });
   const unsubscribe = vi.fn(async () => {});
   const unsubscribeEvents = vi.fn(async () => {});
   const listeners: Record<string, () => void> = {};
@@ -222,7 +287,7 @@ export const mountPanel = (reply: Reply = answer, floors = {}, card = false, flo
     floor?: string;
   };
   panel.floor = floor;
-  panel.hass = { connection, floors, themes: { darkMode: false } };
+  panel.hass = { connection, floors: hassFloors, themes: { darkMode: false }, ...units };
   panel.toggleAttribute("card", card);
   document.body.append(panel);
   const tokenCalls = () =>
@@ -235,6 +300,7 @@ export const onUpdateOf = (connection: { subscribeMessage: { mock: { calls: unkn
 
 export const resetFakes = () => {
   document.body.replaceChildren();
+  toasts.length = 0;
   vi.useRealTimers();
   mapCreated.mockClear();
   setBearing.mockClear();
@@ -276,7 +342,27 @@ export const floorButtonNames = (panel: HTMLElement) =>
     (button) => button.textContent?.trim(),
   );
 
-export const messageText = (panel: HTMLElement) => panel.shadowRoot?.querySelector(".messages")?.textContent ?? "";
+/** The text of each part of the guide line, one space apart. */
+export const guideText = (panel: HTMLElement) =>
+  [...(panel.shadowRoot?.querySelector(".guide")?.children ?? [])].map((part) => part.textContent).join(" ");
+
+/** The text of each part of an element's shadow root, one space apart. */
+export const partsText = (element: Element) =>
+  [...(element.shadowRoot?.children ?? [])].map((part) => part.textContent?.trim()).join(" ");
+
+export interface ToastDetail {
+  message: string;
+  action?: { text: string; action: () => void };
+  duration?: number;
+  dismissable?: boolean;
+  id?: string;
+}
+
+/** Every toast the panel asked Home Assistant to show, in order. */
+export const toasts: ToastDetail[] = [];
+window.addEventListener("hass-notification", (event) => toasts.push((event as CustomEvent<ToastDetail>).detail));
+
+export const toastMessages = () => toasts.map((toast) => toast.message);
 
 type Updating = Element & { updateComplete?: Promise<boolean> };
 

@@ -2,7 +2,14 @@
 
 import type { FeatureCollection } from "geojson";
 import { expect, test } from "vitest";
-import { floorsByLevel, mapBearing, styleUrl, withMapTilesToken } from "../src/map-view";
+import { darkModeOf, floorsByLevel, mapBearing, styleUrl, withMapTilesToken, workerUrl } from "../src/map-view";
+
+test("the worker is loaded from next to the panel bundle, with the same version", () => {
+  // The bundle version covers the worker, so a cached old worker is never reused.
+  expect(workerUrl("http://ha:8123/spatial_static/spatial-panel.js?v=abc")).toBe(
+    "http://ha:8123/spatial_static/maplibre-gl-worker.js?v=abc",
+  );
+});
 
 test("mapBearing turns the site's x-axis to point right", () => {
   expect(mapBearing(0)).toBe(270);
@@ -13,6 +20,33 @@ test("mapBearing turns the site's x-axis to point right", () => {
 test("styleUrl picks Home Assistant's shipped style", () => {
   expect(styleUrl(true)).toBe("/static/map/dark.json");
   expect(styleUrl(false)).toBe("/static/map/light.json");
+});
+
+test("darkModeOf takes Home Assistant's darkMode once it has resolved it", () => {
+  expect(darkModeOf({ themes: { darkMode: false } }, true)).toBe(false);
+  expect(darkModeOf({ themes: { darkMode: true } }, false)).toBe(true);
+});
+
+test("darkModeOf resolves an unset darkMode the way Home Assistant does", () => {
+  const themes = {
+    default_theme: "default",
+    default_dark_theme: null,
+    themes: {
+      light_only: { modes: { light: {} } },
+      dark_only: { modes: { dark: {} } },
+      both: { modes: { light: {}, dark: {} } },
+      plain: {},
+    },
+  };
+  expect(darkModeOf({ themes }, true)).toBe(true);
+  expect(darkModeOf({ themes }, false)).toBe(false);
+  expect(darkModeOf({ themes, selectedTheme: { dark: false } }, true)).toBe(false);
+  expect(darkModeOf({ themes, selectedTheme: { dark: true } }, false)).toBe(true);
+  expect(darkModeOf({ themes, selectedTheme: { theme: "light_only" } }, true)).toBe(false);
+  expect(darkModeOf({ themes, selectedTheme: { theme: "plain" } }, true)).toBe(false);
+  expect(darkModeOf({ themes, selectedTheme: { theme: "dark_only" } }, false)).toBe(true);
+  expect(darkModeOf({ themes, selectedTheme: { theme: "both" } }, true)).toBe(true);
+  expect(darkModeOf({ themes: { ...themes, default_dark_theme: "light_only" } }, true)).toBe(false);
 });
 
 test("withMapTilesToken sends the token to the proxy only", () => {

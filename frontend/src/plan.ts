@@ -1,81 +1,227 @@
-// Plan-space geometry for drawing rooms: boxes from screen corners, side lengths, resizing, moving and joining shapes.
+// Plan geometry for drawing rooms on the site lattice: boxes, side lengths, resizing, moving and joining shapes.
 
-import area from "@turf/area";
-import bearing from "@turf/bearing";
-import center from "@turf/center";
-import destination from "@turf/destination";
-import distance from "@turf/distance";
-import { point, polygon } from "@turf/helpers";
-import rewind from "@turf/rewind";
-import transformTranslate from "@turf/transform-translate";
+import { polygon } from "@turf/helpers";
 import union from "@turf/union";
 import type { Polygon, Position } from "geojson";
+import type { Change } from "./history";
+import type { LatticePoint, PlanFrame } from "./site-frame";
+import type { LatticeEdge } from "./snap";
+import { type HassUnits, type Refusal, formatArea, formatLength } from "./units";
 
-export const MIN_SIDE_M = 0.2;
-const AXIS_TOLERANCE_DEG = 0.5;
+type Ring = LatticePoint[];
 
-const metres = { units: "meters" } as const;
-const corners = (shape: Polygon): Position[] => shape.coordinates[0].slice(0, -1);
-const wrap = (degrees: number, turn: number): number => ((degrees % turn) + turn) % turn;
-const edgeLength = (from: Position, to: Position): number => distance(point(from), point(to), metres);
-const ringOf = (vertices: Position[]): Polygon => ({ type: "Polygon", coordinates: [[...vertices, vertices[0]]] });
+// The rings of a shape in lattice units, without their closing corner.
+const latticeRings = (frame: PlanFrame, shape: Polygon): Ring[] =>
+  shape.coordinates.map((ring) => ring.slice(0, -1).map((corner) => frame.toLattice(corner)));
+const outerCorners = (frame: PlanFrame, shape: Polygon): Ring => latticeRings(frame, shape)[0];
 
-export function edgeLengths(shape: Polygon): number[] {
-  const vertices = corners(shape);
-  return vertices.map((vertex, index) => edgeLength(vertex, vertices[(index + 1) % vertices.length]));
+const liesOnStraightLine = (corners: Ring, index: number): boolean => {
+  const [x, y] = corners[index];
+  const [previousX, previousY] = corners.at(index - 1)!;
+  const [nextX, nextY] = corners[(index + 1) % corners.length];
+  return (x - previousX) * (nextY - y) - (y - previousY) * (nextX - x) === 0;
+};
+
+/**
+ * Custom. The ring without its corners that lie exactly on the line through their neighbours (a
+ * zero cross product on lattice integers), also the tip of a spike back on itself and a repeated
+ * corner, so the shape never changes. Near-straight corners stay.
+ */
+export function dropStraightCorners(corners: readonly LatticePoint[]): LatticePoint[] {
+  const ring = [...corners];
+  for (let index = ring.findIndex((_, at) => liesOnStraightLine(ring, at)); index >= 0 && ring.length > 3; ) {
+    ring.splice(index, 1);
+    index = ring.findIndex((_, at) => liesOnStraightLine(ring, at));
+  }
+  return ring;
 }
 
-/** The four unprojected corners of a screen rectangle as a counter-clockwise box, or undefined when a side is too short. */
-export function boxFromCorners(rectangle: [Position, Position, Position, Position]): Polygon | undefined {
-  const box = rewind(ringOf(rectangle)) as Polygon;
-  return edgeLengths(box).some((length) => length < MIN_SIDE_M) ? undefined : box;
+// Every footprint the panel writes leaves the lattice here, so none keeps a straight corner.
+const ringToWgs84 = (frame: PlanFrame, corners: Ring): Position[] => {
+  const positions = dropStraightCorners(corners).map((corner) => frame.fromLattice(corner));
+  return [...positions, positions[0]];
+};
+const edgeUnits = (from: LatticePoint, to: LatticePoint): number => Math.hypot(to[0] - from[0], to[1] - from[1]);
+// Twice the signed area of a ring, by the shoelace formula; positive when counter-clockwise.
+const doubleArea = (corners: Ring): number =>
+  corners.reduce((sum, [x, y], index) => {
+    const [nextX, nextY] = corners[(index + 1) % corners.length];
+    return sum + x * nextY - nextX * y;
+  }, 0);
+
+/** Outer ring edge lengths in metres. */
+export function edgeLengths(frame: PlanFrame, shape: Polygon): number[] {
+  const corners = outerCorners(frame, shape);
+  return corners.map((corner, index) => edgeUnits(corner, corners[(index + 1) % corners.length]) * frame.unitM);
 }
 
-export function sideLabels(shape: Polygon): { at: Position; edgeIndex: number; text: string }[] {
-  const vertices = corners(shape);
-  return edgeLengths(shape).map((length, edgeIndex) => {
-    const next = vertices[(edgeIndex + 1) % vertices.length];
-    const from = vertices[edgeIndex];
-    return { at: [(from[0] + next[0]) / 2, (from[1] + next[1]) / 2], edgeIndex, text: `${length.toFixed(2)} m` };
+/** The counter-clockwise axis box between two lattice points, or undefined when a side is under one grid step. */
+export function boxFromCorners(frame: PlanFrame, a: LatticePoint, b: LatticePoint): Polygon | undefined {
+  const [left, right] = [Math.min(a[0], b[0]), Math.max(a[0], b[0])];
+  const [bottom, top] = [Math.min(a[1], b[1]), Math.max(a[1], b[1])];
+  if (right - left < frame.unitsPerStep || top - bottom < frame.unitsPerStep) return undefined;
+  const corners: Ring = [
+    [left, bottom],
+    [right, bottom],
+    [right, top],
+    [left, top],
+  ];
+  return { type: "Polygon", coordinates: [ringToWgs84(frame, corners)] };
+}
+
+export function sideLabels(
+  frame: PlanFrame,
+  shape: Polygon,
+  units: HassUnits,
+): { at: Position; edgeIndex: number; text: string }[] {
+  const corners = outerCorners(frame, shape);
+  return edgeLengths(frame, shape).map((length, edgeIndex) => {
+    const [x, y] = corners[edgeIndex];
+    const [nextX, nextY] = corners[(edgeIndex + 1) % corners.length];
+    return { at: frame.fromLattice([(x + nextX) / 2, (y + nextY) / 2]), edgeIndex, text: formatLength(length, units) };
   });
 }
 
-export const areaLabel = (shape: Polygon): string => `${area(shape).toFixed(1)} m²`;
+/** Where an edge of an axis rectangle lies in the site-aligned view, in which lattice x runs right and y up. */
+export type AxisSide = "bottom" | "right" | "top" | "left";
 
-/** Where the area label goes: the middle of the shape's bounding box. */
-export const centreOf = (shape: Polygon): Position => center(shape).geometry.coordinates;
+/** The place of each edge of an axis rectangle, given by its four lattice corners, by its start corner. */
+export function axisSides(corners: readonly LatticePoint[]): AxisSide[] {
+  const left = Math.min(...corners.map(([x]) => x));
+  const bottom = Math.min(...corners.map(([, y]) => y));
+  return corners.map(([x, y], index) => {
+    const [, nextY] = corners[(index + 1) % corners.length];
+    if (y === nextY) return y === bottom ? "bottom" : "top";
+    return x === left ? "left" : "right";
+  });
+}
 
-export function isAxisRectangle(shape: Polygon, bearingDeg: number): boolean {
-  const vertices = corners(shape);
+/** What a side of the active rectangle carries: the length of its axis, or only a grip. */
+export type SideHandle = "length" | "grip";
+
+// Whether an axis edge lies on one of `walls` over more than a point.
+const sharesWall = ([from, to]: LatticeEdge, walls: readonly LatticeEdge[]): boolean => {
+  const across = from[0] === to[0] ? 0 : 1;
+  const along = across === 0 ? 1 : 0;
+  const [start, end] = [Math.min(from[along], to[along]), Math.max(from[along], to[along])];
+  return walls.some(
+    ([a, b]) =>
+      a[across] === from[across] &&
+      b[across] === from[across] &&
+      Math.min(end, Math.max(a[along], b[along])) - Math.max(start, Math.min(a[along], b[along])) > 0,
+  );
+};
+
+/**
+ * Custom. Per edge of an axis rectangle (its four lattice corners), whether it carries the length of
+ * its axis or a grip. Opposite sides have the same length, so each length shows once: on the side of
+ * the pair that shares no stretch of wall with `roomEdges`, the other rooms of the floor, so it never
+ * covers a neighbour; when both or neither do, on the bottom for the width and the left for the depth.
+ */
+export function sideHandles(corners: readonly LatticePoint[], roomEdges: readonly LatticeEdge[]): SideHandle[] {
+  const sides = axisSides(corners);
+  const shared = corners.map((from, index) => sharesWall([from, corners[(index + 1) % corners.length]], roomEdges));
+  const isShared = (side: AxisSide) => shared[sides.indexOf(side)];
+  const lengthOn = (usual: AxisSide, opposite: AxisSide) => (isShared(usual) && !isShared(opposite) ? opposite : usual);
+  const carriers = [lengthOn("bottom", "top"), lengthOn("left", "right")];
+  return sides.map((side) => (carriers.includes(side) ? "length" : "grip"));
+}
+
+/** Gross area of a draft, holes taken out; saved areas come from the integration. */
+export function areaLabel(frame: PlanFrame, shape: Polygon, units: HassUnits): string {
+  const [outer, ...holes] = latticeRings(frame, shape).map((corners) => Math.abs(doubleArea(corners)) / 2);
+  const squareUnits = holes.reduce((rest, hole) => rest - hole, outer);
+  return formatArea(squareUnits * frame.unitM * frame.unitM, units);
+}
+
+/** Where the area label goes: the middle of the shape's bounding box on the plan. */
+export function centreOf(frame: PlanFrame, shape: Polygon): Position {
+  const corners = outerCorners(frame, shape);
+  const xs = corners.map(([x]) => x);
+  const ys = corners.map(([, y]) => y);
+  return frame.fromLattice([(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2]);
+}
+
+/** One ring of four corners whose edges all run along the site axes. */
+export function isAxisRectangle(frame: PlanFrame, shape: Polygon): boolean {
+  const corners = outerCorners(frame, shape);
   return (
     shape.coordinates.length === 1 &&
-    vertices.length === 4 &&
-    vertices.every((vertex, index) => {
-      const edge = bearing(point(vertex), point(vertices[(index + 1) % 4]));
-      const offAxis = wrap(edge - bearingDeg, 90);
-      return Math.min(offAxis, 90 - offAxis) <= AXIS_TOLERANCE_DEG;
+    corners.length === 4 &&
+    corners.every(([x, y], index) => {
+      const [nextX, nextY] = corners[(index + 1) % 4];
+      return x === nextX || y === nextY;
     })
   );
 }
 
-/** Gives edge `edgeIndex` and its opposite the length; the edge's start vertex and the other two lengths stay. */
-export function resizeSide(rectangle: Polygon, edgeIndex: number, lengthM: number): Polygon {
-  const vertices = corners(rectangle);
+/**
+ * Gives edge `edgeIndex` and its opposite the length, rounded to whole lattice units; the edge's
+ * start corner and the other two lengths stay. Undefined under one grid step.
+ */
+export function resizeSide(frame: PlanFrame, rectangle: Polygon, edgeIndex: number, lengthM: number): Polygon | undefined {
+  const units = Math.round(lengthM / frame.unitM);
+  if (units < frame.unitsPerStep) return undefined;
+  const corners = outerCorners(frame, rectangle);
   const at = (offset: number) => (edgeIndex + offset) % 4;
-  const stretched = (anchor: Position, towards: Position) =>
-    destination(anchor, lengthM, bearing(point(anchor), point(towards)), metres).geometry.coordinates;
-  const result = [...vertices];
-  result[at(1)] = stretched(vertices[at(0)], vertices[at(1)]);
-  result[at(2)] = stretched(vertices[at(3)], vertices[at(2)]);
-  return ringOf(result);
+  const [startX, startY] = corners[at(0)];
+  const [endX, endY] = corners[at(1)];
+  const direction = [Math.sign(endX - startX), Math.sign(endY - startY)];
+  const stretched = ([x, y]: LatticePoint): LatticePoint => [x + direction[0] * units, y + direction[1] * units];
+  const result = [...corners];
+  result[at(1)] = stretched(corners[at(0)]);
+  result[at(2)] = stretched(corners[at(3)]);
+  return { type: "Polygon", coordinates: [ringToWgs84(frame, result)] };
 }
 
-/** The footprint with the box added, or undefined when the result is not one Polygon. */
-export function addToFootprint(existing: Polygon | undefined, box: Polygon): Polygon | undefined {
+/** Moves every corner by a lattice delta. */
+export function movePolygon(frame: PlanFrame, shape: Polygon, delta: LatticePoint): Polygon {
+  const moved = latticeRings(frame, shape).map((corners) =>
+    ringToWgs84(frame, corners.map(([x, y]) => [x + delta[0], y + delta[1]] as const)),
+  );
+  return { type: "Polygon", coordinates: moved };
+}
+
+/**
+ * The footprint with the box added, or undefined when the result is not one Polygon. Joined on
+ * lattice units, where shared walls are exact; in lon/lat a partly shared edge can open a gap.
+ */
+export function addToFootprint(frame: PlanFrame, existing: Polygon | undefined, box: Polygon): Polygon | undefined {
   if (!existing) return box;
-  const joined = union({ type: "FeatureCollection", features: [polygon(existing.coordinates), polygon(box.coordinates)] });
-  return joined?.geometry.type === "Polygon" ? joined.geometry : undefined;
+  const onLattice = (shape: Polygon) =>
+    polygon(latticeRings(frame, shape).map((corners) => [...corners, corners[0]].map(([x, y]) => [x, y])));
+  const joined = union({ type: "FeatureCollection", features: [onLattice(existing), onLattice(box)] });
+  if (joined?.geometry.type !== "Polygon") return undefined;
+  const rings = joined.geometry.coordinates.map((ring) =>
+    ringToWgs84(frame, ring.slice(0, -1).map((corner) => [corner[0], corner[1]] as const)),
+  );
+  return { type: "Polygon", coordinates: rings };
 }
 
-export const movePolygon = (shape: Polygon, from: Position, to: Position): Polygon =>
-  transformTranslate(shape, edgeLength(from, to), bearing(point(from), point(to)), metres);
+/** What saving a gesture changes, or why it saves nothing. */
+export type ChangeOrRefusal = { change: Change } | { refusal: Refusal };
+
+const footprintChange = (areaId: string, before: Polygon | null, after: Polygon | null): Change => ({
+  before: { [areaId]: before },
+  after: { [areaId]: after },
+});
+
+/** A drawn box joins the area's footprint, or starts it; a box the footprint cannot join is refused. */
+export function boxChange(frame: PlanFrame, areaId: string, current: Polygon | undefined, box: Polygon): ChangeOrRefusal {
+  const footprint = addToFootprint(frame, current, box);
+  if (!footprint) return { refusal: "apart" };
+  return { change: footprintChange(areaId, current ?? null, footprint) };
+}
+
+/** A typed side length resizes the rectangle; an unreadable length or one under a grid step is refused. */
+export function resizeChange(
+  frame: PlanFrame,
+  areaId: string,
+  rectangle: Polygon,
+  edgeIndex: number,
+  lengthM: number | undefined,
+): ChangeOrRefusal {
+  const resized = lengthM === undefined ? undefined : resizeSide(frame, rectangle, edgeIndex, lengthM);
+  if (!resized) return { refusal: "too_small" };
+  return { change: footprintChange(areaId, rectangle, resized) };
+}
