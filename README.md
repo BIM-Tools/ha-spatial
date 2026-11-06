@@ -29,6 +29,22 @@ Without HACS: download `spatial.zip` from the
 [releases page](https://github.com/BIM-Tools/ha-spatial/releases), unzip it into
 `config/custom_components/spatial/`, then continue with step 3.
 
+## Privacy
+
+Your footprints, floors and site stay in Home Assistant. One thing leaves it: an address
+search.
+
+- When: only when an administrator searches for an address explicitly. Nothing is searched
+  automatically or while typing.
+- What: the typed text, Home Assistant's language, and an area of about 50 km around Home
+  Assistant's home location rounded to 0.1 degree (so nearby places come first), sent to
+  [OpenStreetMap Nominatim](https://nominatim.org/) with a user agent naming this integration.
+  Nominatim also sees your IP address; see the
+  [OSMF privacy policy](https://osmfoundation.org/wiki/Privacy_Policy).
+- Kept: nothing. The text and the results are not logged or stored by the integration. Home
+  Assistant's own websocket debug logging, when you switch it on, records every message,
+  searches included.
+
 ## Documentation
 
 | Document | For |
