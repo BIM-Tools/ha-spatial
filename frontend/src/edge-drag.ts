@@ -9,6 +9,7 @@ import {
   type SnapOptions,
   type SnapSource,
   type SweptCorner,
+  distinctSources,
   outlineContact,
   snapLine,
   snapPoint,
@@ -29,7 +30,7 @@ export interface ResizeTarget {
 /** A resized rectangle, what lights up, and whether it differs from the rectangle it started as. */
 export interface Resized {
   shape: Polygon;
-  source: SnapSource;
+  sources: SnapSource[];
   changed: boolean;
 }
 
@@ -73,11 +74,12 @@ function stopAtOutline(
  * Custom. Drags an edge (from corner `index` to the next) of an axis rectangle across its line, or a
  * corner while the opposite corner stays. The edge lands where `snapLine` puts it and the corner where
  * `snapPoint` does; then each moved side stops at the outline (`stopAtOutline`) and one grid step
- * from its opposite side, and a stopped side shows what stopped it. A corner's two sides stop one
- * after the other, across first, so a corner past the outline in one direction still follows the
- * pointer in the other. Known limits: axis rectangles only; a rectangle with a side under one grid
- * step stays as it is; a corner side stops at outline walls along the room's old extent, also when
- * the other side shrinks.
+ * from its opposite side, and a stopped side shows what stopped it, a side that follows the snap the
+ * wall it rests on. A corner's two sides stop one after the other, across first, so a corner past
+ * the outline in one direction still follows the pointer in the other, and a corner in an inner
+ * corner lights both walls. Known limits: axis rectangles only; a rectangle with a side under one
+ * grid step stays as it is; a corner side stops at outline walls along the room's old extent, also
+ * when the other side shrinks.
  */
 export function resizeRectangle(
   frame: PlanFrame,
@@ -92,29 +94,33 @@ export function resizeRectangle(
   const opposite = corners[(index + 2) % 4];
   const step = frame.unitsPerStep;
   const corner: [number, number] = [start[0], start[1]];
-  let source: SnapSource;
-  // Each moved side: the snapped `value` on `axis`, for the rectangle as far as it is resized yet.
-  const moveSide = (axis: 0 | 1, value: number) => {
+  let sources: SnapSource[];
+  // Each moved side: the snapped `value` on `axis`, for the rectangle as far as it is resized yet,
+  // and what lights it: what stopped it, nothing when kept apart, else `snappedTo`.
+  const moveSide = (axis: 0 | 1, value: number, snappedTo: SnapSource[]) => {
     const stopped = stopAtOutline(candidates, axis, opposite, corner, value);
     corner[axis] = keepApart(stopped.value, start[axis], opposite[axis], step);
-    return corner[axis] !== stopped.value ? { kind: "grid" as const } : stopped.source;
+    if (corner[axis] !== stopped.value) return [];
+    return stopped.source ? [stopped.source] : snappedTo;
   };
   if (kind === "edge") {
     const next = corners[(index + 1) % 4];
     const axis = start[0] === next[0] ? 0 : 1;
     const snapped = snapLine(pointer[axis], axis, candidates, options);
-    source = moveSide(axis, snapped.value) ?? snapped.source;
+    sources = moveSide(axis, snapped.value, snapped.sources);
   } else {
     const snapped = snapPoint(pointer, candidates, options);
-    const across = moveSide(0, snapped.point[0]);
-    const down = moveSide(1, snapped.point[1]);
+    // The walls the snapped point rests on across `axis`.
+    const wallsAcross = (axis: 0 | 1) => snapped.sources.filter((source) => source.kind === "edge" && source.edge[0][axis] === source.edge[1][axis]);
+    const across = moveSide(0, snapped.point[0], wallsAcross(0));
+    const down = moveSide(1, snapped.point[1], wallsAcross(1));
     const kept = corner[0] === snapped.point[0] && corner[1] === snapped.point[1];
-    source = kept ? snapped.source : (down ?? across ?? { kind: "grid" });
+    sources = kept ? snapped.sources : distinctSources([...across, ...down]);
   }
   const shape = boxFromCorners(frame, opposite, corner);
   return {
     shape: shape ?? rectangle,
-    source,
+    sources,
     changed: Boolean(shape) && (corner[0] !== start[0] || corner[1] !== start[1]),
   };
 }
