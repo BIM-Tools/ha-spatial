@@ -534,8 +534,8 @@ export class RoomEditor {
       return;
     }
     for (const side of this._sides) side.getElement().style.visibility = "hidden";
-    // Invisible rather than hidden, so the held one keeps its pointer capture.
-    for (const grip of this._grips) grip.getElement().style.opacity = "0";
+    // Only the pill hides, so the held handle keeps its pointer capture; MapLibre sets a marker's own opacity.
+    for (const grip of this._grips) (grip.getElement().firstElementChild as HTMLElement).style.visibility = "hidden";
   }
 
   private async _apply(change: Change) {

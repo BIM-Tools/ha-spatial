@@ -258,14 +258,14 @@ test("with a mouse the sides get no grab handles", async () => {
   expect(grips()).toEqual([]);
 });
 
-test("dragging a grab handle saves one resize through the edge drag, with the chips hidden and the handles invisible meanwhile", async () => {
+test("dragging a grab handle saves one resize through the edge drag, with the chips and the handles hidden meanwhile", async () => {
   touchScreen();
   const { connection } = await adjustKitchen();
   const left = grips()[3];
   pointer(left, "pointerdown", [0, 25]);
   pointer(left, "pointermove", [-12, 25]);
   expect(sidesVisible()).toEqual([false, false, false, false]);
-  expect(grips().map(({ element }) => element.style.opacity)).toEqual(["0", "0", "0", "0"]);
+  expect(grips().map(({ element }) => (element.firstElementChild as HTMLElement).style.visibility)).toEqual(["hidden", "hidden", "hidden", "hidden"]);
   pointer(left, "pointermove", [-19.2, 25]);
   pointer(left, "pointerup", [-19.2, 25]);
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
