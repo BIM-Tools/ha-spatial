@@ -9,13 +9,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import floor_registry as fr
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import (
+from pytest_homeassistant.common import (
     MockConfigEntry,
     MockUser,
     async_capture_events,
     async_fire_time_changed,
 )
-from pytest_homeassistant_custom_component.typing import WebSocketGenerator
+from pytest_homeassistant.typing import WebSocketGenerator
 
 from custom_components.spatial.const import (
     BOT_SPACE,
