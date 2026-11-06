@@ -408,6 +408,20 @@ test("in Align a failed save turns the map back and offers Retry, which saves th
   expect(updates(connection)[1]).toEqual(updates(connection)[0]);
 });
 
+test("in Align a save while Spatial is still starting says so and offers Retry", async () => {
+  const { panel } = mountPanel({
+    reply: async (message) => {
+      if (message.type === "spatial/site/update") throw { code: "unknown_command", message: "Unknown command." };
+    },
+  });
+  queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
+  vi.spyOn(console, "error").mockImplementationOnce(() => {});
+  await startAligning(panel);
+  click();
+  await vi.waitFor(() => expect(toastMessages()).toEqual(["Spatial is still starting, try again in a moment"]));
+  expect(toasts[0]).toMatchObject({ action: { text: "Retry" }, duration: -1, dismissable: true });
+});
+
 test("the header's Help opens a sheet of symbols and keys that Escape closes, giving focus back to Help", async () => {
   const { panel } = mountPanel();
   await vi.waitFor(() => expect(panel.shadowRoot?.querySelector("spatial-panel-header")).not.toBeNull());

@@ -14,7 +14,7 @@ import { type ChangeOrRefusal, boxChange, isAxisRectangle } from "./plan";
 import { type SideControls, showSideControls } from "./side-controls";
 import type { PlanFrame } from "./site-frame";
 import { snapCandidatesFor } from "./snap";
-import { type HassUnits, refusalMessage } from "./units";
+import { type HassUnits, refusalMessage, saveFailureMessage } from "./units";
 
 interface Connection {
   sendMessagePromise<T>(message: { type: string; [key: string]: unknown }): Promise<T>;
@@ -444,17 +444,19 @@ export class RoomEditor {
     this._saving = true;
     this._host.requestUpdate();
     let failed = false;
+    let error: unknown;
     try {
       await action();
     } catch (err) {
       console.error(err);
       failed = true;
+      error = err;
     }
     // Released before the reload, so a reload that hangs does not block input.
     this._saving = false;
     if (failed) {
       if (shape) this._interaction?.keepShape(shape);
-      this._saveFailed(() => this._whileSaving(action, shape));
+      this._saveFailed(error, () => this._whileSaving(action, shape));
     } else {
       // Any save that succeeds supersedes a failed one, also a removal or an undo.
       this._interaction?.dropShape();
@@ -465,11 +467,11 @@ export class RoomEditor {
     if (failed) await this._host.reloadRooms().catch(console.error);
   }
 
-  private _saveFailed(retry: () => void) {
+  private _saveFailed(error: unknown, retry: () => void) {
     this._saveFailedShown = true;
     this._host.toast({
       id: SAVE_FAILED_ID,
-      message: "Could not save",
+      message: saveFailureMessage(error),
       action: { text: "Retry", action: retry },
       duration: -1,
       dismissable: true,
@@ -525,7 +527,7 @@ export class RoomEditor {
       );
     } catch (err) {
       console.error(err);
-      this._saveFailed(() => this._rename(change));
+      this._saveFailed(err, () => this._rename(change));
       return;
     }
     this._saveSucceeded();
