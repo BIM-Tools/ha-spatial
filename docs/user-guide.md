@@ -145,6 +145,10 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
   grid step. With Alt held an edge or corner lands on the 2.5 cm (1 in) lattice without
   snapping. The pointer turns into a resize arrow over an edge or a corner. **Escape** cancels;
   undo, redo and **Delete** do nothing while a side or corner is held.
+- **On a touch screen** the thin edge is hard to hit with a finger, so each side of such a
+  rectangle gets a grab handle in its middle, a small bar with a grip mark. Drag a handle to
+  stretch its side as above; a tap on it opens the length field. The side lengths then sit
+  just off the handles, outward, or inside the room where a neighbouring room lies outward.
 - A stretched side or dragged corner is one save and one undo step; one that ends where it
   started saves nothing.
 - Lengths and areas follow Home Assistant's unit system and number format. Metric lengths show

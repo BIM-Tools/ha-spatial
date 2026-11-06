@@ -78,6 +78,8 @@ class State:
     caption: str
     setup: Callable[[Shot], None]
     phone: bool = True
+    # Shot on a touch screen, where the main pointer is a finger.
+    touch: bool = False
 
 
 class House:
@@ -517,6 +519,30 @@ def edge_drag(shot: Shot) -> None:
     shot.start_drag((x, y), (x + 40, y))
 
 
+def touch_handles(shot: Shot) -> None:
+    if not shot.page.evaluate("matchMedia('(pointer: coarse)').matches"):
+        raise Skip("the browser does not report a touch screen")
+    adjust_room_active(shot)
+    shot.require(shot.panel.locator("button.side-grip"), "grab handle")
+
+
+def touch_handle_drag(shot: Shot) -> None:
+    touch_handles(shot)
+    x, y = edge_middle(shot.room_corners("Living room"), "left")
+    # A finger on the left handle, 40 px in; the cleanup lifts it after Escape cancelled the drag.
+    session = shot.page.context.new_cdp_session(shot.page)
+
+    def touch(kind: str, at: tuple[float, float] | None) -> None:
+        points = [] if at is None else [{"x": at[0], "y": at[1]}]
+        session.send("Input.dispatchTouchEvent", {"type": kind, "touchPoints": points})
+
+    touch("touchStart", (x, y))
+    for step in range(1, 11):
+        touch("touchMove", (x + 4 * step, y))
+    shot.cleanups.append(lambda: touch("touchEnd", None))
+    shot.settle()
+
+
 def corner_drag(shot: Shot) -> None:
     adjust_room_active(shot)
     x, y = min(shot.room_corners("Living room"), key=lambda corner: corner[1] - corner[0])
@@ -644,6 +670,20 @@ STATES = [
         "Dragging the living room's left edge in: the draft counts its lengths",
         edge_drag,
         phone=False,
+    ),
+    State(
+        "touch-handles",
+        "tools",
+        "Touch screen: a grab handle per side of the living room, lengths clear of neighbours",
+        touch_handles,
+        touch=True,
+    ),
+    State(
+        "touch-handle-drag",
+        "tools",
+        "On a touch screen: dragging the living room's left handle in, the handles out of sight",
+        touch_handle_drag,
+        touch=True,
     ),
     State(
         "corner-drag",
@@ -807,10 +847,11 @@ def load_house(token: str) -> House:
     return house
 
 
-def log_in(browser: Browser, theme: str, width: str) -> Page:
+def log_in(browser: Browser, theme: str, width: str, touch: bool = False) -> Page:
     viewport_width, viewport_height = VIEWPORTS[width]
     context = browser.new_context(
         viewport={"width": viewport_width, "height": viewport_height},
+        has_touch=touch,
         color_scheme=theme,
         reduced_motion="reduce",
         locale="en-US",
@@ -834,12 +875,15 @@ def render_states(browser: Browser, house: House) -> tuple[Results, Warnings]:
     results: Results = {}
     warnings: Warnings = {}
     for theme, width in COLUMNS:
-        page = log_in(browser, theme, width)
+        pages = {False: log_in(browser, theme, width)}
         for state in STATES:
             key = (state.id, theme, width)
             if width == "390" and not state.phone:
                 results[key] = "Not on phone"
                 continue
+            if state.touch not in pages:
+                pages[state.touch] = log_in(browser, theme, width, touch=state.touch)
+            page = pages[state.touch]
             shot = Shot(page, house, theme, width)
             try:
                 state.setup(shot)
@@ -855,7 +899,8 @@ def render_states(browser: Browser, house: House) -> tuple[Results, Warnings]:
                 print(f"SKIP {state.id} {theme} {width}: {reason}")
             finally:
                 shot.release()
-        page.context.close()
+        for page in pages.values():
+            page.context.close()
     return results, warnings
 
 

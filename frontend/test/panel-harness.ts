@@ -34,6 +34,8 @@ export let mapCanvas = document.createElement("canvas");
 export interface FakeMarker {
   removed: boolean;
   element: HTMLElement;
+  offset: [number, number];
+  rotation: number;
 }
 export let markers: FakeMarker[] = [];
 export const liveMarkers = () => markers.filter((marker) => !marker.removed);
@@ -78,11 +80,21 @@ export const fakeMapLibre = {
   Marker: class implements FakeMarker {
     removed = false;
     element: HTMLElement;
+    offset: [number, number] = [0, 0];
+    rotation = 0;
     constructor(options: { element?: HTMLElement } = {}) {
       this.element = options.element ?? document.createElement("div");
       markers.push(this);
     }
     setLngLat() {
+      return this;
+    }
+    setOffset(offset: [number, number]) {
+      this.offset = offset;
+      return this;
+    }
+    setRotation(rotation: number) {
+      this.rotation = rotation;
       return this;
     }
     getElement() {
