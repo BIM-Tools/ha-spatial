@@ -363,9 +363,9 @@ export class BoxInteraction {
       resize.moved = true;
       this._callbacks.onResizing(true);
     }
-    const { shape, source } = this._resized(resize, pixel, free);
+    const { shape, sources } = this._resized(resize, pixel, free);
     this._preview(shape, resize.frame);
-    this._highlight.show(resize.frame, source);
+    this._highlight.show(resize.frame, sources);
   }
 
   // A press that did not move, or a drag back to the start, saves nothing.
@@ -431,8 +431,8 @@ export class BoxInteraction {
 
   private _cornerAt(event: MapMouseEvent, snapping: Snapping): LatticePoint {
     const pointer = snapping.frame.toLatticeUnits(lngLatOf(event));
-    const { point, source } = snapPoint(pointer, snapping.candidates, this._options(event.point, event.originalEvent.altKey, snapping));
-    this._highlight.show(snapping.frame, source);
+    const { point, sources } = snapPoint(pointer, snapping.candidates, this._options(event.point, event.originalEvent.altKey, snapping));
+    this._highlight.show(snapping.frame, sources);
     return point;
   }
 
@@ -471,13 +471,13 @@ export class BoxInteraction {
     const [fromX, fromY] = frame.toLatticeUnits(from);
     const [toX, toY] = frame.toLatticeUnits(lngLatOf(event));
     const rings = room.footprint.coordinates.map((ring) => ring.slice(0, -1).map((corner) => frame.toLattice(corner)));
-    const { delta, source } = snapMove(
+    const { delta, sources } = snapMove(
       rings,
       [toX - fromX, toY - fromY],
       grab.candidates,
       this._options(event.point, event.originalEvent.altKey, grab),
     );
-    this._highlight.show(frame, source);
+    this._highlight.show(frame, sources);
     return delta;
   }
 

@@ -23,18 +23,30 @@ const geometries = () =>
     (feature) => feature.geometry,
   );
 
-test("a corner shows one point and an edge one line, 4 px with round caps, dot radius 6", () => {
+test("a corner shows a point and each wall a line, 4 px with round caps, dot radius 6", () => {
   const highlight = mount();
-  highlight.show(FRAME, { kind: "corner", at: [40, 8] });
+  highlight.show(FRAME, [{ kind: "corner", at: [40, 8] }]);
   expect(geometries()).toEqual([{ type: "Point", coordinates: FRAME.fromLattice([40, 8]) }]);
-  highlight.show(FRAME, {
-    kind: "edge",
-    edge: [
-      [0, 0],
-      [0, 40],
-    ],
-  });
-  expect(geometries()).toEqual([{ type: "LineString", coordinates: [FRAME.fromLattice([0, 0]), FRAME.fromLattice([0, 40])] }]);
+  highlight.show(FRAME, [
+    {
+      kind: "edge",
+      edge: [
+        [0, 0],
+        [0, 40],
+      ],
+    },
+    {
+      kind: "edge",
+      edge: [
+        [0, 40],
+        [40, 40],
+      ],
+    },
+  ]);
+  expect(geometries()).toEqual([
+    { type: "LineString", coordinates: [FRAME.fromLattice([0, 0]), FRAME.fromLattice([0, 40])] },
+    { type: "LineString", coordinates: [FRAME.fromLattice([0, 40]), FRAME.fromLattice([40, 40])] },
+  ]);
   expect(layers.find((layer) => layer.id === "spatial-snap-line")).toMatchObject({
     type: "line",
     layout: { "line-cap": "round" },
@@ -43,15 +55,12 @@ test("a corner shows one point and an edge one line, 4 px with round caps, dot r
   expect(layers.find((layer) => layer.id === "spatial-snap-point")).toMatchObject({ type: "circle", paint: { "circle-radius": 6 } });
 });
 
-test("the grid and the lattice light up nothing, and clear empties the highlight", () => {
+test("no sources and clear empty the highlight", () => {
   const highlight = mount();
-  highlight.show(FRAME, { kind: "corner", at: [40, 8] });
-  highlight.show(FRAME, { kind: "grid" });
+  highlight.show(FRAME, [{ kind: "corner", at: [40, 8] }]);
+  highlight.show(FRAME, []);
   expect(sources["spatial-snap"].data).toEqual(EMPTY);
-  highlight.show(FRAME, { kind: "corner", at: [40, 8] });
-  highlight.show(FRAME, { kind: "lattice" });
-  expect(sources["spatial-snap"].data).toEqual(EMPTY);
-  highlight.show(FRAME, { kind: "corner", at: [40, 8] });
+  highlight.show(FRAME, [{ kind: "corner", at: [40, 8] }]);
   highlight.clear();
   expect(sources["spatial-snap"].data).toEqual(EMPTY);
 });
