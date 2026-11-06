@@ -20,6 +20,10 @@ SAVE_DELAY_S: Final = 2
 
 EVENT_SPATIAL_UPDATED: Final = "spatial_updated"
 
+# The websocket contract clients read from `spatial/site`. Raised for every breaking
+# change to a command's schema or result shape, never for an addition.
+API_VERSION: Final = 1
+
 # Websocket error code for a write based on data that changed since it was read.
 ERR_CONFLICT: Final = "conflict"
 # Websocket error code for an indoor room that would extend beyond the building outline.

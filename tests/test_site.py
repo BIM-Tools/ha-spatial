@@ -8,12 +8,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
 from homeassistant.util.location import vincenty
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
+from pytest_homeassistant.common import (
     MockConfigEntry,
     MockUser,
     async_capture_events,
 )
-from pytest_homeassistant_custom_component.typing import WebSocketGenerator
+from pytest_homeassistant.typing import WebSocketGenerator
 
 from custom_components.spatial.const import DOMAIN, EVENT_SPATIAL_UPDATED
 
@@ -32,7 +32,10 @@ async def setup_integration(hass: HomeAssistant) -> MockConfigEntry:
 async def test_site_defaults_to_home_location(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator
 ) -> None:
-    """Test without footprints the site is the home location, with no direction until Align."""
+    """Test without footprints the site is the home location, with no direction until Align.
+
+    The result also names the websocket contract, version 1.
+    """
     client = await hass_ws_client(hass)
     msg = await call(client, type="spatial/site")
     assert msg["result"] == {
@@ -43,6 +46,7 @@ async def test_site_defaults_to_home_location(
         "outline": None,
         "rev": ANY,
         "frame": ANY,
+        "api_version": 1,
     }
 
 
@@ -210,6 +214,7 @@ async def test_legacy_stored_site_loads(
         "outline": None,
         "rev": ANY,
         "frame": ANY,
+        "api_version": ANY,
     }
 
 

@@ -17,6 +17,8 @@ export interface Site {
   outline: Polygon | null;
   // The frame the integration reads footprints in, with its defaults filled in.
   frame: SiteFrameData;
+  // The websocket contract; raised only by a breaking change.
+  api_version?: number;
 }
 
 interface Connection {
