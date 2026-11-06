@@ -25,19 +25,16 @@ async def panels_for_user(
     return panels
 
 
-async def test_panel_for_admins_outside_the_sidebar(
+async def test_panel_for_admins_in_the_sidebar(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator
 ) -> None:
-    """Configure opens the panel, which has no sidebar entry.
-
-    Home Assistant's sidebar lists only panels with a title.
-    """
+    """The sidebar shows the panel as Floor plan, and Configure opens it too."""
     await setup_entry(hass)
 
     panel = (await panels_for_user(hass, hass_ws_client))[PANEL_URL_PATH]
     assert panel["require_admin"]
-    assert panel["title"] is None
-    assert panel["icon"] is None
+    assert panel["title"] == "Floor plan"
+    assert panel["icon"] == "mdi:floor-plan"
     assert panel["config_panel_domain"] == DOMAIN
 
 

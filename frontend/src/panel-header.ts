@@ -194,7 +194,7 @@ class SpatialPanelHeader extends LitElement {
           .href=${INTEGRATION_PAGE}
           @click=${this._back}
         ></ha-icon-button>
-        <div class="main-title" role="heading" aria-level="1">Spaces</div>
+        <div class="main-title" role="heading" aria-level="1">Floor plan</div>
         <ha-icon-button
           class="help"
           .path=${mdiHelpCircleOutline}
