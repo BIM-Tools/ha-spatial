@@ -465,14 +465,14 @@ export class BoxInteraction {
     else this._preview({ type: "Point", coordinates: frame.fromLattice(corner) }, frame);
   }
 
-  // The lattice delta of a move, snapped by the moved shape's corners.
+  // The lattice delta of a move, snapped by the moved shape's corners and stopped at the outline.
   private _moved(grab: Grab, event: MapMouseEvent): LatticePoint {
     const { frame, room, from } = grab;
     const [fromX, fromY] = frame.toLatticeUnits(from);
     const [toX, toY] = frame.toLatticeUnits(lngLatOf(event));
-    const corners = room.footprint.coordinates.flatMap((ring) => ring.slice(0, -1).map((corner) => frame.toLattice(corner)));
+    const rings = room.footprint.coordinates.map((ring) => ring.slice(0, -1).map((corner) => frame.toLattice(corner)));
     const { delta, source } = snapMove(
-      corners,
+      rings,
       [toX - fromX, toY - fromY],
       grab.candidates,
       this._options(event.point, event.originalEvent.altKey, grab),
