@@ -1,6 +1,6 @@
 // Shares the scripted Home Assistant, the fixed site frame and the pointer and key helpers of the room editor tests.
 import distance from "@turf/distance";
-import type { Feature, Point, Polygon } from "geojson";
+import type { Feature, Polygon } from "geojson";
 import { expect, vi } from "vitest";
 import {
   type Reply,
@@ -171,10 +171,8 @@ export const activateKitchen = async (panel: HTMLElement) => {
   await settle(panel);
 };
 
-export const snapPoint = () => {
-  const [feature] = (sources["spatial-snap"].data as { features: Feature<Point>[] }).features;
-  return feature && FRAME.toLattice(feature.geometry.coordinates);
-};
+// The geometry types the snap highlight shows: a dot on a corner, a line on a wall.
+export const snapHighlights = () => (sources["spatial-snap"].data as { features: Feature[] }).features.map(({ geometry }) => geometry.type);
 
 export const pixelShape = (...pixels: [number, number][]): Polygon => ({
   type: "Polygon",

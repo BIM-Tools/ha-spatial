@@ -3,48 +3,110 @@
 import type { Polygon } from "geojson";
 import { expect, test } from "vitest";
 import { PlanFrame, type LatticePoint } from "../src/site-frame";
-import { type LatticeEdge, type SnapCandidates, type SnapSource, candidatesOf, snapCandidatesFor, snapLine, snapMove, snapPoint } from "../src/snap";
+import { type LatticeEdge, type SnapSource, candidatesOf, snapCandidatesFor, snapLine, snapMove, snapPoint } from "../src/snap";
 import { siteFrameData } from "./site-frame-fixture";
 
 const FRAME = PlanFrame.fromSite(siteFrameData([5, 52], 20));
 const OPTIONS = { radius: 3, gridUnits: 4, free: false };
-const NONE: SnapCandidates = { roomCorners: [], roomEdges: [], outlineCorners: [], outlineEdges: [] };
+const FREE = { ...OPTIONS, free: true };
 
 const shapeOf = (...rings: LatticePoint[][]): Polygon => ({
   type: "Polygon",
   coordinates: rings.map((ring) => [...ring, ring[0]].map((corner) => FRAME.fromLattice(corner))),
 });
+const boxRing = (left: number, bottom: number, right: number, top: number): LatticePoint[] => [
+  [left, bottom],
+  [right, bottom],
+  [right, top],
+  [left, top],
+];
+const wall = (edge: LatticeEdge): SnapSource => ({ kind: "edge", edge });
+const corner = (at: LatticePoint): SnapSource => ({ kind: "corner", at });
 
-test("a room corner in range wins over an edge and the outline", () => {
-  const candidates: SnapCandidates = {
-    roomCorners: [[10, 0]],
-    roomEdges: [
-      [
-        [11, -10],
-        [11, 10],
-      ],
-    ],
-    outlineCorners: [[11, 1]],
-    outlineEdges: [],
-  };
-  expect(snapPoint([10.6, 0.4], candidates, OPTIONS)).toEqual({ point: [10, 0], sources: [{ kind: "corner", at: [10, 0] }] });
+// A room, a second room up and to the right of it, and an outline wall just left of the first.
+const PLAN = candidatesOf(FRAME, [shapeOf(boxRing(0, 0, 40, 40)), shapeOf(boxRing(43, 60, 80, 100))], shapeOf(boxRing(-2, -40, 200, 200)));
+const RIGHT: LatticeEdge = [
+  [40, 0],
+  [40, 40],
+];
+const BOTTOM: LatticeEdge = [
+  [0, 0],
+  [40, 0],
+];
+const TOP: LatticeEdge = [
+  [40, 40],
+  [0, 40],
+];
+const OUTLINE_LEFT: LatticeEdge = [
+  [-2, 200],
+  [-2, -40],
+];
+
+test.each<[string, number, 0 | 1, [number, number], number, SnapSource[]]>([
+  ["a wall within its span", 41.2, 0, [17, 17], 40, [wall(RIGHT)]],
+  ["a wall across", 38.9, 1, [20, 20], 40, [wall(TOP)]],
+  ["a wall reached by the line's span within the radius", 41.2, 0, [43, 80], 40, [wall(RIGHT)]],
+  ["the grid when walls and corners lie further along than the radius", 42.2, 0, [50, 50], 44, []],
+])("snapLine lands on %s", (_name, value, axis, along, expected, sources) => {
+  expect(snapLine(value, axis, PLAN, OPTIONS, along)).toEqual({ value: expected, sources });
 });
 
-test("an axis edge snaps onto the edge along the grid", () => {
-  const edge = [
-    [0, 0],
-    [0, 40],
-  ] as const;
-  const candidates = { ...NONE, roomEdges: [edge] };
-  expect(snapPoint([1.2, 17.3], candidates, OPTIONS)).toEqual({ point: [0, 16], sources: [{ kind: "edge", edge }] });
+test.each<[string, number, [number, number], number, SnapSource[]]>([
+  ["a room wall beats a nearer outline wall", -1.5, [17, 17], 0, [wall([[0, 40], [0, 0]])]],
+  ["the outline counts without a room guide in range", -3.5, [17, 17], -2, [wall(OUTLINE_LEFT)]],
+  ["within the rooms the nearest wins", 41.8, [38, 62], 43, [wall([[43, 100], [43, 60]])]],
+])("snapLine tiers: %s", (_name, value, along, expected, sources) => {
+  expect(snapLine(value, 0, PLAN, OPTIONS, along)).toEqual({ value: expected, sources });
 });
 
-test("an edge snap stays on its segment", () => {
-  const edge = [
-    [0, 0],
-    [0, 10],
-  ] as const;
-  expect(snapPoint([1, 11], { ...NONE, roomEdges: [edge] }, OPTIONS).point).toEqual([0, 10]);
+test.each<[string, number, 0 | 1, number]>([
+  ["across", 9.1, 0, 8],
+  ["across, below zero", -6.1, 0, -8],
+  ["down", 21.9, 1, 20],
+])("snapLine without a guide in range rounds to the grid %s", (_name, value, axis, expected) => {
+  expect(snapLine(value, axis, PLAN, OPTIONS, [17, 17])).toEqual({ value: expected, sources: [] });
+});
+
+test.each<[string, [number, number], LatticePoint, SnapSource[]]>([
+  ["inside a corner lands on both walls", [38.8, 1.2], [40, 0], [wall(RIGHT), wall(BOTTOM)]],
+  ["outside a corner lands on both walls", [41, -1], [40, 0], [wall(RIGHT), wall(BOTTOM)]],
+  ["by one wall keeps the grid along it", [41.2, 17.3], [40, 16], [wall(RIGHT)]],
+  ["away from every guide lands on the grid", [21.9, 21.9], [20, 20], []],
+])("snapPoint %s", (_name, pointer, point, sources) => {
+  expect(snapPoint(pointer, PLAN, OPTIONS)).toEqual({ point, sources });
+});
+
+test("snapPoint lights a corner that sets both axes once, as a dot", () => {
+  // The top of a triangle: its two diagonal walls never count, its corner does.
+  const triangle = candidatesOf(FRAME, [shapeOf([[0, 0], [20, 0], [10, 30]])], undefined);
+  expect(snapPoint([10.8, 29.1], triangle, OPTIONS)).toEqual({ point: [10, 30], sources: [corner([10, 30])] });
+});
+
+test.each<[string, () => unknown, unknown]>([
+  ["snapLine", () => snapLine(40.6, 0, PLAN, FREE, [17, 17]), { value: 41, sources: [] }],
+  ["snapPoint", () => snapPoint([40.6, 0.4], PLAN, FREE), { point: [41, 0], sources: [] }],
+  ["snapMove", () => snapMove([boxRing(1, 1, 9, 9)], [6.2, 0.1], PLAN, FREE), { delta: [6, 0], sources: [] }],
+])("Alt places %s on the lattice without snapping", (_name, snap, expected) => {
+  expect(snap()).toEqual(expected);
+});
+
+// Two rooms that meet along y 17 to 40 at x 17, so their walls make an inner corner at [17, 17].
+const BESIDE = candidatesOf(FRAME, [shapeOf(boxRing(17, -40, 40, 40)), shapeOf(boxRing(-40, 17, 17, 40))], undefined);
+const BESIDE_LEFT: LatticeEdge = [
+  [17, 40],
+  [17, -40],
+];
+const BESIDE_BOTTOM: LatticeEdge = [
+  [-40, 17],
+  [17, 17],
+];
+
+test.each<[string, [number, number], LatticePoint, SnapSource[]]>([
+  ["without a guide moves by whole grid steps", [2.2, -10.1], [4, -12], []],
+  ["onto one wall keeps whole grid steps along it", [6.5, -5.1], [8, -4], [wall(BESIDE_LEFT)]],
+  ["pushed into a corner rests against both walls", [6.5, 6.6], [8, 8], [wall(BESIDE_LEFT), wall(BESIDE_BOTTOM)]],
+])("snapMove of a room off the grid by 1 %s", (_name, delta, expected, sources) => {
+  expect(snapMove([boxRing(1, 1, 9, 9)], delta, BESIDE, OPTIONS)).toEqual({ delta: expected, sources });
 });
 
 test("candidatesOf keeps every outline edge, since every one stops a move", () => {
@@ -54,8 +116,6 @@ test("candidatesOf keeps every outline edge, since every one stops a move", () =
     [0, 10],
   ]);
   expect(candidatesOf(FRAME, [], outline).outlineEdges).toHaveLength(3);
-  // Only its axis edges snap.
-  expect(snapPoint([14.6, 5.4], candidatesOf(FRAME, [], outline), OPTIONS).sources).toEqual([]);
 });
 
 test("candidatesOf drops a room's diagonal edges and keeps their corners", () => {
@@ -80,8 +140,6 @@ test("candidatesOf drops a room's diagonal edges and keeps their corners", () =>
       [0, 0],
     ],
   ]);
-  expect(snapPoint([14.6, 5.4], candidates, OPTIONS)).toEqual({ point: [16, 4], sources: [] });
-  expect(snapPoint([29.5, 9.6], candidates, OPTIONS)).toEqual({ point: [30, 10], sources: [{ kind: "corner", at: [30, 10] }] });
 });
 
 test("candidatesOf includes inner rings", () => {
@@ -105,123 +163,7 @@ test("candidatesOf includes inner rings", () => {
     [40, 60],
     [60, 60],
   ]);
-  expect(snapPoint([49.2, 61], candidates, OPTIONS)).toEqual({
-    point: [48, 60],
-    sources: [
-      {
-        kind: "edge",
-        edge: [
-          [40, 60],
-          [60, 60],
-        ],
-      },
-    ],
-  });
 });
-
-test("the outline counts after rooms", () => {
-  const room = shapeOf([
-    [0, 0],
-    [20, 0],
-    [20, 20],
-    [0, 20],
-  ]);
-  const outline = shapeOf([
-    [22, 10],
-    [60, 10],
-    [60, 40],
-    [22, 40],
-  ]);
-  const candidates = candidatesOf(FRAME, [room], outline);
-  expect(candidates.outlineCorners).toContainEqual([22, 10]);
-  // The outline's corner is nearer, the room's edge still wins.
-  expect(snapPoint([21.5, 10], candidates, OPTIONS).sources).toEqual([
-    {
-      kind: "edge",
-      edge: [
-        [20, 0],
-        [20, 20],
-      ],
-    },
-  ]);
-  expect(snapPoint([23.5, 30], candidates, OPTIONS).sources).toEqual([
-    {
-      kind: "edge",
-      edge: [
-        [22, 40],
-        [22, 10],
-      ],
-    },
-  ]);
-});
-
-test("out of range falls back to the grid", () => {
-  const candidates = { ...NONE, roomCorners: [[10, 0] as const] };
-  expect(snapPoint([5.9, 1.9], candidates, OPTIONS)).toEqual({ point: [4, 0], sources: [] });
-  expect(snapPoint([-6.1, 10.2], candidates, OPTIONS).point).toEqual([-8, 12]);
-  expect(snapPoint([-0.4, -1.9], candidates, OPTIONS).point).toEqual([0, 0]);
-});
-
-test("free lands on the lattice and ignores candidates", () => {
-  const candidates = { ...NONE, roomCorners: [[10, 0] as const] };
-  expect(snapPoint([10.6, 0.4], candidates, { ...OPTIONS, free: true })).toEqual({ point: [11, 0], sources: [] });
-});
-
-test("ties go to the earlier candidate", () => {
-  const candidates = { ...NONE, roomCorners: [[10, 2] as const, [10, -2] as const] };
-  expect(snapPoint([10, 0], candidates, OPTIONS).point).toEqual([10, 2]);
-});
-
-test("snapMove aligns a moved corner to a neighbour, else moves by whole grid steps", () => {
-  const corners: LatticePoint[] = [
-    [1, 1],
-    [9, 1],
-    [9, 9],
-    [1, 9],
-  ];
-  const neighbour = { ...NONE, roomCorners: [[17, 1] as const] };
-  expect(snapMove([corners], [6.2, 0.1], neighbour, OPTIONS)).toEqual({ delta: [8, 0], sources: [{ kind: "corner", at: [17, 1] }] });
-  expect(snapMove([corners], [6.2, 0.1], NONE, OPTIONS)).toEqual({ delta: [8, 0], sources: [] });
-  expect(snapMove([corners], [6.2, 0.1], neighbour, { ...OPTIONS, free: true })).toEqual({ delta: [6, 0], sources: [] });
-});
-
-test("snapMove onto a wall keeps whole grid steps along it", () => {
-  const corners: LatticePoint[] = [
-    [1, 1],
-    [9, 1],
-    [9, 9],
-    [1, 9],
-  ];
-  const wall = [
-    [17, -40],
-    [17, 40],
-  ] as const;
-  expect(snapMove([corners], [6.5, 5.1], { ...NONE, roomEdges: [wall] }, OPTIONS)).toEqual({
-    delta: [8, 4],
-    sources: [{ kind: "edge", edge: wall }],
-  });
-});
-
-test("snapMove ignores a wall the moved corner would pass the end of", () => {
-  const corners: LatticePoint[] = [
-    [1, 1],
-    [9, 1],
-    [9, 9],
-    [1, 9],
-  ];
-  const wall = [
-    [18, -40],
-    [18, 4],
-  ] as const;
-  expect(snapMove([corners], [7.5, 5.1], { ...NONE, roomEdges: [wall] }, OPTIONS)).toEqual({ delta: [8, 4], sources: [] });
-});
-
-const boxRing = (left: number, bottom: number, right: number, top: number): LatticePoint[] => [
-  [left, bottom],
-  [right, bottom],
-  [right, top],
-  [left, top],
-];
 
 // A square building: where the outline stops a room is in outline-stop.test.ts, here only that snapMove applies it.
 const SQUARE_BUILDING = candidatesOf(FRAME, [], shapeOf(boxRing(0, 0, 100, 100)));
@@ -240,74 +182,6 @@ test.each<[string, [number, number], typeof OPTIONS, LatticePoint, SnapSource[]]
   ["snaps a room moved near an inner corner into it", [-8.6, 8.7], OPTIONS, [-10, 10], [{ kind: "edge", edge: BUILDING_LEFT }, { kind: "edge", edge: BUILDING_TOP }]],
 ])("snapMove at the outline %s", (_name, delta, options, expected, sources) => {
   expect(snapMove([boxRing(10, 70, 30, 90)], delta, SQUARE_BUILDING, options)).toEqual({ delta: expected, sources });
-});
-
-// Two walls that meet at [0, 40], given without their corner, so only the walls themselves snap.
-const LEFT_WALL: LatticeEdge = [
-  [0, 0],
-  [0, 40],
-];
-const TOP_WALL_AT_40: LatticeEdge = [
-  [0, 40],
-  [40, 40],
-];
-
-test.each<[string, LatticeEdge[], LatticePoint, SnapSource[]]>([
-  ["both walls within the radius set both axes", [LEFT_WALL, TOP_WALL_AT_40], [0, 40], [{ kind: "edge", edge: LEFT_WALL }, { kind: "edge", edge: TOP_WALL_AT_40 }]],
-  ["one wall sets one axis, the grid the other", [LEFT_WALL], [0, 36], [{ kind: "edge", edge: LEFT_WALL }]],
-])("snapPoint near two walls: %s", (_name, roomEdges, point, sources) => {
-  expect(snapPoint([2.1, 37.6], { ...NONE, roomEdges }, OPTIONS)).toEqual({ point, sources });
-});
-
-test.each<[string, LatticeEdge[], LatticePoint, SnapSource[]]>([
-  ["a room pushed into the corner of two walls rests against both", [LEFT_WALL, TOP_WALL_AT_40], [-4, 4], [{ kind: "edge", edge: TOP_WALL_AT_40 }, { kind: "edge", edge: LEFT_WALL }]],
-  ["a room against one wall moves along it by grid steps", [TOP_WALL_AT_40], [0, 4], [{ kind: "edge", edge: TOP_WALL_AT_40 }]],
-])("snapMove near two walls: %s", (_name, roomEdges, delta, sources) => {
-  expect(snapMove([boxRing(4, 24, 12, 36)], [-1.9, 2.6], { ...NONE, roomEdges }, OPTIONS)).toEqual({ delta, sources });
-});
-
-// An L-shaped room whose inner corner is [20, 20].
-const L_ROOM = candidatesOf(FRAME, [shapeOf([[0, 0], [40, 0], [40, 20], [20, 20], [20, 40], [0, 40]])], undefined);
-const L_INNER_UP: LatticeEdge = [
-  [20, 20],
-  [20, 40],
-];
-const L_INNER_ACROSS: LatticeEdge = [
-  [40, 20],
-  [20, 20],
-];
-
-test.each<[string, [number, number], SnapSource[]]>([
-  ["in the inner corner lights both walls", [21.5, 21.2], [{ kind: "edge", edge: L_INNER_UP }, { kind: "edge", edge: L_INNER_ACROSS }]],
-  ["behind the inner corner lights the corner", [18.5, 18.8], [{ kind: "corner", at: [20, 20] }]],
-  ["outside a corner lights the corner", [41, -1], [{ kind: "corner", at: [40, 0] }]],
-  ["inside a corner lights both walls", [38.8, 1.2], [{ kind: "edge", edge: [[40, 0], [40, 20]] }, { kind: "edge", edge: [[0, 0], [40, 0]] }]],
-])("a corner snap with the pointer %s", (_name, pointer, sources) => {
-  expect(snapPoint(pointer, L_ROOM, OPTIONS).sources).toEqual(sources);
-});
-
-test("snapLine prefers a parallel edge, then corners, then grid lines", () => {
-  const wall = [
-    [20, 0],
-    [20, 40],
-  ] as const;
-  const across = [
-    [0, 21],
-    [40, 21],
-  ] as const;
-  const candidates: SnapCandidates = {
-    roomCorners: [[21, 50]],
-    roomEdges: [across, wall],
-    outlineCorners: [],
-    outlineEdges: [],
-  };
-  expect(snapLine(20.8, 0, candidates, OPTIONS)).toEqual({ value: 20, sources: [{ kind: "edge", edge: wall }] });
-  expect(snapLine(20.8, 0, { ...candidates, roomEdges: [across] }, OPTIONS)).toEqual({
-    value: 21,
-    sources: [{ kind: "corner", at: [21, 50] }],
-  });
-  expect(snapLine(9.1, 0, candidates, OPTIONS)).toEqual({ value: 8, sources: [] });
-  expect(snapLine(20.8, 0, candidates, { ...OPTIONS, free: true })).toEqual({ value: 21, sources: [] });
 });
 
 const KITCHEN = shapeOf([

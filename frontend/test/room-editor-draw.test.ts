@@ -15,7 +15,6 @@ import {
   SITE,
   siteReply,
   sources,
-  unprojectPixel,
   resetFakes,
 } from "./panel-harness";
 import {
@@ -37,7 +36,7 @@ import {
   saves,
   expectOnGrid,
   activateKitchen,
-  snapPoint,
+  snapHighlights,
 } from "./room-editor-fixture";
 import { siteFrameData } from "./site-frame-fixture";
 
@@ -153,12 +152,13 @@ test("rooms on other floors are not candidates, rooms on this floor and the outl
     { type: "Feature", id: "attic", geometry: pixelBox(200, 0, 250, 50), properties: { floor_id: "loft", level: 1 } },
   ]);
   await startDrawing(panel);
+  // Near a corner the two walls that meet there light up.
   handlers.mousemove(mouse(203, 2));
-  expect(snapPoint()).toBeUndefined();
+  expect(snapHighlights()).toEqual([]);
   handlers.mousemove(mouse(53, 2));
-  expect(snapPoint()).toEqual(FRAME.toLattice(unprojectPixel([50, 0], 300)));
+  expect(snapHighlights()).toEqual(["LineString", "LineString"]);
   handlers.mousemove(mouse(103, 102));
-  expect(snapPoint()).toEqual(FRAME.toLattice(unprojectPixel([100, 100], 300)));
+  expect(snapHighlights()).toEqual(["LineString", "LineString"]);
 });
 
 test("a drag starting inside a room that is not active draws a box", async () => {
