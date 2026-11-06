@@ -86,7 +86,7 @@ way".
 - All measurement geometry is in `custom_components/spatial/geometry.py`; the panel applies the frame
   the integration publishes (`frontend/src/site-frame.ts`) and does its drawing geometry on lattice
   integers in `frontend/src/plan.ts`, with turf only to join boxes, snapping in `snap.ts` (lit by
-  `snap-highlight.ts`), the stop at the outline in `outline-stop.ts` and edge and corner drags in `edge-drag.ts`;
+  `snap-highlight.ts`), the stop at the outline and the neighbours in `wall-stop.ts` and edge and corner drags in `edge-drag.ts`;
   the Align pick is in `frontend/src/outline.ts`.
 - Tools, bridges and frontends use only the websocket API; nothing else reads
   `.storage/spatial` or imports the integration.

@@ -121,9 +121,11 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
 - **Move:** a drag that starts inside the active shape moves it; a click there still sets a
   corner. A moved shape snaps by its corners in the same way, else moves by whole grid steps;
   pushed into a corner it rests against both walls. Against the outline it stops where it first
-  touches it, so a room inside stays inside and one outside stays outside, and the stretch of
-  each wall or the corner that stops it lights up; the rest of the drag still slides it along a wall that runs
-  along the site direction.
+  touches it, so a room inside stays inside and one outside stays outside. Against another room
+  on this floor it stops where it first touches it too, so what is drawn keeps its space: sharing
+  a wall or touching a corner is fine, overlapping is not. The stretch of each wall or the corner
+  that stops it lights up; the rest of the drag still slides it along a wall that runs along the
+  site direction. A room that already overlaps another moves freely past that one.
 - **Pan:** hold Space and drag. **Escape** cancels a box. **Delete** removes the active shape.
 - Draw turns the map back to the site direction and keeps it flat until another tool is picked.
 
@@ -140,14 +142,15 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
   (at least 10 cm or 4 in; an unchanged length saves nothing). The length is rounded to the 2.5 cm (1 in) lattice, so 3.47 m becomes 3.475 m.
   The side's start corner stays, the opposite side follows. Escape closes the field.
 - Moving a room snaps it to its neighbours as in Draw, else shifts it by whole grid steps, and
-  stops it at the outline as in Draw.
+  stops it at the outline and at the other rooms on this floor as in Draw. Rooms do not stop the
+  outline.
 - **Stretch a side:** on such a rectangle, drag an edge anywhere along it. Only that edge moves,
   straight out or in, onto the 10 cm (4 in) grid, and rests on a parallel wall or a corner of
   another room or the outline nearby, which lights up. The length that changes counts on its
   button as it goes, and the draft shows its area. An edge stops one grid step from the opposite
-  one, and at the outline: a room inside it stays inside, one outside stays outside, and the wall
-  it stops at lights up. While a side or corner is dragged, the room labels under it make way for
-  the draft's area.
+  one, at the outline (a room inside it stays inside, one outside stays outside) and where it
+  would cover another room on this floor; the wall or corner it stops at lights up. While a side
+  or corner is dragged, the room labels under it make way for the draft's area.
 - **Drag a corner:** drag a corner of such a rectangle; the opposite corner stays. The corner
   snaps like a drawn box corner and lights up what it snaps to or stops at, both walls in a
   corner; each side stays at least one
@@ -269,9 +272,9 @@ each one means, and the [importer](../tools/README.md) sets floor heights.
 - Boxes follow the site direction; walls at other angles cannot be drawn.
 - Side lengths can only be typed, and sides and corners only dragged, for a rectangle along the
   site direction. A change arriving from elsewhere while a side field is open resets the field.
-- A moved room, dragged side or corner may pass a neighbouring room. A moved room travels in a
-  straight line from where it was picked up, so a drag around an outline corner stops at that
-  corner.
+- A moved room, dragged side or corner cannot take space from another room; shrink that room
+  first. A moved room travels in a straight line from where it was picked up, so a drag around a
+  corner of the outline or of a room stops at that corner.
 - Snapping uses the rooms on this floor and the outline: not the floor below, diagonal walls or
   buildings on the map. A moved room lines up its corners with others, not its walls with their
   corners.
