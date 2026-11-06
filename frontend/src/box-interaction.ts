@@ -199,8 +199,8 @@ export class BoxInteraction {
     else map.dragPan.enable();
   }
 
-  // Align picks a wall on the map, so only Draw and Adjust edit rooms.
-  private _toolOnFloor(): "draw" | "adjust" | undefined {
+  // Align picks a wall on the map, so only Draw and Select edit rooms.
+  private _toolOnFloor(): "draw" | "select" | undefined {
     const { tool, floorPicked } = this._callbacks.snapshot();
     return floorPicked && tool !== "align" ? tool : undefined;
   }
@@ -273,7 +273,7 @@ export class BoxInteraction {
     this._dragging = false;
     if (this._grab) {
       if (event.originalEvent.altKey) this._altInMove = true;
-      // Keeps MapLibre from panning the map under the room in Adjust.
+      // Keeps MapLibre from panning the map under the room in Select.
       event.preventDefault();
       this._highlight.clear();
     }
@@ -355,7 +355,7 @@ export class BoxInteraction {
     return true;
   }
 
-  // The corner, else the edge, of the active axis rectangle within the snap radius of a pixel; in Adjust only.
+  // The corner, else the edge, of the active axis rectangle within the snap radius of a pixel; in Select only.
   private _resizeTarget(pixel: Pixel): ResizeTarget | undefined {
     const room = this._resizable();
     const project = (position: Position) => this._map.project(position as [number, number]);
@@ -392,10 +392,10 @@ export class BoxInteraction {
     return true;
   }
 
-  // The active shape, when it is an axis rectangle in Adjust on a floor and nothing else is going on.
+  // The active shape, when it is an axis rectangle in Select on a floor and nothing else is going on.
   private _resizable(): ActiveRoom | undefined {
     const { saving, siteFrame: frame, activeRoom: room } = this._callbacks.snapshot();
-    if (this._toolOnFloor() !== "adjust" || saving) return undefined;
+    if (this._toolOnFloor() !== "select" || saving) return undefined;
     return frame && room && isAxisRectangle(frame, room.footprint) ? room : undefined;
   }
 
@@ -433,7 +433,7 @@ export class BoxInteraction {
   }
 
   // The pixel radius in lattice units at the pointer, which differ with zoom; Alt places freely.
-  // Measured across and down the screen, the larger of the two, so a pitched view in Adjust still
+  // Measured across and down the screen, the larger of the two, so a pitched view in Select still
   // snaps everything within the radius on screen, and a little more across.
   private _options({ x, y }: Pixel, free: boolean, { frame, radiusPx }: Snapping): SnapOptions {
     const at = (px: number, py: number) => this._latticeAt({ x: px, y: py }, frame);
@@ -466,7 +466,7 @@ export class BoxInteraction {
 
   // MapLibre fires `click` for a tap too, so two taps draw a box on a phone.
   private _click = (event: MapMouseEvent) => {
-    if (this._toolOnFloor() === "adjust") {
+    if (this._toolOnFloor() === "select") {
       const [room] = this._map.queryRenderedFeatures(event.point, { layers: ["areas-2d"] });
       if (room) this._callbacks.onPickRoom(String(room.properties.area_id));
       return;

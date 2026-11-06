@@ -15,7 +15,7 @@ import {
   sent,
   saves,
   activateKitchen,
-  startAdjusting,
+  startSelecting,
   tapRoom,
   ctrlZ,
   renameField,
@@ -110,7 +110,7 @@ test("the box from a first tap follows the mouse while an undo is saving", async
 
 test("Delete removes the active shape in one save, and undo brings it back", async () => {
   const { panel, connection } = mountEditor();
-  await startAdjusting(panel);
+  await startSelecting(panel);
   await tapRoom(panel, "kitchen");
   key("keydown", "Delete");
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));

@@ -1,6 +1,6 @@
 // Shows which editing tool is active and offers undo and redo, floating on the map or as a phone's bottom bar.
 
-import { mdiAngleAcute, mdiCursorMove, mdiRedo, mdiUndo, mdiVectorRectangle } from "@mdi/js";
+import { mdiAngleAcute, mdiCursorDefault, mdiRedo, mdiUndo, mdiVectorRectangle } from "@mdi/js";
 import { LitElement, css, html } from "lit";
 import type { Tool } from "./room-editor";
 import { phoneBar, pillButtons, selectedFill } from "./styles";
@@ -8,7 +8,7 @@ import { phoneBar, pillButtons, selectedFill } from "./styles";
 const TOOLS: { tool: Tool; label: string; icon: string }[] = [
   { tool: "align", label: "Align", icon: mdiAngleAcute },
   { tool: "draw", label: "Draw", icon: mdiVectorRectangle },
-  { tool: "adjust", label: "Adjust", icon: mdiCursorMove },
+  { tool: "select", label: "Select", icon: mdiCursorDefault },
 ];
 
 class SpatialEditorToolbar extends LitElement {
@@ -99,7 +99,7 @@ class SpatialEditorToolbar extends LitElement {
 
   constructor() {
     super();
-    this.tool = "adjust";
+    this.tool = "select";
     this.disabled = false;
     this.canUndo = false;
     this.canRedo = false;

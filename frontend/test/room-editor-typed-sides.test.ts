@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// Checks Adjust: selecting rooms, corner handles and typing a side's length.
+// Checks Select: selecting rooms, corner handles and typing a side's length.
 import { afterEach, expect, test, vi } from "vitest";
 import { buttonNamed, toasts, onUpdateOf, settle, SITE, siteReply, resetFakes } from "./panel-harness";
 import {
@@ -16,7 +16,7 @@ import {
   saves,
   pixelShape,
   feature,
-  startAdjusting,
+  startSelecting,
   tapRoom,
   sideButtons,
   sideField,
@@ -42,7 +42,7 @@ test("a side field typed while a new frame's refresh is pending resizes in the f
     if (message.type === "config/area_registry/list") await new Promise<void>((resolve) => (releaseRegistry = resolve));
     return undefined;
   });
-  await startAdjusting(panel);
+  await startSelecting(panel);
   await tapRoom(panel, "kitchen");
   sideButtons()[0].click();
   turned = true;
@@ -63,7 +63,7 @@ test("a side field typed while a new frame's refresh is pending resizes in the f
 test("a rectangular room shows a button per side, the width and depth once, an L-shaped room none", async () => {
   const { panel, connection, setFeed } = mountEditor();
   const lShape = pixelShape([100, 0], [200, 0], [200, 50], [150, 50], [150, 100], [100, 100]);
-  await startAdjusting(panel);
+  await startSelecting(panel);
   setFeed([feature("kitchen", KITCHEN), feature("bath", lShape)]);
   await onUpdateOf(connection)();
   await tapRoom(panel, "kitchen");
@@ -74,7 +74,7 @@ test("a rectangular room shows a button per side, the width and depth once, an L
 
 test("typing 5 on a side saves the room with that side 5 m long, in one batch", async () => {
   const { panel, connection, setFeed } = mountEditor();
-  await startAdjusting(panel);
+  await startSelecting(panel);
   setFeed([feature("kitchen", pixelShape([0, 0], [40, 0], [40, 30], [0, 30]))]);
   await onUpdateOf(connection)();
   await tapRoom(panel, "kitchen");
@@ -89,7 +89,7 @@ test("typing 5 on a side saves the room with that side 5 m long, in one batch", 
 
 test("a typed 3.47 m reads back as the saved lattice length, 3.475 m, on the side and in its field", async () => {
   const { panel, connection, setFeed } = mountEditor();
-  await startAdjusting(panel);
+  await startSelecting(panel);
   setFeed([feature("kitchen", pixelShape([0, 0], [40, 0], [40, 30], [0, 30]))]);
   await onUpdateOf(connection)();
   await tapRoom(panel, "kitchen");
@@ -102,7 +102,7 @@ test("a typed 3.47 m reads back as the saved lattice length, 3.475 m, on the sid
 
 test("a refused side length saves nothing, keeps its field and says why", async () => {
   const { panel, connection } = mountEditor();
-  await startAdjusting(panel);
+  await startSelecting(panel);
   await tapRoom(panel, "kitchen");
   typeSide(0, "0.05");
   await settle(panel);
@@ -113,7 +113,7 @@ test("a refused side length saves nothing, keeps its field and says why", async 
 
 test("Enter on an unchanged side field leaves the edit without a save or an undo step", async () => {
   const { panel, connection } = mountEditor();
-  await startAdjusting(panel);
+  await startSelecting(panel);
   await tapRoom(panel, "kitchen");
   sideButtons()[0].click();
   const field = sideField()!;
@@ -127,7 +127,7 @@ test("Enter on an unchanged side field leaves the edit without a save or an undo
 
 test("in US customary units a side shows feet and inches and reads a typed length in feet and inches", async () => {
   const { panel, connection, setFeed } = mountEditor(undefined, OUTLINE, US_UNITS);
-  await startAdjusting(panel);
+  await startSelecting(panel);
   setFeed([feature("kitchen", pixelShape([0, 0], [40, 0], [40, 30], [0, 30]))]);
   await onUpdateOf(connection)();
   await tapRoom(panel, "kitchen");
@@ -142,7 +142,7 @@ test("in US customary units a side shows feet and inches and reads a typed lengt
 
 test("corner handles sit on the active room's corners only, and not on All", async () => {
   const { panel } = mountEditor();
-  await startAdjusting(panel);
+  await startSelecting(panel);
   expect(handleCorners()).toEqual([]);
   await tapRoom(panel, "kitchen");
   expect(handleCorners()).toEqual(KITCHEN.coordinates[0].slice(0, -1));
@@ -154,9 +154,9 @@ test("corner handles sit on the active room's corners only, and not on All", asy
   expect(handleCorners()).toEqual([]);
 });
 
-test("in Adjust taps and drags save nothing, and leaving leaves no side markers", async () => {
+test("in Select taps and drags save nothing, and leaving leaves no side markers", async () => {
   const { panel, connection } = mountEditor();
-  await startAdjusting(panel);
+  await startSelecting(panel);
   tap(100, 0);
   drag([100, 0], [160, 40]);
   await settle(panel);
@@ -168,7 +168,7 @@ test("in Adjust taps and drags save nothing, and leaving leaves no side markers"
     buttonNamed(panel, name)!.click();
     await settle(panel);
     expect(editorMarkers()).toEqual([]);
-    if (buttonNamed(panel, "Adjust")!.getAttribute("aria-pressed") !== "true") await startAdjusting(panel);
+    if (buttonNamed(panel, "Select")!.getAttribute("aria-pressed") !== "true") await startSelecting(panel);
   }
   expect(saves(connection)).toEqual([]);
 });
