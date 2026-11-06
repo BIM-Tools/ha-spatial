@@ -55,27 +55,27 @@ const TOP_FACADE: LatticeEdge = [
   [60, 40],
 ];
 
-test.each<[string, ResizeTarget, [number, number], SnapCandidates, typeof OPTIONS, number[][], SnapSource]>([
-  ["an edge moves onto grid lines", EDGE_1, [53.7, 20], NONE, OPTIONS, box(0, 0, 52, 40), { kind: "grid" }],
-  ["an edge rests on a parallel wall within the radius", EDGE_1, [53.7, 20], { ...NONE, roomEdges: [WALL] }, OPTIONS, box(0, 0, 55, 40), { kind: "edge", edge: WALL }],
-  ["an edge stops one grid step from its opposite", EDGE_1, [-10, 20], NONE, OPTIONS, box(0, 0, 4, 40), { kind: "grid" }],
-  ["an edge with Alt moves on the lattice", EDGE_1, [53.7, 20], NONE, FREE, box(0, 0, 54, 40), { kind: "lattice" }],
-  ["an edge stops at an outline wall ahead", EDGE_1, [53.7, 20], outline(OUTLINE_AT_48), OPTIONS, box(0, 0, 48, 40), { kind: "edge", edge: OUTLINE_AT_48 }],
-  ["an edge with Alt stops at the outline too", EDGE_1, [53.7, 20], outline(OUTLINE_AT_48), FREE, box(0, 0, 48, 40), { kind: "edge", edge: OUTLINE_AT_48 }],
-  ["an edge stops at an outline corner within its span", EDGE_1, [53.7, 20], { ...NONE, outlineCorners: [[46, 20]] }, OPTIONS, box(0, 0, 46, 40), { kind: "corner", at: [46, 20] }],
-  ["an edge on the outline cannot pass it", EDGE_1, [53.7, 20], outline(FACADE_AT_40), OPTIONS, box(0, 0, 40, 40), { kind: "edge", edge: FACADE_AT_40 }],
-  ["an edge on the outline still moves in", EDGE_1, [29.7, 20], outline(FACADE_AT_40), OPTIONS, box(0, 0, 28, 40), { kind: "grid" }],
-  ["an outline wall along the room's side does not stop its edge", EDGE_1, [53.7, 20], outline(TOP_FACADE), OPTIONS, box(0, 0, 52, 40), { kind: "grid" }],
-  ["a corner keeps its opposite corner", CORNER_2, [57.3, 22.6], NONE, OPTIONS, box(0, 0, 56, 24), { kind: "grid" }],
-  ["a corner snaps to a neighbour corner", CORNER_2, [57.3, 22.6], { ...NONE, roomCorners: [[58, 23]] }, OPTIONS, box(0, 0, 58, 23), { kind: "corner", at: [58, 23] }],
-  ["each side of a corner stops at one grid step", CORNER_2, [-20, -20], NONE, OPTIONS, box(0, 0, 4, 4), { kind: "grid" }],
-  ["a corner with Alt lands on the lattice", CORNER_2, [57.3, 22.6], NONE, FREE, box(0, 0, 57, 23), { kind: "lattice" }],
-  ["a corner past the outline on one side still follows the pointer on the other", CORNER_2, [57.3, 60], outline(TOP_AT_48), OPTIONS, box(0, 0, 56, 48), { kind: "edge", edge: TOP_AT_48 }],
-  ["a corner past two outline walls stops at both", CORNER_2, [57.3, 60], outline(OUTLINE_AT_48, TOP_AT_48), OPTIONS, box(0, 0, 48, 48), { kind: "edge", edge: TOP_AT_48 }],
-])("%s", (_, target, pointer, candidates, options, expected, source) => {
+test.each<[string, ResizeTarget, [number, number], SnapCandidates, typeof OPTIONS, number[][], SnapSource[]]>([
+  ["an edge moves onto grid lines", EDGE_1, [53.7, 20], NONE, OPTIONS, box(0, 0, 52, 40), []],
+  ["an edge rests on a parallel wall within the radius", EDGE_1, [53.7, 20], { ...NONE, roomEdges: [WALL] }, OPTIONS, box(0, 0, 55, 40), [{ kind: "edge", edge: WALL }]],
+  ["an edge stops one grid step from its opposite", EDGE_1, [-10, 20], NONE, OPTIONS, box(0, 0, 4, 40), []],
+  ["an edge with Alt moves on the lattice", EDGE_1, [53.7, 20], NONE, FREE, box(0, 0, 54, 40), []],
+  ["an edge stops at an outline wall ahead", EDGE_1, [53.7, 20], outline(OUTLINE_AT_48), OPTIONS, box(0, 0, 48, 40), [{ kind: "edge", edge: OUTLINE_AT_48 }]],
+  ["an edge with Alt stops at the outline too", EDGE_1, [53.7, 20], outline(OUTLINE_AT_48), FREE, box(0, 0, 48, 40), [{ kind: "edge", edge: OUTLINE_AT_48 }]],
+  ["an edge stops at an outline corner within its span", EDGE_1, [53.7, 20], { ...NONE, outlineCorners: [[46, 20]] }, OPTIONS, box(0, 0, 46, 40), [{ kind: "corner", at: [46, 20] }]],
+  ["an edge on the outline cannot pass it", EDGE_1, [53.7, 20], outline(FACADE_AT_40), OPTIONS, box(0, 0, 40, 40), [{ kind: "edge", edge: FACADE_AT_40 }]],
+  ["an edge on the outline still moves in", EDGE_1, [29.7, 20], outline(FACADE_AT_40), OPTIONS, box(0, 0, 28, 40), []],
+  ["an outline wall along the room's side does not stop its edge", EDGE_1, [53.7, 20], outline(TOP_FACADE), OPTIONS, box(0, 0, 52, 40), []],
+  ["a corner keeps its opposite corner", CORNER_2, [57.3, 22.6], NONE, OPTIONS, box(0, 0, 56, 24), []],
+  ["a corner snaps to a neighbour corner", CORNER_2, [57.3, 22.6], { ...NONE, roomCorners: [[58, 23]] }, OPTIONS, box(0, 0, 58, 23), [{ kind: "corner", at: [58, 23] }]],
+  ["each side of a corner stops at one grid step", CORNER_2, [-20, -20], NONE, OPTIONS, box(0, 0, 4, 4), []],
+  ["a corner with Alt lands on the lattice", CORNER_2, [57.3, 22.6], NONE, FREE, box(0, 0, 57, 23), []],
+  ["a corner past the outline on one side still follows the pointer on the other", CORNER_2, [57.3, 60], outline(TOP_AT_48), OPTIONS, box(0, 0, 56, 48), [{ kind: "edge", edge: TOP_AT_48 }]],
+  ["a corner past two outline walls stops at both", CORNER_2, [57.3, 60], outline(OUTLINE_AT_48, TOP_AT_48), OPTIONS, box(0, 0, 48, 48), [{ kind: "edge", edge: OUTLINE_AT_48 }, { kind: "edge", edge: TOP_AT_48 }]],
+])("%s", (_, target, pointer, candidates, options, expected, sources) => {
   const resized = resizeRectangle(FRAME, SQUARE, target, pointer, candidates, options);
   expect(cornersOf(resized.shape)).toEqual(expected);
-  expect(resized.source).toEqual(source);
+  expect(resized.sources).toEqual(sources);
 });
 
 test.each<[ResizeTarget, [number, number], typeof OPTIONS, boolean]>([

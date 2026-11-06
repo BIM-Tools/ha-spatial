@@ -110,15 +110,17 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
   adding a box to it.
 - **Snap:** a corner within 8 px (12 px on a touch screen) of a room corner on this floor lands
   on it; near a room wall that runs along the site direction it lands on that wall; the outline
-  comes after the rooms, the grid last. What it snaps to lights up: a dot on a corner, a thick
-  line on a wall. So rooms drawn side by side share their wall and count as adjacent. Walls at
-  other angles do not snap, their corners do.
+  comes after the rooms, the grid last. Near two walls that meet, it lands on both. What it snaps
+  to lights up: a thick line on a wall, both walls in a corner it sits in, else a dot on a
+  corner. So rooms drawn side by side share their wall and count as adjacent. Walls at other
+  angles do not snap, their corners do.
 - **Alt:** hold Alt to place without snapping, on the 2.5 cm (1 in) lattice. Phones always snap.
 - **Move:** a drag that starts inside the active shape moves it; a click there still sets a
-  corner. A moved shape snaps by its corners in the same way, else moves by whole grid steps.
-  Against the outline it stops where it first touches it, so a room inside stays inside and one
-  outside stays outside, and the wall or corner it touches lights up; the rest of the drag still
-  slides it along a wall that runs along the site direction.
+  corner. A moved shape snaps by its corners in the same way, else moves by whole grid steps;
+  pushed into a corner it rests against both walls. Against the outline it stops where it first
+  touches it, so a room inside stays inside and one outside stays outside, and each wall or
+  corner that stops it lights up; the rest of the drag still slides it along a wall that runs
+  along the site direction.
 - **Pan:** hold Space and drag. **Escape** cancels a box. **Delete** removes the active shape.
 - Draw turns the map back to the site direction and keeps it flat until another tool is picked.
 
@@ -141,7 +143,8 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
   it stays inside, one outside stays outside, and the wall it stops at lights up. While a side
   or corner is dragged, the side lengths and the room labels under it make way for the draft's.
 - **Drag a corner:** drag a corner of such a rectangle; the opposite corner stays. The corner
-  snaps like a drawn box corner and lights up what it snaps to; each side stays at least one
+  snaps like a drawn box corner and lights up what it snaps to or stops at, both walls in a
+  corner; each side stays at least one
   grid step. With Alt held an edge or corner lands on the 2.5 cm (1 in) lattice without
   snapping. The pointer turns into a resize arrow over an edge or a corner. **Escape** cancels;
   undo, redo and **Delete** do nothing while a side or corner is held.
