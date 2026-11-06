@@ -529,7 +529,8 @@ def touch_handles(shot: Shot) -> None:
 def touch_handle_drag(shot: Shot) -> None:
     touch_handles(shot)
     x, y = edge_middle(shot.room_corners("Living room"), "left")
-    # A finger on the left side's chip, 40 px in; the cleanup lifts it after Escape cancelled the drag.
+    # A finger on the left side's chip, 40 px in; the cleanup lifts it after Escape cancelled
+    # the drag.
     session = shot.page.context.new_cdp_session(shot.page)
 
     def touch(kind: str, at: tuple[float, float] | None) -> None:
