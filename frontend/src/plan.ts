@@ -13,8 +13,31 @@ type Ring = LatticePoint[];
 const latticeRings = (frame: PlanFrame, shape: Polygon): Ring[] =>
   shape.coordinates.map((ring) => ring.slice(0, -1).map((corner) => frame.toLattice(corner)));
 const outerCorners = (frame: PlanFrame, shape: Polygon): Ring => latticeRings(frame, shape)[0];
+
+const liesOnStraightLine = (corners: Ring, index: number): boolean => {
+  const [x, y] = corners[index];
+  const [previousX, previousY] = corners.at(index - 1)!;
+  const [nextX, nextY] = corners[(index + 1) % corners.length];
+  return (x - previousX) * (nextY - y) - (y - previousY) * (nextX - x) === 0;
+};
+
+/**
+ * Custom. The ring without its corners that lie exactly on the line through their neighbours (a
+ * zero cross product on lattice integers), also the tip of a spike back on itself and a repeated
+ * corner, so the shape never changes. Near-straight corners stay.
+ */
+export function dropStraightCorners(corners: readonly LatticePoint[]): LatticePoint[] {
+  const ring = [...corners];
+  for (let index = ring.findIndex((_, at) => liesOnStraightLine(ring, at)); index >= 0 && ring.length > 3; ) {
+    ring.splice(index, 1);
+    index = ring.findIndex((_, at) => liesOnStraightLine(ring, at));
+  }
+  return ring;
+}
+
+// Every footprint the panel writes leaves the lattice here, so none keeps a straight corner.
 const ringToWgs84 = (frame: PlanFrame, corners: Ring): Position[] => {
-  const positions = corners.map((corner) => frame.fromLattice(corner));
+  const positions = dropStraightCorners(corners).map((corner) => frame.fromLattice(corner));
   return [...positions, positions[0]];
 };
 const edgeUnits = (from: LatticePoint, to: LatticePoint): number => Math.hypot(to[0] - from[0], to[1] - from[1]);
@@ -123,7 +146,9 @@ export function addToFootprint(frame: PlanFrame, existing: Polygon | undefined, 
     polygon(latticeRings(frame, shape).map((corners) => [...corners, corners[0]].map(([x, y]) => [x, y])));
   const joined = union({ type: "FeatureCollection", features: [onLattice(existing), onLattice(box)] });
   if (joined?.geometry.type !== "Polygon") return undefined;
-  const rings = joined.geometry.coordinates.map((ring) => ring.map((corner) => frame.fromLattice([corner[0], corner[1]])));
+  const rings = joined.geometry.coordinates.map((ring) =>
+    ringToWgs84(frame, ring.slice(0, -1).map((corner) => [corner[0], corner[1]] as const)),
+  );
   return { type: "Polygon", coordinates: rings };
 }
 
