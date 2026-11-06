@@ -48,13 +48,16 @@ import "../src/spatial-panel";
 
 afterEach(resetFakes);
 
-test("a mouse drag draws a box with live side labels and saves it in one batch", async () => {
+test("a mouse drag draws a box with live side labels, its area only once the box has room for it, and saves it in one batch", async () => {
   const { panel, connection } = mountEditor();
   await startDrawing(panel);
+  const shownLabels = () => liveMarkers().filter((marker) => marker.element.style.visibility !== "hidden").map((marker) => marker.element.textContent);
   handlers.mousedown(mouse(100, 0));
+  handlers.mousemove(mouse(200, 50));
+  expect(shownLabels()).toContain("50.0 m²");
   handlers.mousemove(mouse(140, 30));
-  const labels = liveMarkers().map((marker) => marker.element.textContent);
-  expect(labels).toEqual(expect.arrayContaining(["4.00 m", "3.00 m", "12.0 m²"]));
+  expect(shownLabels()).toEqual(expect.arrayContaining(["4.00 m", "3.00 m"]));
+  expect(shownLabels()).not.toContain("12.0 m²");
   handlers.mouseup(mouse(140, 30));
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
   const [{ areas }] = saves(connection);

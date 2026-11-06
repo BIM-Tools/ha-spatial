@@ -5,6 +5,7 @@ import { feature } from "@turf/helpers";
 import type { FeatureCollection, Point, Polygon, Position } from "geojson";
 import { type GeoJSONSource, Marker, type MapMouseEvent, type Map as MapLibreMap } from "maplibre-gl";
 import { BUILDING } from "./area-strip";
+import { type DraftLabelPlaces, type ScreenBox, placeDraftLabels } from "./draft-labels";
 import { type Pixel, type ResizeTarget, resizeCursor, resizeRectangle, resizeTargetAt } from "./edge-drag";
 import type { LayerColours } from "./map-paint";
 import { mapBearing } from "./map-view";
@@ -13,6 +14,7 @@ import type { Tool } from "./room-editor";
 import type { LatticePoint, PlanFrame } from "./site-frame";
 import { type SnapCandidates, type SnapOptions, type SnapSource, snapCandidatesFor, snapMove, snapPoint } from "./snap";
 import { SnapHighlight, snapMarks } from "./snap-highlight";
+import { planPill } from "./styles";
 import type { HassUnits } from "./units";
 
 
@@ -41,8 +43,9 @@ export interface BoxInteractionCallbacks {
   readonly onMove: (room: ActiveRoom, moved: Polygon) => void;
   readonly onResize: (room: ActiveRoom, resized: Polygon) => void;
   // Each move of an edge or corner drag, from the first that leaves the press, with what is held and the
-  // draft; undefined when it ends. The draft shows only its area, so the side controls count the lengths.
-  readonly onResizing: (resizing: { target: ResizeTarget; draft: Polygon } | undefined) => void;
+  // draft; undefined when it ends. The draft shows only its area, so the side controls count the lengths;
+  // the reply is where those controls now sit on screen, so the area label keeps clear of them.
+  readonly onResizing: (resizing: { target: ResizeTarget; draft: Polygon } | undefined) => readonly ScreenBox[];
   readonly onPickRoom: (areaId: string) => void;
 }
 
@@ -80,8 +83,6 @@ export const coarsePointer = () => window.matchMedia("(pointer: coarse)").matche
 const snapRadiusPx = () => (coarsePointer() ? 12 : 8);
 // A snapped wall lights this far either side of the snapped point on screen, so a whole wall never reads as a selection.
 const SNAP_MARK_HALF_PX = 24;
-const LABEL_STYLE =
-  "font: 12px sans-serif; background: color-mix(in srgb, var(--card-background-color) 85%, transparent); color: var(--primary-text-color); padding: 0 3px; border-radius: 3px; pointer-events: none";
 
 export class BoxInteraction {
   // A lattice point, so a pan or zoom between the two taps does not move it.
@@ -368,10 +369,10 @@ export class BoxInteraction {
     if (!resize.moved && Math.hypot(pixel.x - resize.press.x, pixel.y - resize.press.y) < DRAG_MIN_PX) return;
     resize.moved = true;
     const { shape, sources, pointer, options } = this._resized(resize, pixel, free);
-    this._preview(shape, resize.frame, false, false);
+    const controls = this._callbacks.onResizing({ target: resize.target, draft: shape });
+    this._preview(shape, resize.frame, false, controls);
     const corners = shape.coordinates[0].slice(0, -1).map((corner) => resize.frame.toLattice(corner));
     this._showSnap(resize, sources, corners, pointer, options);
-    this._callbacks.onResizing({ target: resize.target, draft: shape });
   }
 
   /**
@@ -511,8 +512,8 @@ export class BoxInteraction {
     return room !== undefined && "refusal" in boxChange(frame, room.areaId, room.footprint, box);
   }
 
-  // A resize leaves the side lengths to the side controls.
-  private _preview(draft: Polygon | Point | undefined, frame?: PlanFrame, apart = false, sides = true) {
+  // A resize leaves the side lengths to its side controls.
+  private _preview(draft: Polygon | Point | undefined, frame?: PlanFrame, apart = false, controls?: readonly ScreenBox[]) {
     const map = this._map;
     this._kept = undefined;
     map.getSource<GeoJSONSource>("spatial-draft")?.setData(draft ? feature(draft, { apart }) : EMPTY);
@@ -522,11 +523,11 @@ export class BoxInteraction {
       return;
     }
     const units = this._callbacks.snapshot().units;
-    const labels = [...(sides ? sideLabels(frame, draft, units) : []), { at: centreOf(frame, draft), text: areaLabel(frame, draft, units) }];
+    const labels = [...(controls ? [] : sideLabels(frame, draft, units)), { at: centreOf(frame, draft), text: areaLabel(frame, draft, units) }];
     if (!this._labels.length) {
       this._labels = labels.map(() => {
         const element = document.createElement("span");
-        element.style.cssText = LABEL_STYLE;
+        element.style.cssText = `${planPill}; pointer-events: none`;
         return new Marker({ element }).setLngLat([0, 0]).addTo(map);
       });
     }
@@ -534,6 +535,31 @@ export class BoxInteraction {
       this._labels[index].setLngLat(at as [number, number]);
       this._labels[index].getElement().textContent = text;
     });
+    const places = this._placeLabels(draft, controls);
+    [...places.sides, places.area].forEach((offset, index) => {
+      this._labels[index].setOffset(offset ? [offset.x, offset.y] : [0, 0]);
+      this._labels[index].getElement().style.visibility = offset ? "" : "hidden";
+    });
+  }
+
+  // Measured after the texts are set, so each label's own size keeps it clear of its edge.
+  private _placeLabels(draft: Polygon, controls: readonly ScreenBox[] | undefined): DraftLabelPlaces {
+    const corners = draft.coordinates[0].slice(0, -1).map((corner) => this._map.project(corner as [number, number]));
+    const screenSides = !controls
+      ? corners.map((corner, index) => {
+          const next = corners[(index + 1) % corners.length];
+          return { midpoint: { x: (corner.x + next.x) / 2, y: (corner.y + next.y) / 2 }, edge: { x: next.x - corner.x, y: next.y - corner.y } };
+        })
+      : [];
+    const xs = corners.map(({ x }) => x);
+    const ys = corners.map(({ y }) => y);
+    const box = { width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
+    const sizes = this._labels.map((label) => {
+      const element = label.getElement();
+      return { width: element.offsetWidth, height: element.offsetHeight };
+    });
+    const area = { centre: { x: (Math.max(...xs) + Math.min(...xs)) / 2, y: (Math.max(...ys) + Math.min(...ys)) / 2 }, size: sizes[screenSides.length] };
+    return placeDraftLabels(screenSides, sizes, box, area, controls);
   }
 
   // A box under one grid step is not created, without a toast: while drawn it showed only its start.

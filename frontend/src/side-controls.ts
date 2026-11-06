@@ -4,10 +4,12 @@ import { mdiDragVertical } from "@mdi/js";
 import type { Polygon, Position } from "geojson";
 import { type Map as MapLibreMap, Marker } from "maplibre-gl";
 import { type BoxInteraction, coarsePointer } from "./box-interaction";
+import type { ScreenBox } from "./draft-labels";
 import { type Pixel, type ResizeTarget, resizeCursor } from "./edge-drag";
 import { type ChangeOrRefusal, type SideHandle, axisSides, edgeLengths, resizeChange, sideHandles, sideLabels } from "./plan";
 import type { LatticePoint, PlanFrame } from "./site-frame";
 import type { LatticeEdge } from "./snap";
+import { planPill, planPillHeld } from "./styles";
 import { type HassUnits, parseLength, typedLength } from "./units";
 
 /** The active axis rectangle whose sides get controls, with the frame and units they are built in. */
@@ -31,21 +33,20 @@ export interface SideActions {
 
 /** The Markers of the side controls. */
 export interface SideControls {
-  /** Moves each control to its side of a resize draft and counts the lengths; the held edge's handle turns primary. */
-  follow(draft: Polygon, held: ResizeTarget): void;
+  /**
+   * Moves each control to its side of a resize draft and counts the lengths; the held edge's handle gets a
+   * primary ring. Returns where the visible pills now sit on the map.
+   */
+  follow(draft: Polygon, held: ResizeTarget): ScreenBox[];
   remove(): void;
 }
 
-const CHIP_STYLE =
-  "font: 12px sans-serif; background: var(--card-background-color); color: var(--primary-text-color); border: 1px solid var(--primary-color); border-radius: 3px";
 // A finger needs a 44 px target; the chip inside it keeps its size and gets a grip mark.
 const HIT_BOX_STYLE =
   "display: flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 44px; min-height: 44px; margin: 0; padding: 0; border: none; background: none";
-const PILL_STYLE = `${CHIP_STYLE}; display: inline-flex; align-items: center; gap: 2px; padding: 2px 6px 2px 2px; --mdc-icon-size: 14px`;
-// Lies along its side: 28 x 20 px on a side across the screen, 20 x 28 px on one down it.
-const gripStyle = (across: boolean) =>
-  `${CHIP_STYLE}; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; width: ${across ? 28 : 20}px; height: ${across ? 20 : 28}px; padding: 0; --mdc-icon-size: 16px`;
-const HELD_STYLE = { background: "var(--primary-color)", color: "var(--text-primary-color)" };
+const MARKED_CHIP_STYLE = `${planPill}; gap: 2px; padding: 0 8px 0 2px; --mdc-icon-size: 14px`;
+// Lies along its side: 28 x 22 px on a side across the screen, 22 x 28 px on one down it.
+const gripStyle = (across: boolean) => `${planPill}; width: ${across ? 28 : 22}px; height: ${across ? 22 : 28}px; padding: 0; --mdc-icon-size: 16px`;
 // A control sits on the map, inside a Marker that would block focus; its presses, touches and keys stay
 // its own. Mouse moves and releases still reach the map, so a move dragged across a control goes on.
 const MAP_EVENTS = ["mousedown", "touchstart", "touchmove", "touchend", "click", "dblclick", "keydown"];
@@ -110,7 +111,12 @@ export function showSideControls(
         if (!face) return;
         if (length) length.data = text;
         element.setAttribute("aria-label", ariaLabel(handles[edgeIndex], text));
-        if (held.kind === "edge" && held.index === edgeIndex) Object.assign(face.style, HELD_STYLE);
+        if (held.kind === "edge" && held.index === edgeIndex) Object.assign(face.style, planPillHeld);
+      });
+      const mapBox = map.getContainer().getBoundingClientRect();
+      return controls.map(({ element, face }) => {
+        const { left, top, width, height } = (face ?? element).getBoundingClientRect();
+        return { centre: { x: left + width / 2 - mapBox.left, y: top + height / 2 - mapBox.top }, size: { width, height } };
       });
     },
     remove() {
@@ -123,7 +129,8 @@ export function showSideControls(
 function lengthField({ areaId, footprint, frame, units }: SideRoom, edgeIndex: number, actions: SideActions) {
   const prefilled = typedLength(edgeLengths(frame, footprint)[edgeIndex], units);
   const field = Object.assign(document.createElement("input"), { type: "text", value: prefilled });
-  field.style.cssText = `${CHIP_STYLE}; width: 6em`;
+  field.style.cssText = `${planPill}; width: 6em`;
+  Object.assign(field.style, planPillHeld);
   field.addEventListener("keydown", (event) => {
     // An unchanged field leaves the edit: saving its rounded length would shift the side and add an undo step.
     if (event.key === "Escape" || (event.key === "Enter" && field.value === prefilled)) actions.close();
@@ -158,11 +165,11 @@ function sideHandle(
   if (coarsePointer()) {
     button.style.cssText = `${HIT_BOX_STYLE}; touch-action: none`;
     face = document.createElement("span");
-    face.style.cssText = length ? PILL_STYLE : gripStyle(across);
+    face.style.cssText = length ? MARKED_CHIP_STYLE : gripStyle(across);
     face.append(...(length ? [grip(), length] : [grip()]));
     button.append(face);
   } else if (length) {
-    button.style.cssText = `${CHIP_STYLE}; touch-action: none`;
+    button.style.cssText = `${planPill}; touch-action: none`;
     button.append(length);
   } else {
     button.style.cssText = `${gripStyle(across)}; touch-action: none`;
