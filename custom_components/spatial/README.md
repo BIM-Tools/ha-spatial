@@ -114,7 +114,7 @@ are in the [frontend README](../../frontend/README.md).
 
 | File | Responsibility |
 | --- | --- |
-| `__init__.py` | Setup, `runtime_data`, websocket registration, admin-only `spatial` panel behind Configure, without a sidebar entry, and the card module (bundles in `frontend/`, served at `/spatial_static`) |
+| `__init__.py` | Setup, `runtime_data`, websocket registration, admin-only `spatial` panel, in the sidebar as "Floor plan" and behind Configure, and the card module (bundles in `frontend/`, served at `/spatial_static`) |
 | `config_flow.py` | Single-instance config flow, with a link to the editor on its success step |
 | `coordinator.py` | Data access, registry sync, queries |
 | `store.py` | Persistence and migration of data saved by older releases |
