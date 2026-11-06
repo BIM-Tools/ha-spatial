@@ -78,7 +78,8 @@
   writer wins.
 - Errors: `not_found` (unknown area or floor), `invalid_format` (bad input, a polygon that fails on the lattice, or a room without net area; the message names the area or `outline`), `outside_outline` (an indoor room would extend beyond the outline: a written room, or any room when the outline, origin or bearing changes, lies across it; the message lists the area ids), `conflict` (an
   expected rev no longer matches; the message lists the area ids and `site`), `search_failed` (the search server could not be reached or gave no usable answer; the message says which, so a client can offer to try again), `unauthorized`.
-- `spatial/address/search` sends the query to OpenStreetMap Nominatim, one request per second at most across the integration (a search waits for the previous one), with Home Assistant's language and an identifying user agent; see [Privacy](../../README.md#privacy).
+- `spatial/address/search` sends the query to the address search server (see Options), one request per second at most across the integration (a search waits for the previous one), with Home Assistant's language and an identifying user agent; see [Privacy](../../README.md#privacy).
+- Options (Settings > Devices & services > Spatial > Configure): a link to the editor and `address_search_server`, default `https://nominatim.openstreetmap.org`, read on every search, so a change needs no restart. It takes https, or plain http only for a host on the local network: a private, loopback or link-local IP address, a name ending in `.local`, or a single-label name. Names are judged by their form, not by what they resolve to. OpenStreetMap's usage policy asks that the server can be changed without a software update.
 - Event `spatial_updated` fires after every change, including every floor registry change (it can change the floors a room occupies); non-admin users follow it through `spatial/subscribe`.
 
 ### Compatibility
@@ -116,10 +117,10 @@ are in the [frontend README](../../frontend/README.md).
 
 | File | Responsibility |
 | --- | --- |
-| `__init__.py` | Setup, `runtime_data`, websocket registration, admin-only `spatial` panel behind Configure, without a sidebar entry, and the card module (bundles in `frontend/`, served at `/spatial_static`) |
-| `config_flow.py` | Single-instance config flow, with a link to the editor on its success step |
+| `__init__.py` | Setup, `runtime_data`, websocket registration, admin-only `spatial` panel, without a sidebar entry, and the card module (bundles in `frontend/`, served at `/spatial_static`) |
+| `config_flow.py` | Single-instance config flow, with a link to the editor on its success step; the options form behind Configure, with that link and the address search server |
 | `coordinator.py` | Data access, registry sync, queries |
 | `store.py` | Persistence and migration of data saved by older releases |
 | `geometry.py` | All geometry: the site frame and lattice, validation, net area, point in polygon, shared edges, the room's relation to the outline |
 | `websocket_api.py` | Websocket commands and validation |
-| `address_search.py` | The address search request to Nominatim, its rate limit and the mapping of its answer |
+| `address_search.py` | The address search request to Nominatim, its rate limit, the mapping of its answer, and which servers the option allows |

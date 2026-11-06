@@ -74,7 +74,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: SpatialConfigEntry) -> b
         webcomponent_name=PANEL_COMPONENT,
         module_url=await _module_url(hass, "spatial-panel.js"),
         require_admin=True,
-        config_panel_domain=DOMAIN,
     )
     return True
 

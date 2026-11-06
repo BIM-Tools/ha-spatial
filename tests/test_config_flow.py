@@ -1,4 +1,4 @@
-"""Proves Spatial can be added from the UI, once, and its options keep to valid servers."""
+"""Proves Spatial can be added from the UI, once, and Configure keeps to allowed servers."""
 
 from unittest.mock import patch
 
@@ -9,6 +9,8 @@ from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.spatial.const import DOMAIN, PANEL_URL_PATH
+
+SERVER = "address_search_server"
 
 
 async def test_step_user_show_form(hass: HomeAssistant) -> None:
@@ -37,14 +39,6 @@ async def test_step_user_create_entry(hass: HomeAssistant) -> None:
     assert len(mock_setup_entry.mock_calls) == 1
 
 
-async def test_no_options_form(hass: HomeAssistant) -> None:
-    """Spatial has nothing to set, so Configure opens the editor instead of a form."""
-    entry = MockConfigEntry(domain=DOMAIN, title="Spatial")
-    entry.add_to_hass(hass)
-
-    assert not entry.supports_options
-
-
 async def test_step_user_already_configured(hass: HomeAssistant) -> None:
     """Test flow aborts if Spatial is already configured."""
     MockConfigEntry(domain=DOMAIN, title="Spatial").add_to_hass(hass)
@@ -56,45 +50,55 @@ async def test_step_user_already_configured(hass: HomeAssistant) -> None:
     assert result["reason"] == "single_instance_allowed"
 
 
-async def test_options_show_the_public_address_search_server(hass: HomeAssistant) -> None:
-    """Test the options form offers the public Nominatim server when nothing is set."""
+async def test_options_link_the_editor_and_offer_the_public_server(hass: HomeAssistant) -> None:
+    """Test Configure links to the editor and shows the public server when none is set."""
     entry = MockConfigEntry(domain=DOMAIN, title="Spatial")
     entry.add_to_hass(hass)
+
     result = await hass.config_entries.options.async_init(entry.entry_id)
+
     assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "init"
+    assert result["description_placeholders"] == {"panel_url": f"/{PANEL_URL_PATH}"}
     [field] = result["data_schema"].schema
-    assert field == "geocode_url"
+    assert field == SERVER
     assert field.default() == "https://nominatim.openstreetmap.org"
 
 
-async def test_options_save_an_address_search_server(hass: HomeAssistant) -> None:
-    """Test a local http server on the LAN is accepted and stored in the options."""
+@pytest.mark.parametrize(
+    ("typed", "stored"),
+    [
+        (" https://search.example.org/ ", "https://search.example.org"),
+        ("http://192.168.1.20:8080", "http://192.168.1.20:8080"),
+    ],
+)
+async def test_options_save_an_allowed_server(hass: HomeAssistant, typed: str, stored: str) -> None:
+    """Test https anywhere and http on the local network are saved, trimmed, and shown again."""
     entry = MockConfigEntry(domain=DOMAIN, title="Spatial")
     entry.add_to_hass(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"geocode_url": " http://192.168.1.20:8080/nominatim "}
-    )
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert entry.options == {"geocode_url": "http://192.168.1.20:8080/nominatim"}
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {SERVER: typed})
 
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options == {SERVER: stored}
     result = await hass.config_entries.options.async_init(entry.entry_id)
     [field] = result["data_schema"].schema
-    assert field.default() == "http://192.168.1.20:8080/nominatim"
+    assert field.default() == stored
 
 
 @pytest.mark.parametrize(
-    "url", ["nominatim.example", "ftp://nominatim.example", "https://", "javascript:alert(1)"]
+    "typed",
+    [
+        "http://search.example.org",
+        "nominatim.example.org",
+    ],
 )
-async def test_options_reject_a_server_that_is_no_http_url(hass: HomeAssistant, url: str) -> None:
-    """Test anything but an http or https URL with a host is refused with a form error."""
+async def test_options_refuse_a_server_that_is_not_allowed(hass: HomeAssistant, typed: str) -> None:
+    """Test http to a public host and text without a scheme keep the form with the error."""
     entry = MockConfigEntry(domain=DOMAIN, title="Spatial")
     entry.add_to_hass(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"geocode_url": url}
-    )
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {SERVER: typed})
+
     assert result["type"] is FlowResultType.FORM
-    assert result["errors"] == {"geocode_url": "invalid_url"}
+    assert result["errors"] == {SERVER: "invalid_server"}
     assert entry.options == {}

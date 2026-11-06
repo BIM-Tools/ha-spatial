@@ -23,7 +23,9 @@ boxes along one wall. Every action saves at once and can be undone.
 ## First run
 
 Press **Open Spaces** right after adding Spatial, or later open Settings > Devices & services >
-Spatial > **Configure**; the editor has no sidebar entry and is for administrators. The panel
+Spatial > **Configure** and press **Open the floor plan**; the editor has no sidebar entry and is
+for administrators. The same form holds **Address search server**: leave it at OpenStreetMap
+unless you run your own Nominatim server or OpenStreetMap asks you to change it. The panel
 opens on **All**, north up, centred on your home location.
 
 1. **Align.** Pick a floor, press **Align** and click your house on the map near the wall the

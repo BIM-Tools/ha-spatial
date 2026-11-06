@@ -10,7 +10,7 @@ from pytest_homeassistant.common import MockUser
 from pytest_homeassistant.typing import WebSocketGenerator
 
 import custom_components.spatial
-from custom_components.spatial.const import DOMAIN, PANEL_URL_PATH, STATIC_URL
+from custom_components.spatial.const import PANEL_URL_PATH, STATIC_URL
 
 from .common import call, setup_entry
 
@@ -28,7 +28,7 @@ async def panels_for_user(
 async def test_panel_for_admins_outside_the_sidebar(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator
 ) -> None:
-    """Configure opens the panel, which has no sidebar entry.
+    """The panel has no sidebar entry, and Configure opens the options form, not the panel.
 
     Home Assistant's sidebar lists only panels with a title.
     """
@@ -38,7 +38,7 @@ async def test_panel_for_admins_outside_the_sidebar(
     assert panel["require_admin"]
     assert panel["title"] is None
     assert panel["icon"] is None
-    assert panel["config_panel_domain"] == DOMAIN
+    assert panel["config_panel_domain"] is None
 
 
 async def test_panel_hidden_from_non_admins(
