@@ -5,6 +5,7 @@ import union from "@turf/union";
 import type { Polygon, Position } from "geojson";
 import type { Change } from "./history";
 import type { LatticePoint, PlanFrame } from "./site-frame";
+import type { LatticeEdge } from "./snap";
 import { type HassUnits, type Refusal, formatArea, formatLength } from "./units";
 
 type Ring = LatticePoint[];
@@ -79,6 +80,51 @@ export function sideLabels(
     const [nextX, nextY] = corners[(edgeIndex + 1) % corners.length];
     return { at: frame.fromLattice([(x + nextX) / 2, (y + nextY) / 2]), edgeIndex, text: formatLength(length, units) };
   });
+}
+
+/** Where an edge of an axis rectangle lies in the site-aligned view, in which lattice x runs right and y up. */
+export type AxisSide = "bottom" | "right" | "top" | "left";
+
+/** The place of each edge of an axis rectangle, given by its four lattice corners, by its start corner. */
+export function axisSides(corners: readonly LatticePoint[]): AxisSide[] {
+  const left = Math.min(...corners.map(([x]) => x));
+  const bottom = Math.min(...corners.map(([, y]) => y));
+  return corners.map(([x, y], index) => {
+    const [, nextY] = corners[(index + 1) % corners.length];
+    if (y === nextY) return y === bottom ? "bottom" : "top";
+    return x === left ? "left" : "right";
+  });
+}
+
+/** What a side of the active rectangle carries: the length of its axis, or only a grip. */
+export type SideHandle = "length" | "grip";
+
+// Whether an axis edge lies on one of `walls` over more than a point.
+const sharesWall = ([from, to]: LatticeEdge, walls: readonly LatticeEdge[]): boolean => {
+  const across = from[0] === to[0] ? 0 : 1;
+  const along = across === 0 ? 1 : 0;
+  const [start, end] = [Math.min(from[along], to[along]), Math.max(from[along], to[along])];
+  return walls.some(
+    ([a, b]) =>
+      a[across] === from[across] &&
+      b[across] === from[across] &&
+      Math.min(end, Math.max(a[along], b[along])) - Math.max(start, Math.min(a[along], b[along])) > 0,
+  );
+};
+
+/**
+ * Custom. Per edge of an axis rectangle (its four lattice corners), whether it carries the length of
+ * its axis or a grip. Opposite sides have the same length, so each length shows once: on the side of
+ * the pair that shares no stretch of wall with `roomEdges`, the other rooms of the floor, so it never
+ * covers a neighbour; when both or neither do, on the bottom for the width and the left for the depth.
+ */
+export function sideHandles(corners: readonly LatticePoint[], roomEdges: readonly LatticeEdge[]): SideHandle[] {
+  const sides = axisSides(corners);
+  const shared = corners.map((from, index) => sharesWall([from, corners[(index + 1) % corners.length]], roomEdges));
+  const isShared = (side: AxisSide) => shared[sides.indexOf(side)];
+  const lengthOn = (usual: AxisSide, opposite: AxisSide) => (isShared(usual) && !isShared(opposite) ? opposite : usual);
+  const carriers = [lengthOn("bottom", "top"), lengthOn("left", "right")];
+  return sides.map((side) => (carriers.includes(side) ? "length" : "grip"));
 }
 
 /** Gross area of a draft, holes taken out; saved areas come from the integration. */

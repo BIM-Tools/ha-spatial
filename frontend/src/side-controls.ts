@@ -1,12 +1,13 @@
-// A side's length chip is also its handle, so one control on each side of the active rectangle stretches it by drag or opens a field to type its length.
+// Every side of the active rectangle is a handle that stretches it by drag or opens a field to type its length; each length shows once, on a chip.
 
 import { mdiDragVertical } from "@mdi/js";
 import type { Polygon, Position } from "geojson";
 import { type Map as MapLibreMap, Marker } from "maplibre-gl";
 import { type BoxInteraction, coarsePointer } from "./box-interaction";
 import { type Pixel, type ResizeTarget, resizeCursor } from "./edge-drag";
-import { type ChangeOrRefusal, edgeLengths, resizeChange, sideLabels } from "./plan";
-import type { PlanFrame } from "./site-frame";
+import { type ChangeOrRefusal, type SideHandle, axisSides, edgeLengths, resizeChange, sideHandles, sideLabels } from "./plan";
+import type { LatticePoint, PlanFrame } from "./site-frame";
+import type { LatticeEdge } from "./snap";
 import { type HassUnits, parseLength, typedLength } from "./units";
 
 /** The active axis rectangle whose sides get controls, with the frame and units they are built in. */
@@ -15,15 +16,24 @@ export interface SideRoom {
   footprint: Polygon;
   frame: PlanFrame;
   units: HassUnits;
+  // The axis edges of the floor's other rooms: a length stays off a side it shares with one.
+  roomEdges: readonly LatticeEdge[];
 }
 
 /** What the side controls ask of the editor. */
 export interface SideActions {
-  // A chip tapped or clicked without a drag.
+  // A chip or grip tapped or clicked without a drag.
   open(edgeIndex: number): void;
   // Escape, or Enter on an unchanged length, in the field; also a drag the browser cancelled.
   close(): void;
   resize(resized: ChangeOrRefusal): void;
+}
+
+/** The Markers of the side controls. */
+export interface SideControls {
+  /** Moves each control to its side of a resize draft and counts the lengths; the held edge's handle turns primary. */
+  follow(draft: Polygon, held: ResizeTarget): void;
+  remove(): void;
 }
 
 const CHIP_STYLE =
@@ -32,8 +42,12 @@ const CHIP_STYLE =
 const HIT_BOX_STYLE =
   "display: flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 44px; min-height: 44px; margin: 0; padding: 0; border: none; background: none";
 const PILL_STYLE = `${CHIP_STYLE}; display: inline-flex; align-items: center; gap: 2px; padding: 2px 6px 2px 2px; --mdc-icon-size: 14px`;
+// Lies along its side: 28 x 20 px on a side across the screen, 20 x 28 px on one down it.
+const gripStyle = (across: boolean) =>
+  `${CHIP_STYLE}; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; width: ${across ? 28 : 20}px; height: ${across ? 20 : 28}px; padding: 0; --mdc-icon-size: 16px`;
+const HELD_STYLE = { background: "var(--primary-color)", color: "var(--text-primary-color)" };
 // A control sits on the map, inside a Marker that would block focus; its presses, touches and keys stay
-// its own. Mouse moves and releases still reach the map, so a move dragged across a chip goes on.
+// its own. Mouse moves and releases still reach the map, so a move dragged across a control goes on.
 const MAP_EVENTS = ["mousedown", "touchstart", "touchmove", "touchend", "click", "dblclick", "keydown"];
 
 // Where a DOM event on a Marker falls on the map.
@@ -42,17 +56,41 @@ const pixelOn = (map: MapLibreMap, event: MouseEvent): Pixel => {
   return { x: event.clientX - box.left, y: event.clientY - box.top };
 };
 
-/** A Marker per side of the room: a length chip, or the length field for `editingSide`. */
+const latticeCorners = (frame: PlanFrame, rectangle: Polygon): LatticePoint[] =>
+  rectangle.coordinates[0].slice(0, -1).map((corner) => frame.toLattice(corner));
+
+const ariaLabel = (handle: SideHandle, length: string) =>
+  handle === "length" ? `${length} side: drag to stretch, or press to type a length` : `Side of ${length}: drag to stretch, or press to type a length`;
+
+// A built control: the element in the Marker; for a chip or grip the pill that shows it, and a chip's length.
+interface Control {
+  element: HTMLElement;
+  face?: HTMLElement;
+  length?: Text;
+}
+
+/** A Marker per side of the room: a length chip, a grip, or the length field for `editingSide`. */
 export function showSideControls(
   map: MapLibreMap,
   interaction: BoxInteraction,
   room: SideRoom,
   editingSide: number | undefined,
   actions: SideActions,
-): Marker[] {
+): SideControls {
+  const corners = latticeCorners(room.frame, room.footprint);
+  const handles = sideHandles(corners, room.roomEdges);
+  const places = axisSides(corners);
   let field: HTMLInputElement | undefined;
+  const controls: Control[] = [];
   const markers = sideLabels(room.frame, room.footprint, room.units).map(({ at, edgeIndex, text }) => {
-    const control = edgeIndex === editingSide ? (field = lengthField(room, edgeIndex, actions)) : sideChip(map, interaction, room, edgeIndex, text, actions);
+    if (edgeIndex === editingSide) {
+      field = lengthField(room, edgeIndex, actions);
+      controls.push({ element: field });
+    } else {
+      const across = places[edgeIndex] === "bottom" || places[edgeIndex] === "top";
+      controls.push(sideHandle(map, interaction, room, edgeIndex, handles[edgeIndex], text, across, actions));
+    }
+    const control = controls[edgeIndex].element;
     for (const type of MAP_EVENTS) control.addEventListener(type, (event) => event.stopPropagation());
     const element = document.createElement("span");
     element.append(control);
@@ -60,7 +98,25 @@ export function showSideControls(
   });
   field?.focus();
   field?.select();
-  return markers;
+  return {
+    // A side keeps its control through the drag, matched by place: the draft's ring may start at another corner.
+    follow(draft, held) {
+      const draftPlaces = axisSides(latticeCorners(room.frame, draft));
+      const labels = sideLabels(room.frame, draft, room.units);
+      places.forEach((place, edgeIndex) => {
+        const { at, text } = labels[draftPlaces.indexOf(place)];
+        markers[edgeIndex].setLngLat(at as [number, number]);
+        const { element, face, length } = controls[edgeIndex];
+        if (!face) return;
+        if (length) length.data = text;
+        element.setAttribute("aria-label", ariaLabel(handles[edgeIndex], text));
+        if (held.kind === "edge" && held.index === edgeIndex) Object.assign(face.style, HELD_STYLE);
+      });
+    },
+    remove() {
+      for (const marker of markers) marker.remove();
+    },
+  };
 }
 
 // The field holds the frame it was built in, so a refresh still in flight cannot pair it with another one.
@@ -76,44 +132,64 @@ function lengthField({ areaId, footprint, frame, units }: SideRoom, edgeIndex: n
   return field;
 }
 
-// The chip sits on its edge and covers part of it, so a press on it drags that edge through the map's edge
-// drag; mouse and finger alike, captured so the drag follows the pointer off the chip.
-function sideChip(map: MapLibreMap, interaction: BoxInteraction, room: SideRoom, edgeIndex: number, text: string, actions: SideActions) {
+// The chip or grip sits on its edge and covers part of it, so a press on it drags that edge through the
+// map's edge drag; mouse and finger alike, captured so the drag follows the pointer off the control.
+function sideHandle(
+  map: MapLibreMap,
+  interaction: BoxInteraction,
+  room: SideRoom,
+  edgeIndex: number,
+  handle: SideHandle,
+  text: string,
+  across: boolean,
+  actions: SideActions,
+): Control {
   const target: ResizeTarget = { kind: "edge", index: edgeIndex };
-  const chip = Object.assign(document.createElement("button"), { type: "button", className: "side-chip" });
-  chip.setAttribute("aria-label", `${text} side: drag to stretch, or press to type a length`);
+  const button = Object.assign(document.createElement("button"), { type: "button", className: handle === "length" ? "side-chip" : "side-grip" });
+  button.setAttribute("aria-label", ariaLabel(handle, text));
+  const length = handle === "length" ? document.createTextNode(text) : undefined;
+  // A grip lies along its side; a chip's mark stands as it always did.
+  const grip = () => {
+    const icon = Object.assign(document.createElement("ha-svg-icon"), { path: mdiDragVertical });
+    if (across && !length) icon.style.transform = "rotate(90deg)";
+    return icon;
+  };
+  let face: HTMLElement = button;
   if (coarsePointer()) {
-    chip.style.cssText = `${HIT_BOX_STYLE}; touch-action: none`;
-    const pill = document.createElement("span");
-    pill.style.cssText = PILL_STYLE;
-    pill.append(Object.assign(document.createElement("ha-svg-icon"), { path: mdiDragVertical }), text);
-    chip.append(pill);
+    button.style.cssText = `${HIT_BOX_STYLE}; touch-action: none`;
+    face = document.createElement("span");
+    face.style.cssText = length ? PILL_STYLE : gripStyle(across);
+    face.append(...(length ? [grip(), length] : [grip()]));
+    button.append(face);
+  } else if (length) {
+    button.style.cssText = `${CHIP_STYLE}; touch-action: none`;
+    button.append(length);
   } else {
-    chip.style.cssText = `${CHIP_STYLE}; touch-action: none`;
-    chip.textContent = text;
+    button.style.cssText = `${gripStyle(across)}; touch-action: none`;
+    button.append(grip());
   }
-  // Across the edge as it lies on screen now; the map may have turned since the chip was built.
-  chip.addEventListener("pointerenter", () => {
+  // Across the edge as it lies on screen now; the map may have turned since the control was built.
+  button.addEventListener("pointerenter", () => {
     const corners = room.footprint.coordinates[0].map((corner: Position) => map.project(corner as [number, number]));
-    chip.style.cursor = resizeCursor(target, corners);
+    button.style.cursor = resizeCursor(target, corners);
   });
   let dragged = false;
-  chip.addEventListener("pointerdown", (event) => {
+  button.addEventListener("pointerdown", (event) => {
     dragged = false;
-    if (event.button === 0 && interaction.startResize(target, pixelOn(map, event), event.altKey)) chip.setPointerCapture?.(event.pointerId);
+    if (event.button === 0 && interaction.startResize(target, pixelOn(map, event), event.altKey)) button.setPointerCapture?.(event.pointerId);
   });
-  chip.addEventListener("pointermove", (event) => interaction.resizeTo(pixelOn(map, event), event.altKey));
-  chip.addEventListener("pointerup", (event) => {
+  button.addEventListener("pointermove", (event) => interaction.resizeTo(pixelOn(map, event), event.altKey));
+  button.addEventListener("pointerup", (event) => {
     dragged = interaction.endResize(pixelOn(map, event), event.altKey);
   });
-  // The chips were not rebuilt while it was pressed, so a cancelled press rebuilds them.
-  chip.addEventListener("pointercancel", () => {
+  // The controls were not rebuilt while it was pressed, so a cancelled press rebuilds them.
+  button.addEventListener("pointercancel", () => {
     if (interaction.resizing) interaction.cancel();
     actions.close();
   });
-  // A click follows the release, also of a drag; Enter or Space on the focused chip opens the field too.
-  chip.addEventListener("click", () => {
+  // A click follows the release, also of a drag; Enter or Space on the focused control opens the field too.
+  button.addEventListener("click", () => {
     if (!dragged) actions.open(edgeIndex);
   });
-  return chip;
+  return { element: button, face, length };
 }

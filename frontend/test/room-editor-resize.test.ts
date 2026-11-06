@@ -53,7 +53,14 @@ const draftLabels = () =>
   liveMarkers()
     .filter((marker) => !marker.element.firstElementChild && !marker.element.matches(".room-label, .building-label"))
     .map((marker) => marker.element.textContent);
-const sidesVisible = () => sideButtons().map((button) => button.parentElement!.style.visibility !== "hidden");
+// Per side of the kitchen (top, right, bottom, left): grips show nothing, the bottom and left chips a length.
+const sideTexts = () => sideButtons().map((button) => button.textContent);
+const held = () => sideButtons().map((button) => button.style.background === "var(--primary-color)");
+// Where a side's Marker sits, in lattice units.
+const sideAt = (edgeIndex: number) => {
+  const marker = liveMarkers().find((each) => each.element.firstElementChild === sideButtons()[edgeIndex])!;
+  return FRAME.toLatticeUnits(marker.lngLat!).map((units) => Math.round(units));
+};
 const kitchenLabelShown = () => liveMarkers().some((marker) => marker.element.matches('.room-label[data-area="kitchen"]'));
 
 const dragThrough = (points: [number, number][]) => {
@@ -69,20 +76,25 @@ const adjustKitchen = async () => {
   return mounted;
 };
 
-test("an edge drag shows the draft's lengths instead of the side buttons and the room label, and saves once with one undo step", async () => {
+test("an edge drag counts the width on its chip in place, turns the held side primary, shows the draft's area instead of the room label, and saves once with one undo step", async () => {
   const { panel, connection } = await adjustKitchen();
   expect(kitchenLabelShown()).toBe(true);
   const press = mouse(1, 25);
   handlers.mousedown(press);
   expect(press.preventDefault).toHaveBeenCalled();
   handlers.mousemove(mouse(-19.2, 25));
-  expect(draftLabels()).toContain("7.00 m");
-  expect(sidesVisible()).toEqual([false, false, false, false]);
+  expect(sideTexts()).toEqual(["", "", "7.00 m", "5.00 m"]);
+  expect(sideAt(2)).toEqual([60, -200]);
+  expect(sideAt(3)).toEqual([-80, -100]);
+  expect(held()).toEqual([false, false, false, true]);
+  expect(draftLabels()).toEqual(["35.0 m²"]);
   expect(kitchenLabelShown()).toBe(false);
   handlers.mouseup(mouse(-19.2, 25));
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
   expect(cornerSet(saves(connection)[0].areas.kitchen)).toEqual(latticeBox(-80, -200, 200, 0));
-  await vi.waitFor(() => expect(sidesVisible()).toEqual([true, true, true, true]));
+  // Rebuilt on the saved box, whose ring starts at its bottom left.
+  await vi.waitFor(() => expect(held()).toEqual([false, false, false, false]));
+  expect(sideTexts()).toEqual(["7.00 m", "", "", "5.00 m"]);
   expect(kitchenLabelShown()).toBe(true);
   buttonNamed(panel, "Undo")!.click();
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
@@ -99,7 +111,8 @@ test("an edge drag released where it started saves nothing and records no undo s
   await settle(panel);
   expect(saves(connection)).toEqual([]);
   expect(buttonNamed(panel, "Undo")!.disabled).toBe(true);
-  expect(sidesVisible()).toEqual([true, true, true, true]);
+  expect(sideTexts()).toEqual(["", "", "5.00 m", "5.00 m"]);
+  expect(held()).toEqual([false, false, false, false]);
 });
 
 test("the pointer turns into a resize arrow over an edge of the active rectangle", async () => {
@@ -147,17 +160,19 @@ test("Escape cancels an edge drag without a save", async () => {
   handlers.mouseup(mouse(-19.2, 25));
   await settle(panel);
   expect(saves(connection)).toEqual([]);
-  expect(sidesVisible()).toEqual([true, true, true, true]);
+  expect(sideTexts()).toEqual(["", "", "5.00 m", "5.00 m"]);
+  expect(held()).toEqual([false, false, false, false]);
   expect(kitchenLabelShown()).toBe(true);
 });
 
-test("a refresh during an edge drag keeps the side buttons hidden, and the release saves", async () => {
+test("a refresh during an edge drag keeps the side controls on the draft, and the release saves", async () => {
   const { panel, connection } = await adjustKitchen();
   handlers.mousedown(mouse(1, 25));
   handlers.mousemove(mouse(-12, 25));
   await onUpdateOf(connection)();
   await settle(panel);
-  expect(sidesVisible()).toEqual([false, false, false, false]);
+  expect(sideTexts()).toEqual(["", "", "6.30 m", "5.00 m"]);
+  expect(held()).toEqual([false, false, false, true]);
   handlers.mouseup(mouse(-19.2, 25));
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
   expect(cornerSet(saves(connection)[0].areas.kitchen)).toEqual(latticeBox(-80, -200, 200, 0));
@@ -229,12 +244,35 @@ test("dragging a side chip stretches its own edge and saves once, without openin
   expect(reached).toEqual([]);
 });
 
-test("a tap on a side chip opens its length field and saves nothing", async () => {
+test("a tap on a grip opens the length field filled with its side's length and saves nothing", async () => {
   const { panel, connection } = await adjustKitchen();
-  pressChip(sideButtons()[0], [[25, 0]]);
-  expect(sideField()).toBeDefined();
+  pressChip(sideButtons()[1], [[50, 25]]);
+  expect(sideField()?.value).toBe("5.00 m");
   await settle(panel);
   expect(saves(connection)).toEqual([]);
+});
+
+test("dragging a grip turns it primary and counts the length on the opposite side's chip", async () => {
+  const { panel, connection } = await adjustKitchen();
+  const right = sideButtons()[1];
+  pointer(right, "pointerdown", [50, 25]);
+  pointer(right, "pointermove", [60, 25]);
+  expect(held()).toEqual([false, true, false, false]);
+  expect(sideTexts()).toEqual(["", "", "6.00 m", "5.00 m"]);
+  expect(sideAt(1)).toEqual([240, -100]);
+  pointer(right, "pointerup", [60, 25]);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  expect(cornerSet(saves(connection)[0].areas.kitchen)).toEqual(latticeBox(0, -200, 240, 0));
+  await settle(panel);
+});
+
+test("a side shared with another room on the floor carries a grip, and its length moves to the opposite side", async () => {
+  const { panel, connection, setFeed } = await adjustKitchen();
+  setFeed([feature("kitchen", KITCHEN), feature("bath", pixelBox(0, 50, 50, 80))]);
+  await onUpdateOf(connection)();
+  await settle(panel);
+  expect(sideButtons().map((button) => button.className)).toEqual(["side-chip", "side-grip", "side-grip", "side-chip"]);
+  expect(sideTexts()).toEqual(["5.00 m", "", "", "5.00 m"]);
 });
 
 test("a press on a chip that the browser cancels ends, so the chips show what a refresh brought meanwhile", async () => {
@@ -245,7 +283,7 @@ test("a press on a chip that the browser cancels ends, so the chips show what a 
   await onUpdateOf(connection)();
   await settle(panel);
   pointer(top, "pointercancel", [25, 0]);
-  expect(sideButtons().map((chip) => chip.textContent)).toEqual(["6.00 m", "5.00 m", "6.00 m", "5.00 m"]);
+  expect(sideTexts()).toEqual(["", "", "6.00 m", "5.00 m"]);
 });
 
 test("a refresh while a chip is pressed keeps the chip, so its drag still saves", async () => {
@@ -260,16 +298,22 @@ test("a refresh while a chip is pressed keeps the chip, so its drag still saves"
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
 });
 
+const CHIP_LABEL = "5.00 m side: drag to stretch, or press to type a length";
+const GRIP_LABEL = "Side of 5.00 m: drag to stretch, or press to type a length";
+
 test.each<[string, boolean, string, boolean]>([
   ["a touch screen", true, "44px", true],
   ["a mouse", false, "", false],
-])("with %s a chip names its side, and only a finger gets a 44 px target and a grip mark", async (_, coarse, minimum, gripMark) => {
+])("with %s the chips name their length and the grips their side; only a finger gets 44 px targets and a mark on the chips", async (_, coarse, minimum, chipMark) => {
   if (coarse) touchScreen();
   await adjustKitchen();
-  expect(sideButtons().map((chip) => chip.getAttribute("aria-label"))).toEqual(
-    Array(4).fill("5.00 m side: drag to stretch, or press to type a length"),
-  );
+  const icon = (button: HTMLButtonElement) => button.querySelector<HTMLElement>("ha-svg-icon");
   expect(
-    sideButtons().map((chip) => [chip.style.minWidth, chip.style.minHeight, Boolean(chip.querySelector("ha-svg-icon")), chip.textContent]),
-  ).toEqual(Array(4).fill([minimum, minimum, gripMark, "5.00 m"]));
+    sideButtons().map((button) => [button.getAttribute("aria-label"), button.style.minWidth, button.style.minHeight, icon(button)?.style.transform ?? null, button.textContent]),
+  ).toEqual([
+    [GRIP_LABEL, minimum, minimum, "rotate(90deg)", ""],
+    [GRIP_LABEL, minimum, minimum, "", ""],
+    [CHIP_LABEL, minimum, minimum, chipMark ? "" : null, "5.00 m"],
+    [CHIP_LABEL, minimum, minimum, chipMark ? "" : null, "5.00 m"],
+  ]);
 });

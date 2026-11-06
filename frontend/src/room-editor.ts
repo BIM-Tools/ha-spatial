@@ -3,15 +3,17 @@
 import { point } from "@turf/helpers";
 import type { FeatureCollection, Polygon } from "geojson";
 import { html } from "lit";
-import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
+import type { GeoJSONSource, Map as MapLibreMap } from "maplibre-gl";
 import { type AreaEntry, BUILDING, firstToDraw, newAreaName, stripOrder } from "./area-strip";
 import { type ActiveRoom, BoxInteraction, type EditorSnapshot } from "./box-interaction";
+import type { ResizeTarget } from "./edge-drag";
 import { type Change, type FootprintBatch, History } from "./history";
 import type { LayerColours } from "./map-paint";
 import { byLevel } from "./map-view";
 import { type ChangeOrRefusal, boxChange, isAxisRectangle } from "./plan";
-import { showSideControls } from "./side-controls";
+import { type SideControls, showSideControls } from "./side-controls";
 import type { PlanFrame } from "./site-frame";
+import { snapCandidatesFor } from "./snap";
 import { type HassUnits, refusalMessage } from "./units";
 
 interface Connection {
@@ -75,7 +77,7 @@ export class RoomEditor {
   private _interaction?: BoxInteraction;
   private _saving = false;
   private _saveFailedShown = false;
-  private _sides: Marker[] = [];
+  private _sides?: SideControls;
   private _resizeLive = false;
 
   private _editingSide?: number;
@@ -359,20 +361,24 @@ export class RoomEditor {
     this._whileSaving(() => this._apply({ before: { [areaId]: footprint }, after: { [areaId]: null } }));
   }
 
-  // In Adjust each side of the active room, when it is a rectangle on the site axis, carries its length on a chip that drags it.
+  // In Adjust each side of the active room, when it is a rectangle on the site axis, gets a handle that
+  // drags it: a chip with the length of its axis, or a grip.
   private _showSides() {
-    // The draft shows the lengths until the resize ends; `_resizing` rebuilds them then. A held
-    // chip would lose its pointer capture, so nothing is rebuilt from its press on.
+    // The controls follow the draft until the resize ends; `_resizing` rebuilds them then. A held
+    // control would lose its pointer capture, so nothing is rebuilt from its press on.
     if (this._resizeLive || this._interaction?.resizing) return;
-    for (const marker of this._sides) marker.remove();
-    this._sides = [];
+    this._sides?.remove();
+    this._sides = undefined;
     const [map, interaction] = [this._map, this._interaction];
     const areaId = this._active;
     const footprint = this._footprints.get(areaId);
     if (!map || !interaction || this.tool !== "adjust" || this._floor === "all" || !footprint) return;
     const frame = this._host.siteFrame();
     if (!frame || !isAxisRectangle(frame, footprint)) return;
-    this._sides = showSideControls(map, interaction, { areaId, footprint, frame, units: this._host.units() }, this._editingSide, {
+    const floorAreaIds = this._order().map((area) => area.area_id);
+    const roomEdges = snapCandidatesFor(frame, floorAreaIds, this._footprints, BUILDING, areaId).roomEdges;
+    const room = { areaId, footprint, frame, units: this._host.units(), roomEdges };
+    this._sides = showSideControls(map, interaction, room, this._editingSide, {
       open: (edgeIndex) => {
         this._editingSide = edgeIndex;
         this._showSides();
@@ -411,19 +417,18 @@ export class RoomEditor {
     this._whileSaving(() => this._apply({ before: { [areaId]: footprint }, after: { [areaId]: changed } }));
   }
 
-  // While an edge or corner is dragged the draft shows its lengths and area, so the side chips and
-  // the labels under it hide; a save shows the chips again when it settles. A hidden chip keeps its
-  // pointer capture, as it stays in the page.
-  private _resizing(resizing: boolean) {
-    this._resizeLive = resizing;
-    // The building's draft covers every room on the floor.
-    const covered = this._active === BUILDING ? this._order().map((area) => area.area_id) : [this._active];
-    this._host.hideLabels(resizing ? covered : []);
-    if (!resizing) {
-      if (!this._saving) this._showSides();
-      return;
+  // While an edge or corner is dragged the draft shows its area, so the labels under it hide, and the
+  // side controls follow it; a save rebuilds them when it settles. The held control keeps its pointer
+  // capture, as it stays in the page.
+  private _resizing(resizing: { target: ResizeTarget; draft: Polygon } | undefined) {
+    if (Boolean(resizing) !== this._resizeLive) {
+      this._resizeLive = Boolean(resizing);
+      // The building's draft covers every room on the floor.
+      const covered = this._active === BUILDING ? this._order().map((area) => area.area_id) : [this._active];
+      this._host.hideLabels(resizing ? covered : []);
     }
-    for (const side of this._sides) side.getElement().style.visibility = "hidden";
+    if (resizing) this._sides?.follow(resizing.draft, resizing.target);
+    else if (!this._saving) this._showSides();
   }
 
   private async _apply(change: Change) {

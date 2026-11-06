@@ -524,12 +524,13 @@ def touch_handles(shot: Shot) -> None:
         raise Skip("the browser does not report a touch screen")
     adjust_room_active(shot)
     shot.require(shot.panel.locator("button.side-chip ha-svg-icon"), "side chip with a grip mark")
+    shot.require(shot.panel.locator("button.side-grip"), "side grip")
 
 
 def touch_handle_drag(shot: Shot) -> None:
     touch_handles(shot)
     x, y = edge_middle(shot.room_corners("Living room"), "left")
-    # A finger on the left side's chip, 40 px in; the cleanup lifts it after Escape cancelled
+    # A finger on the left side's handle, 40 px in; the cleanup lifts it after Escape cancelled
     # the drag.
     session = shot.page.context.new_cdp_session(shot.page)
 
@@ -662,27 +663,27 @@ STATES = [
     State(
         "adjust-room-active",
         "tools",
-        "Adjust with the living room active: corner handles and side lengths",
+        "Adjust with the living room active: corner handles, width and depth chips, side grips",
         adjust_room_active,
     ),
     State(
         "edge-drag",
         "tools",
-        "Dragging the living room's left edge in: the draft counts its lengths",
+        "Dragging the living room's left edge in: its handle primary, the width chip counting",
         edge_drag,
         phone=False,
     ),
     State(
         "touch-handles",
         "tools",
-        "Touch screen: each side of the living room carries its length on a chip with a grip mark",
+        "Touch screen: the living room's width and depth on marked chips, grips on the others",
         touch_handles,
         touch=True,
     ),
     State(
         "touch-handle-drag",
         "tools",
-        "On a touch screen: dragging the living room's left chip in, the chips out of sight",
+        "On a touch screen: dragging the living room's left handle in, the width chip counting",
         touch_handle_drag,
         touch=True,
     ),
