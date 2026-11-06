@@ -1,7 +1,7 @@
 // The space editor panel; the dashboard card embeds it to show the rooms on the map.
 
 import { lineString } from "@turf/helpers";
-import type { MultiPolygon, Polygon, Position } from "geojson";
+import type { Feature, MultiPolygon, Polygon, Position } from "geojson";
 import { LitElement, type PropertyValues, css, html, nothing } from "lit";
 import {
   type GeoJSONSource,
@@ -11,6 +11,16 @@ import {
   setWorkerUrl,
 } from "maplibre-gl";
 import "./editor-toolbar";
+import {
+  type FloorStack,
+  FloorLabels,
+  VIEW_PITCH_DEG,
+  VIEW_TURN_DEG,
+  floorLabelStyles,
+  floorStack,
+  stackFloors,
+  stackView,
+} from "./floor-stack";
 import type { Floor, FloorChoice } from "./floor-selector";
 import "./floor-selector";
 import "./map-stack";
@@ -38,13 +48,20 @@ interface Hass extends HassUnits {
     removeEventListener(eventType: "ready", listener: () => void): void;
   };
   areas?: Record<string, AreaInfo>;
-  floors?: Record<string, { name: string }>;
+  floors?: Record<string, { name: string; level?: number | null }>;
   themes: ThemeState["themes"];
   selectedTheme?: ThemeState["selectedTheme"];
 }
 
 // Share of the map height the aligned wall sits below the centre.
 const WALL_OFFSET_SHARE = 0.3;
+// The stack's layers, bottom up: id, feature kind, opacity, and a shift on screen that lets the shadow show below its slab.
+const STACK_LAYERS: [string, string, number, [number, number]][] = [
+  ["stack-shadow", "shadow", 0.2, [5, 9]],
+  ["stack-slabs", "slab", 1, [0, 0]],
+  ["stack-rooms", "room", 1, [0, 0]],
+  ["stack-walls", "wall", 1, [0, 0]],
+];
 const REGISTRY_EVENTS = ["area_registry_updated", "floor_registry_updated"];
 const PHONE_QUERY = "(max-width: 600px)";
 const DARK_QUERY = "(prefers-color-scheme: dark)";
@@ -106,6 +123,7 @@ class SpatialPanel extends LitElement {
 
   static styles = [
     roomLabelStyles,
+    floorLabelStyles,
     css`
     :host {
       display: flex;
@@ -256,6 +274,9 @@ class SpatialPanel extends LitElement {
   private _tokenTimer?: ReturnType<typeof setInterval>;
   private _unsubscribe?: () => void;
   private _labels?: RoomLabels;
+  private _floorLabels?: FloorLabels;
+  // All floors as slabs, built again with every load of the rooms.
+  private _stack?: FloorStack;
   // Only the admin panel edits; the card stays read-only.
   private _editor?: RoomEditor;
   private readonly _phoneQuery = window.matchMedia(PHONE_QUERY);
@@ -391,6 +412,7 @@ class SpatialPanel extends LitElement {
       if (previous.themes !== this.hass.themes) this._repaint();
       const unitsChanged = previous.config !== this.hass.config || previous.locale !== this.hass.locale;
       if (previous.areas !== this.hass.areas || unitsChanged) this._showLabels();
+      if (previous.floors !== this.hass.floors) this._showFloorLabels();
     }
     // A render queued by _stop must not start a map for a panel that has left.
     if (!this.hass || !this.isConnected) return;
@@ -446,6 +468,8 @@ class SpatialPanel extends LitElement {
     this._editor = undefined;
     this._labels?.destroy();
     this._labels = undefined;
+    this._floorLabels?.destroy();
+    this._floorLabels = undefined;
     this._map?.remove();
     this._map = undefined;
     this._started = false;
@@ -478,6 +502,7 @@ class SpatialPanel extends LitElement {
       const site = await this._state.load(hass.connection, editor);
       this._map?.getSource<GeoJSONSource>("areas")?.setData(this._state.areas);
       this._map?.getSource<GeoJSONSource>("outline")?.setData(this._state.outline);
+      this._buildStack();
       this._showLabels();
       return site;
     };
@@ -512,7 +537,7 @@ class SpatialPanel extends LitElement {
       }
       if (bearing_deg === this._state.bearing) return;
       this._state.bearing = bearing_deg;
-      this._map?.setBearing(mapBearing(this._state.axisDeg));
+      this._map?.setBearing(this._viewBearing());
     };
     // The editor's strip and floor buttons name areas and floors, which change outside this panel.
     const rereadRegistries = () => {
@@ -535,20 +560,26 @@ class SpatialPanel extends LitElement {
     const style = await this._loadStyle();
     if (stopped() || !style) return;
     setWorkerUrl(workerUrl(import.meta.url));
-    this._mapBearingDeg = mapBearing(this._state.axisDeg);
+    this._mapBearingDeg = this._viewBearing();
     const map = new MapLibreMap({
       container: this.renderRoot.querySelector<HTMLElement>("#map")!,
       style,
       transformRequest: (url) => withMapTilesToken(url, location.origin, this._token),
       center: [site.lon, site.lat],
       zoom: 19,
-      pitch: this._state.floor === "all" ? 50 : 0,
+      pitch: this._state.floor === "all" ? VIEW_PITCH_DEG : 0,
       bearing: this._mapBearingDeg,
       interactive: !this.floor,
+      // A dashboard scrolls under the card, so the card neither turns nor tilts; the panel's All view may orbit.
+      dragRotate: !this.card,
+      touchPitch: !this.card,
     });
+    if (this.card) map.touchZoomRotate.disableRotation();
     this._map = map;
     this._labels = new RoomLabels(map, !this.card, () => this.hass!, () => this._buildingName());
+    this._floorLabels = new FloorLabels(map);
     this._showLabels();
+    this._showFloorLabels();
     map.on("style.load", () => this._addAreas());
     map.on("mousemove", (event) => {
       this._previewWall(event);
@@ -565,7 +596,7 @@ class SpatialPanel extends LitElement {
       this._pick(event);
       this._pointAt(event);
     });
-    if (this.floor) this._fit();
+    if (this.floor || this._state.floor === "all") this._fit();
   }
 
   private _showBearing(bearingDeg: number) {
@@ -574,30 +605,99 @@ class SpatialPanel extends LitElement {
     if (stack) stack.bearing = bearingDeg;
   }
 
-  // Frames the rooms in view, keeping the picked wall horizontal.
+  // Frames the rooms in view: all floors from the front corner, one floor with the picked wall horizontal.
   private _fit() {
+    if (this._state.floor === "all") {
+      this._viewStack(false);
+      return;
+    }
     const box = bounds(this._state.roomsInView());
     if (box) {
       this._map?.fitBounds(box, { bearing: mapBearing(this._state.axisDeg), padding: 16, animate: false });
     }
   }
 
-  // "All" stacks the floors in 3D; one floor is a flat plan with room outlines.
+  // All floors look at the house from its front corner; one floor keeps the picked wall horizontal.
+  private _viewBearing() {
+    return mapBearing(this._state.axisDeg + (this._state.floor === "all" ? VIEW_TURN_DEG : 0));
+  }
+
+  private _buildStack() {
+    const frame = this._state.frame;
+    if (!frame) return;
+    const rooms = this._state.areas.features as Feature<Polygon>[];
+    const levels = new Map<string, number | null>();
+    for (const room of rooms) levels.set(room.properties?.floor_id, room.properties?.level ?? null);
+    const levelOf = (floorId: string) =>
+      this._editor?.floors.find((entry) => entry.floor_id === floorId)?.level ??
+      this.hass?.floors?.[floorId]?.level ??
+      levels.get(floorId) ??
+      null;
+    const outline = this._state.outline.type === "Polygon" ? this._state.outline : undefined;
+    this._stack = floorStack(rooms, outline, stackFloors(rooms, levelOf), frame);
+    this._map?.getSource<GeoJSONSource>("stack")?.setData(this._stack.features);
+    this._showFloorLabels();
+  }
+
+  // Each slab is named while All is on screen.
+  private _showFloorLabels() {
+    const slabs = this._state.floor === "all" ? (this._stack?.slabs ?? []) : [];
+    this._floorLabels?.show(slabs, this._state.frame, (floorId) => this._floorName(floorId));
+  }
+
+  // The whole stack in view from the front corner, clear of the floating controls and the floor labels.
+  private _viewStack(animate: boolean) {
+    const map = this._map;
+    const frame = this._state.frame;
+    if (!map || !frame || !this._stack) return;
+    const container = map.getContainer();
+    const screen = { width: container.clientWidth, height: container.clientHeight, fovDeg: map.getVerticalFieldOfView() };
+    const camera = stackView(this._stack, frame, this._state.axisDeg, screen, this._freeSpace());
+    if (!camera) return;
+    if (animate) map.easeTo(camera);
+    else map.jumpTo(camera);
+  }
+
+  // Custom: what the controls floating over the map take from each side, and room for the floor labels on the right.
+  private _freeSpace() {
+    const stage = this.renderRoot.querySelector(".stage")?.getBoundingClientRect();
+    const covers = (selector: string) => this.renderRoot.querySelector(selector)?.getBoundingClientRect();
+    if (!stage) return { top: 0, right: 0, bottom: 0, left: 0 };
+    const top = covers(".top");
+    const strip = covers(".strip");
+    // A phone's round map toggle sits at the top, above the labels.
+    const controls = covers(".map-stack:not([round])");
+    const labels = this._floorLabels?.width ?? 0;
+    return {
+      top: top && top.height ? top.bottom - stage.top : 0,
+      right: labels + (controls && controls.width ? stage.right - controls.left : 0),
+      bottom: strip && strip.height ? stage.bottom - strip.top : 0,
+      left: 0,
+    };
+  }
+
+  // "All" stacks the floors as slabs; one floor is a flat plan with room outlines.
   private _addAreas() {
     const map = this._map!;
     const colours = layerColours(this._readPaint());
+    map.addSource("stack", { type: "geojson", data: this._stack?.features ?? EMPTY });
+    for (const [id, kind, opacity, translate] of STACK_LAYERS) {
+      map.addLayer({
+        id,
+        type: "fill-extrusion",
+        source: "stack",
+        filter: ["==", ["get", "kind"], kind],
+        paint: {
+          ...colours[id],
+          "fill-extrusion-base": ["get", "base_m"],
+          "fill-extrusion-height": ["get", "top_m"],
+          "fill-extrusion-opacity": opacity,
+          "fill-extrusion-translate": translate,
+          "fill-extrusion-translate-anchor": "viewport",
+        },
+      });
+    }
     map.addSource("areas", { type: "geojson", data: this._state.areas });
-    map.addLayer({
-      id: "areas-3d",
-      type: "fill-extrusion",
-      source: "areas",
-      paint: {
-        ...colours["areas-3d"],
-        "fill-extrusion-base": ["get", "base_m"],
-        "fill-extrusion-height": ["get", "top_m"],
-        "fill-extrusion-opacity": 0.7,
-      },
-    });
     map.addLayer({ id: "areas-2d", type: "fill", source: "areas", paint: colours["areas-2d"] });
     map.addLayer({
       id: "areas-outline",
@@ -700,9 +800,10 @@ class SpatialPanel extends LitElement {
   }
 
   // The compass turns the house back the way Align set it, or north up before any Align.
-  // Draw keeps this view, so it is safe there too.
+  // Draw keeps this view, so it is safe there too. In All it returns to the view from the front corner.
   private _faceSite() {
-    this._map?.easeTo({ bearing: mapBearing(this._state.axisDeg) });
+    if (this._state.floor === "all") this._viewStack(true);
+    else this._map?.easeTo({ bearing: mapBearing(this._state.axisDeg) });
   }
 
   private _selectTool(tool: Tool) {
@@ -784,7 +885,9 @@ class SpatialPanel extends LitElement {
   private _applyFloor() {
     const map = this._map!;
     const flat = this._state.floor !== "all";
-    map.setLayoutProperty("areas-3d", "visibility", flat ? "none" : "visible");
+    for (const [id] of STACK_LAYERS) map.setLayoutProperty(id, "visibility", flat ? "none" : "visible");
+    // The slabs carry the outline in All; on the ground it would cross them.
+    map.setLayoutProperty("spatial-outline", "visibility", flat ? "visible" : "none");
     for (const id of ["areas-2d", "areas-outline"]) {
       map.setLayoutProperty(id, "visibility", flat ? "visible" : "none");
       map.setFilter(id, flat ? ["==", ["get", "floor_id"], this._state.floor] : null);
@@ -792,16 +895,19 @@ class SpatialPanel extends LitElement {
   }
 
   private _show(floor: Floor) {
-    if (floor === this._state.floor) return;
+    const previous = this._state.floor;
+    if (floor === previous) return;
     // All is a view only; Align would stay pressed on a disabled toolbar.
     if (floor === "all" && this._aligning) this._selectTool("select");
     this._state.floor = floor;
     this._editor?.setFloor(floor);
     this._showLabels();
+    this._showFloorLabels();
     // Before the style has loaded, `_addAreas` applies the floor.
-    if (!this._map?.getLayer("areas-3d")) return;
-    this._applyFloor();
-    this._map.easeTo({ pitch: floor === "all" ? 50 : 0 });
+    if (this._map?.getLayer("stack-slabs")) this._applyFloor();
+    // Drawing needs the plan flat with the picked wall horizontal again.
+    if (floor === "all") this._viewStack(true);
+    else if (previous === "all") this._map?.easeTo({ pitch: 0, bearing: mapBearing(this._state.axisDeg) });
   }
 }
 

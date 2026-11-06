@@ -184,6 +184,18 @@ export const fakeMapLibre = {
     getBearing() {
       return mapBearingNow;
     }
+    getCenter() {
+      return { lng: SITE[0], lat: SITE[1] };
+    }
+    getZoom() {
+      return 19;
+    }
+    getPitch() {
+      return 0;
+    }
+    getVerticalFieldOfView() {
+      return 36.87;
+    }
     zoomIn() {
       zoomIn();
     }
