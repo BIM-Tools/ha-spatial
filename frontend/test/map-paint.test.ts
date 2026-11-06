@@ -17,11 +17,12 @@ test("an unset theme falls back to Home Assistant's default colours", () => {
   expect(paint.building).toBe("rgba(190,190,190,1)");
 });
 
-test("the snap highlight is painted in the primary colour, light and dark", () => {
+test("the snap highlight is painted in the primary colour, its dot ringed in the card background, light and dark", () => {
   document.body.style.setProperty("--primary-color", "rgb(0, 128, 0)");
+  document.body.style.setProperty("--card-background-color", "rgb(1, 2, 3)");
   for (const dark of [false, true]) {
     const colours = layerColours(readMapPaint(document.body, dark));
     expect(colours["spatial-snap-line"]).toEqual({ "line-color": "rgba(0,128,0,1)" });
-    expect(colours["spatial-snap-point"]).toEqual({ "circle-color": "rgba(0,128,0,1)" });
+    expect(colours["spatial-snap-point"]).toEqual({ "circle-color": "rgba(0,128,0,1)", "circle-stroke-color": "rgba(1,2,3,1)" });
   }
 });

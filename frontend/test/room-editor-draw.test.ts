@@ -152,13 +152,13 @@ test("rooms on other floors are not candidates, rooms on this floor and the outl
     { type: "Feature", id: "attic", geometry: pixelBox(200, 0, 250, 50), properties: { floor_id: "loft", level: 1 } },
   ]);
   await startDrawing(panel);
-  // Near a corner the two walls that meet there light up.
+  // Near a corner the two walls that meet there light up, and the corner.
   handlers.mousemove(mouse(203, 2));
   expect(snapHighlights()).toEqual([]);
   handlers.mousemove(mouse(53, 2));
-  expect(snapHighlights()).toEqual(["LineString", "LineString"]);
+  expect(snapHighlights()).toEqual(["LineString", "LineString", "Point"]);
   handlers.mousemove(mouse(103, 102));
-  expect(snapHighlights()).toEqual(["LineString", "LineString"]);
+  expect(snapHighlights()).toEqual(["LineString", "LineString", "Point"]);
 });
 
 test("a drag starting inside a room that is not active draws a box", async () => {
