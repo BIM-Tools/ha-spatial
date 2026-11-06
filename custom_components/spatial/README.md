@@ -44,7 +44,7 @@
 | `spatial/geojson` | no | `floor_id`? (the areas occupying that floor) | FeatureCollection of footprints, JSON-FG conformant (`conformsTo`), each feature with `featureType` `https://w3id.org/bot#Space` |
 | `spatial/query_point` | no | `lon`, `lat`, `floor_id`? (among the areas occupying that floor) | `{area_id}` (smallest match, or null) |
 | `spatial/area/adjacent` | no | `area_id` | `{area_ids}` |
-| `spatial/site` | no | - | `{lon, lat, bearing_deg, origin, outline, rev, frame}`: `lon` and `lat` are the site centre, the outline is on the lattice, `frame` is the site frame as published (see Data) |
+| `spatial/site` | no | - | `{lon, lat, bearing_deg, origin, outline, rev, frame, api_version}`: `lon` and `lat` are the site centre, the outline is on the lattice, `frame` is the site frame as published (see Data), `api_version` is the contract (see Compatibility) |
 | `spatial/subscribe` | no | - | An empty event message on every change, until `unsubscribe_events` |
 | `spatial/area/update_geometries` | yes | `areas`?: `{area_id: polygon or null}` (null removes); `properties`?: `{area_id: {floors_up?, on_facade_override?}}` (for areas with a footprint after the change; omitted ones are kept); `site`?: `{bearing_deg?, origin?, outline?}` (null removes one); `expected_rev`?: `{area_id: rev or null}` (null: expect no footprint); `expected_site_rev`?; areas, properties and/or site | `{area_m2: {area_id: m²}, rev: {area_id: rev or null}, site_rev}` (`rev` of every area in areas or properties) |
 | `spatial/floor/update` | yes | `floor_id`, `elevation_m`?, `height_m`? (null clears one; omitted ones are kept) | - |
@@ -78,6 +78,18 @@
 - Errors: `not_found` (unknown area or floor), `invalid_format` (bad input, a polygon that fails on the lattice, or a room without net area; the message names the area or `outline`), `outside_outline` (an indoor room would extend beyond the outline: a written room, or any room when the outline, origin or bearing changes, lies across it; the message lists the area ids), `conflict` (an
   expected rev no longer matches; the message lists the area ids and `site`), `unauthorized`.
 - Event `spatial_updated` fires after every change, including every floor registry change (it can change the floors a room occupies); non-admin users follow it through `spatial/subscribe`.
+
+### Compatibility
+
+The `spatial/*` commands are a public contract for tools, bridges and cards.
+
+- `api_version` in the `spatial/site` result is a whole number, now 1. Check it before relying on
+  the other commands, and stop or warn on a version you do not know.
+- A breaking change to a command's input schema or result shape raises `api_version` and is
+  named in the release notes.
+- Additions do not raise it: a new optional input, a new result field, a new command. Ignore
+  fields you do not know.
+- Before 1.0 a breaking change can still happen, but never silently.
 
 ### Panel and card
 

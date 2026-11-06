@@ -12,7 +12,7 @@ from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import floor_registry as fr
 
-from .const import DOMAIN, ERR_CONFLICT, EVENT_SPATIAL_UPDATED, SITE_FIELD_NAMES
+from .const import API_VERSION, DOMAIN, ERR_CONFLICT, EVENT_SPATIAL_UPDATED, SITE_FIELD_NAMES
 from .coordinator import SpatialCoordinator
 from .geometry import validate_polygon
 
@@ -267,8 +267,11 @@ def ws_update_floor(
 def ws_site(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Return the site centre, bearing (null until the first Align), origin, outline and rev."""
-    connection.send_result(msg["id"], _coordinator(hass).get_site())
+    """Return the site centre, bearing (null until the first Align), origin, outline and rev.
+
+    It also carries `api_version`, so a client learns the contract from its first read.
+    """
+    connection.send_result(msg["id"], {**_coordinator(hass).get_site(), "api_version": API_VERSION})
 
 
 @websocket_api.websocket_command(
