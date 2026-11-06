@@ -6,8 +6,8 @@ from typing import Any
 import pytest
 from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL
 from homeassistant.core import HomeAssistant
-from pytest_homeassistant_custom_component.common import MockUser
-from pytest_homeassistant_custom_component.typing import WebSocketGenerator
+from pytest_homeassistant.common import MockUser
+from pytest_homeassistant.typing import WebSocketGenerator
 
 import custom_components.spatial
 from custom_components.spatial.const import DOMAIN, PANEL_URL_PATH, STATIC_URL

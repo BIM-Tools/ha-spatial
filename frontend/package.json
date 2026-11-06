@@ -18,7 +18,7 @@
     "@turf/rewind": "7.4.0",
     "@turf/union": "7.4.0",
     "lit": "3.3.3",
-    "maplibre-gl": "6.11.2",
+    "maplibre-gl": "6.16.0",
     "polylabel": "2.1.0"
   },
   "devDependencies": {
@@ -30,6 +30,6 @@
     "esbuild": "0.28.2",
     "happy-dom": "21.0.1",
     "typescript": "6.0.3",
-    "vitest": "5.0.2"
+    "vitest": "5.0.5"
   }
 }
