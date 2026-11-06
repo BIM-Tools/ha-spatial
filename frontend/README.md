@@ -41,7 +41,7 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/room-labels.ts` | Room labels: area icon, name and (in the panel) net area, placed and stepped by the room's size on screen |
 | `src/styles.ts` | The floating card, pill buttons and phone bar shared by the controls, from Home Assistant's theme tokens |
 | `src/room-editor.ts` | The space editor controller: the area strip, undo and redo, saving each action, area creation and rename |
-| `src/side-controls.ts` | The length chip on each side of the active axis rectangle: dragged, it stretches the side through the edge drag; tapped, it opens the length field |
+| `src/side-controls.ts` | A handle on each side of the active axis rectangle, a length chip on one side per axis (`sideHandles` in `plan.ts` picks it) and a grip on the other: dragged, it stretches the side through the edge drag; tapped, it opens the length field |
 | `src/box-interaction.ts` | Pointer and keyboard drafting input on the map, snapped corners, moves, edge and corner drags, Alt to place freely, Space pan, draft preview |
 | `src/snap.ts` | The snap engine, pure and in lattice units: room corners, then room axis edges, then the outline, else the grid |
 | `src/outline-stop.ts` | Where the outline stops a moved room or a stretched side, pure and on lattice integers: a walk over the lattice offsets of the path up to the first one where the outline reaches inside the shape |
@@ -78,12 +78,13 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
   next gesture; turf finds the wall bearing and joins a box to a footprint.
 - In Adjust a press on the active axis rectangle is hit-tested on its projected corners, then its
   edges, within the snap radius, before a move, so it follows the room on a turned map. A side's
-  length chip drives the same edge drag with pointer events and pointer capture, for mouse and
+  chip or grip drives the same edge drag with pointer events and pointer capture, for mouse and
   finger alike (`touch-action: none`); a release without a drag lets the click open the field. The
-  chips are not rebuilt while one is pressed, as that would drop its capture. While a resize is
-  live the side chips and the labels under the
-  draft hide, as the draft shows the lengths and area, and undo, redo and Delete are ignored, as the
-  save is made against the room as grabbed.
+  controls are not rebuilt while one is pressed, as that would drop its capture. While a resize is
+  live they follow the draft instead: each to its side, matched by place as the draft's ring may
+  start at another corner, the chips counting the lengths and the held edge's handle primary. The
+  room labels under the draft hide, as the draft shows the area, and undo, redo and Delete are
+  ignored, as the save is made against the room as grabbed.
 - Every box, move, resize, removal, undo and redo is one save, one at a time: `spatial/site/update`
   with `outline` for the building, else one `spatial/area/update_geometries` batch; boxes, moves,
   resizes and removals are recorded in the session history. A refused save reloads the rooms and

@@ -131,27 +131,31 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
 
 - Tap a room on the map, or its pill, to make it active. The **Building** pill makes the outline
   active.
-- When the active room is a rectangle along the site direction, each side shows its length as a
-  button. Tap one, type the length and press Enter (at least 10 cm or 4 in; an unchanged length
-  saves nothing). The length is rounded to the 2.5 cm (1 in) lattice, so 3.47 m becomes 3.475 m.
+- When the active room is a rectangle along the site direction, its width and depth each show
+  once, on a button on one of the two sides they measure: on the side that is not a wall shared
+  with another room, else on the bottom for the width and the left for the depth. The other two
+  sides carry a small grip. Tap a length or a grip, type the length of that side and press Enter
+  (at least 10 cm or 4 in; an unchanged length saves nothing). The length is rounded to the 2.5 cm (1 in) lattice, so 3.47 m becomes 3.475 m.
   The side's start corner stays, the opposite side follows. Escape closes the field.
 - Moving a room snaps it to its neighbours as in Draw, else shifts it by whole grid steps, and
   stops it at the outline as in Draw.
 - **Stretch a side:** on such a rectangle, drag an edge anywhere along it. Only that edge moves,
   straight out or in, onto the 10 cm (4 in) grid, and rests on a parallel wall or a corner of
-  another room or the outline nearby, which lights up. The draft counts its lengths and area as
-  it goes. An edge stops one grid step from the opposite one, and at the outline: a room inside
-  it stays inside, one outside stays outside, and the wall it stops at lights up. While a side
-  or corner is dragged, the side lengths and the room labels under it make way for the draft's.
+  another room or the outline nearby, which lights up. The length that changes counts on its
+  button as it goes, and the draft shows its area. An edge stops one grid step from the opposite
+  one, and at the outline: a room inside it stays inside, one outside stays outside, and the wall
+  it stops at lights up. While a side or corner is dragged, the room labels under it make way for
+  the draft's area.
 - **Drag a corner:** drag a corner of such a rectangle; the opposite corner stays. The corner
   snaps like a drawn box corner and lights up what it snaps to or stops at, both walls in a
   corner; each side stays at least one
   grid step. With Alt held an edge or corner lands on the 2.5 cm (1 in) lattice without
   snapping. The pointer turns into a resize arrow over an edge or a corner. **Escape** cancels;
   undo, redo and **Delete** do nothing while a side or corner is held.
-- **The length on a side is its handle:** drag it to stretch that side as above; a click or tap
-  without a drag opens the length field. On a touch screen, where the thin edge is hard to hit
-  with a finger, the length carries a grip mark and takes a fingertip-sized touch around it.
+- **The length or grip on a side is its handle:** drag it to stretch that side as above; the
+  handle held turns the theme's primary colour. A click or tap without a drag opens the length
+  field. On a touch screen, where the thin edge is hard to hit with a finger, a length also
+  carries a grip mark, and every handle takes a fingertip-sized touch around it.
 - A stretched side or dragged corner is one save and one undo step; one that ends where it
   started saves nothing.
 - Lengths and areas follow Home Assistant's unit system and number format. Metric lengths show

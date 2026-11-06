@@ -60,14 +60,14 @@ test("a side field typed while a new frame's refresh is pending resizes in the f
   await refreshed;
 });
 
-test("a rectangular room shows a button per side, an L-shaped room none", async () => {
+test("a rectangular room shows a button per side, the width and depth once, an L-shaped room none", async () => {
   const { panel, connection, setFeed } = mountEditor();
   const lShape = pixelShape([100, 0], [200, 0], [200, 50], [150, 50], [150, 100], [100, 100]);
   await startAdjusting(panel);
   setFeed([feature("kitchen", KITCHEN), feature("bath", lShape)]);
   await onUpdateOf(connection)();
   await tapRoom(panel, "kitchen");
-  expect(sideButtons().map((button) => button.textContent)).toEqual(["5.00 m", "5.00 m", "5.00 m", "5.00 m"]);
+  expect(sideButtons().map((button) => button.textContent)).toEqual(["", "", "5.00 m", "5.00 m"]);
   await tapRoom(panel, "bath");
   expect(sideButtons()).toEqual([]);
 });
@@ -95,7 +95,7 @@ test("a typed 3.47 m reads back as the saved lattice length, 3.475 m, on the sid
   await tapRoom(panel, "kitchen");
   typeSide(0, "3.47");
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
-  await vi.waitFor(() => expect(sideButtons()[0]?.textContent).toBe("3.475 m"));
+  await vi.waitFor(() => expect(sideButtons()[2]?.textContent).toBe("3.475 m"));
   sideButtons()[0].click();
   expect(sideField()!.value).toBe("3.475 m");
 });
@@ -131,7 +131,7 @@ test("in US customary units a side shows feet and inches and reads a typed lengt
   setFeed([feature("kitchen", pixelShape([0, 0], [40, 0], [40, 30], [0, 30]))]);
   await onUpdateOf(connection)();
   await tapRoom(panel, "kitchen");
-  expect(sideButtons().map((button) => button.textContent)).toEqual(["13′ 1″", "9′ 10″", "13′ 1″", "9′ 10″"]);
+  expect(sideButtons().map((button) => button.textContent)).toEqual(["", "", "13′ 1″", "9′ 10″"]);
   sideButtons()[0].click();
   const field = sideField()!;
   field.value = `16' 5"`;

@@ -16,9 +16,12 @@ import {
   movePolygon,
   resizeChange,
   resizeSide,
+  type SideHandle,
+  sideHandles,
   sideLabels,
 } from "../src/plan";
 import { type LatticePoint, PlanFrame } from "../src/site-frame";
+import type { LatticeEdge } from "../src/snap";
 import { US_UNIT_M, siteFrameData } from "./site-frame-fixture";
 import { METRIC_UNITS, US_UNITS } from "./units-fixture";
 
@@ -63,6 +66,28 @@ test("sideLabels and areaLabel show feet and inches and square feet in US custom
   const inchBox = boxFromCorners(INCHES, [0, 0], [157, 118])!;
   expect(sideLabels(INCHES, inchBox, US_UNITS).map((label) => label.text)).toEqual(["13′ 1″", "9′ 10″", "13′ 1″", "9′ 10″"]);
   expect(areaLabel(INCHES, inchBox, US_UNITS)).toBe("129 ft²");
+});
+
+// Counter-clockwise from the bottom left: bottom, right, top, left.
+const RECTANGLE: LatticePoint[] = [
+  [0, 0],
+  [200, 0],
+  [200, 100],
+  [0, 100],
+];
+const wall = (from: LatticePoint, to: LatticePoint): LatticeEdge => [from, to];
+
+test.each<[string, LatticePoint[], LatticeEdge[], SideHandle[]]>([
+  ["no neighbours: bottom and left", RECTANGLE, [], ["length", "grip", "grip", "length"]],
+  ["a neighbour under part of the bottom: top", RECTANGLE, [wall([50, 0], [150, 0])], ["grip", "grip", "length", "length"]],
+  ["a neighbour along the left: right", RECTANGLE, [wall([0, 100], [0, -50])], ["length", "length", "grip", "grip"]],
+  ["neighbours on both sides of a pair: bottom and left", RECTANGLE, [wall([0, 0], [200, 0]), wall([0, 100], [200, 100]), wall([0, 0], [0, 100]), wall([200, 0], [200, 100])], ["length", "grip", "grip", "length"]],
+  ["a neighbour on the top only: bottom", RECTANGLE, [wall([0, 100], [300, 100])], ["length", "grip", "grip", "length"]],
+  ["a wall meeting the bottom in a point: bottom", RECTANGLE, [wall([200, 0], [300, 0])], ["length", "grip", "grip", "length"]],
+  ["a wall beside the bottom on another line: bottom", RECTANGLE, [wall([0, -4], [200, -4])], ["length", "grip", "grip", "length"]],
+  ["a clockwise ring from the top left: bottom and left", [[0, 100], [200, 100], [200, 0], [0, 0]], [], ["grip", "grip", "length", "length"]],
+])("sideHandles puts each length once, off a shared wall, %s", (_, corners, roomEdges, handles) => {
+  expect(sideHandles(corners, roomEdges)).toEqual(handles);
 });
 
 test("areaLabel takes holes out", () => {

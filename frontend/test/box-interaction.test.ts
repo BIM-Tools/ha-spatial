@@ -313,10 +313,11 @@ test("in Adjust a press on an edge of the active rectangle resizes it instead of
   handlers.mousemove(pointEvent(50, 25));
   expect(onResizing).not.toHaveBeenCalled();
   handlers.mousemove(pointEvent(60, 25));
-  expect(onResizing).toHaveBeenLastCalledWith(true);
+  expect(onResizing).toHaveBeenLastCalledWith({ target: { kind: "edge", index: 1 }, draft: expect.objectContaining({ type: "Polygon" }) });
+  expect(boxCorners(onResizing.mock.lastCall![0].draft)).toContainEqual(cornerAt(62, 0));
   handlers.mouseup(pointEvent(70, 25));
   expect(onMove).not.toHaveBeenCalled();
-  expect(onResizing).toHaveBeenLastCalledWith(false);
+  expect(onResizing).toHaveBeenLastCalledWith(undefined);
   const corners = boxCorners(onResize.mock.calls[0][1]);
   expect(corners).toContainEqual(cornerAt(72, 0));
   expect(corners).toContainEqual(cornerAt(0, 50));

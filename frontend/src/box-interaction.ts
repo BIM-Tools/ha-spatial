@@ -40,8 +40,9 @@ export interface BoxInteractionCallbacks {
   readonly onBox: (box: Polygon, frame: PlanFrame) => void;
   readonly onMove: (room: ActiveRoom, moved: Polygon) => void;
   readonly onResize: (room: ActiveRoom, resized: Polygon) => void;
-  // True once an edge or corner drag moves, false when it ends; the draft then shows the lengths.
-  readonly onResizing: (resizing: boolean) => void;
+  // Each move of an edge or corner drag, from the first that leaves the press, with what is held and the
+  // draft; undefined when it ends. The draft shows only its area, so the side controls count the lengths.
+  readonly onResizing: (resizing: { target: ResizeTarget; draft: Polygon } | undefined) => void;
   readonly onPickRoom: (areaId: string) => void;
 }
 
@@ -155,7 +156,7 @@ export class BoxInteraction {
     this._setCursor("");
     const resize = this._resize;
     this._resize = undefined;
-    if (resize?.moved) this._callbacks.onResizing(false);
+    if (resize?.moved) this._callbacks.onResizing(undefined);
   }
 
   keepShape(shape: Polygon) {
@@ -358,18 +359,16 @@ export class BoxInteraction {
     return room && resizeTargetAt(pixel, room.footprint, project, snapRadiusPx());
   }
 
-  /** Follows the pointer once it is a few pixels from the press, with the draft and its lengths; nothing when none is held. */
+  /** Follows the pointer once it is a few pixels from the press, with the draft and its area; nothing when none is held. */
   resizeTo(pixel: Pixel, free: boolean) {
     const resize = this._resize;
     if (!resize) return;
-    if (!resize.moved) {
-      if (Math.hypot(pixel.x - resize.press.x, pixel.y - resize.press.y) < DRAG_MIN_PX) return;
-      resize.moved = true;
-      this._callbacks.onResizing(true);
-    }
+    if (!resize.moved && Math.hypot(pixel.x - resize.press.x, pixel.y - resize.press.y) < DRAG_MIN_PX) return;
+    resize.moved = true;
     const { shape, sources } = this._resized(resize, pixel, free);
-    this._preview(shape, resize.frame);
+    this._preview(shape, resize.frame, false, false);
     this._highlight.show(resize.frame, sources);
+    this._callbacks.onResizing({ target: resize.target, draft: shape });
   }
 
   /**
@@ -385,7 +384,7 @@ export class BoxInteraction {
     this._preview(undefined);
     this._highlight.clear();
     if (changed) this._callbacks.onResize(resize.room, shape);
-    this._callbacks.onResizing(false);
+    this._callbacks.onResizing(undefined);
     return true;
   }
 
@@ -497,7 +496,8 @@ export class BoxInteraction {
     return room !== undefined && "refusal" in boxChange(frame, room.areaId, room.footprint, box);
   }
 
-  private _preview(draft: Polygon | Point | undefined, frame?: PlanFrame, apart = false) {
+  // A resize leaves the side lengths to the side controls.
+  private _preview(draft: Polygon | Point | undefined, frame?: PlanFrame, apart = false, sides = true) {
     const map = this._map;
     this._kept = undefined;
     map.getSource<GeoJSONSource>("spatial-draft")?.setData(draft ? feature(draft, { apart }) : EMPTY);
@@ -507,7 +507,7 @@ export class BoxInteraction {
       return;
     }
     const units = this._callbacks.snapshot().units;
-    const labels = [...sideLabels(frame, draft, units), { at: centreOf(frame, draft), text: areaLabel(frame, draft, units) }];
+    const labels = [...(sides ? sideLabels(frame, draft, units) : []), { at: centreOf(frame, draft), text: areaLabel(frame, draft, units) }];
     if (!this._labels.length) {
       this._labels = labels.map(() => {
         const element = document.createElement("span");
