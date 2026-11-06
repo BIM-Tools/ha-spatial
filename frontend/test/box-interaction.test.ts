@@ -78,8 +78,8 @@ const highlighted = () =>
     ({ geometry }) => geometry,
   );
 const highlightedTypes = () => highlighted().map(({ type }) => type);
-// A point snapped onto a neighbour's corner lights the two walls that meet there.
-const BOTH_WALLS = ["LineString", "LineString"];
+// A point snapped onto a neighbour's corner lights the two walls that meet there, and the corner.
+const CORNER_SNAP = ["LineString", "LineString", "Point"];
 const boxCorners = (box: Polygon, frame = FRAME) => box.coordinates[0].map((corner) => frame.toLattice(corner));
 const pointer = (coarse: boolean) =>
   vi.spyOn(window, "matchMedia").mockImplementation(
@@ -99,7 +99,7 @@ test("a box corner snaps to a neighbour corner and lights both its walls", () =>
   handlers.mousedown(pointEvent(150, 100));
   handlers.mousemove(pointEvent(140, 90));
   handlers.mousemove(pointEvent(54, 3));
-  expect(highlightedTypes()).toEqual(BOTH_WALLS);
+  expect(highlightedTypes()).toEqual(CORNER_SNAP);
   handlers.mouseup(pointEvent(54, 3));
   expect(boxCorners(onBox.mock.calls[0][0])).toContainEqual(cornerAt(50, 0));
   expect(highlighted()).toEqual([]);
@@ -115,10 +115,28 @@ test("a box corner near an axis edge lands exactly on it, and the edge lights up
   expect(boxCorners(onBox.mock.calls[0][0])).toContainEqual([cornerAt(50, 0)[0], cornerAt(0, 30)[1]]);
 });
 
+test("a wall lights only 24 px either side of the snapped point, up to its end", () => {
+  mountInteraction("draw", undefined, true, { neighbours: [NEIGHBOUR] });
+  handlers.mousemove(pointEvent(53, 30.2));
+  const ends = (highlighted()[0].coordinates as unknown as Position[]).map((end) => FRAME.toLatticeUnits(end));
+  const expected = [FRAME.toLatticeUnits(unprojectPixel([50, 6], 300)), FRAME.toLatticeUnits(unprojectPixel([50, 50], 300))];
+  const sorted = (points: number[][]) => [...points].sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+  sorted(ends).forEach((end, index) => {
+    expect(end[0]).toBeCloseTo(sorted(expected)[index][0], 0);
+    expect(end[1]).toBeCloseTo(sorted(expected)[index][1], 0);
+  });
+});
+
+test("the active room's own walls never light up while drawing next to it", () => {
+  mountInteraction("draw", { areaId: "0", footprint: NEIGHBOUR }, true, { neighbours: [NEIGHBOUR] });
+  handlers.mousemove(pointEvent(52, 1));
+  expect(highlighted()).toEqual([]);
+});
+
 test("the hover in Draw shows the highlight before the first corner", () => {
   mountInteraction("draw", undefined, true, { neighbours: [NEIGHBOUR] });
   handlers.mousemove(pointEvent(52, 1));
-  expect(highlightedTypes()).toEqual(BOTH_WALLS);
+  expect(highlightedTypes()).toEqual(CORNER_SNAP);
   handlers.mousemove(pointEvent(120, 120));
   expect(highlighted()).toEqual([]);
 });
@@ -168,7 +186,7 @@ test("a moved room snaps its corner to a neighbour's corner", () => {
   const { onMove } = mountInteraction("adjust", { areaId: "1", footprint: room }, true, { neighbours: [NEIGHBOUR, room] });
   handlers.mousedown(pointEvent(80, 25));
   handlers.mousemove(pointEvent(75, 25));
-  expect(highlightedTypes()).toEqual(BOTH_WALLS);
+  expect(highlightedTypes()).toEqual(CORNER_SNAP);
   handlers.mouseup(pointEvent(75, 25));
   expect(boxCorners(onMove.mock.calls[0][1])[0]).toEqual(cornerAt(50, 0));
   expect(highlighted()).toEqual([]);
@@ -182,7 +200,7 @@ test("the radius is 12 px on a coarse pointer and 8 px on a fine one", () => {
   query.mockRestore();
   pointer(true);
   handlers.mousemove(pointEvent(60, 0));
-  expect(highlightedTypes()).toEqual(BOTH_WALLS);
+  expect(highlightedTypes()).toEqual(CORNER_SNAP);
   vi.restoreAllMocks();
 });
 
@@ -191,7 +209,7 @@ test("on a coarse pointer two taps each snap, and the highlight shows after the 
   const other = pixelBox(150, 100, 200, 150);
   const { onBox } = mountInteraction("draw", undefined, true, { neighbours: [NEIGHBOUR, other] });
   handlers.click(pointEvent(60, 0));
-  expect(highlightedTypes()).toEqual(BOTH_WALLS);
+  expect(highlightedTypes()).toEqual(CORNER_SNAP);
   handlers.click(pointEvent(140, 100));
   const corners = boxCorners(onBox.mock.calls[0][0]);
   expect(corners).toContainEqual(cornerAt(50, 0));
@@ -208,7 +226,7 @@ test("a site update during a drag keeps the gesture's frame and candidates", () 
   handlers.mousemove(pointEvent(140, 90));
   frame = turned;
   handlers.mousemove(pointEvent(54, 3));
-  expect(highlightedTypes()).toEqual(BOTH_WALLS);
+  expect(highlightedTypes()).toEqual(CORNER_SNAP);
   handlers.mouseup(pointEvent(54, 3));
   expect(onBox).toHaveBeenCalledWith(expect.anything(), FRAME);
   expect(boxCorners(onBox.mock.calls[0][0])).toContainEqual(cornerAt(50, 0));
@@ -218,7 +236,7 @@ test("Escape, Space and a tool change clear the highlight", () => {
   mountInteraction("draw", undefined, true, { neighbours: [NEIGHBOUR] });
   const hover = () => {
     handlers.mousemove(pointEvent(52, 1));
-    expect(highlightedTypes()).toEqual(BOTH_WALLS);
+    expect(highlightedTypes()).toEqual(CORNER_SNAP);
   };
   hover();
   window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));

@@ -11,8 +11,8 @@ import { mapBearing } from "./map-view";
 import { areaLabel, boxChange, boxFromCorners, centreOf, isAxisRectangle, movePolygon, sideLabels } from "./plan";
 import type { Tool } from "./room-editor";
 import type { LatticePoint, PlanFrame } from "./site-frame";
-import { type SnapCandidates, type SnapOptions, snapCandidatesFor, snapMove, snapPoint } from "./snap";
-import { SnapHighlight } from "./snap-highlight";
+import { type SnapCandidates, type SnapOptions, type SnapSource, snapCandidatesFor, snapMove, snapPoint } from "./snap";
+import { SnapHighlight, snapMarks } from "./snap-highlight";
 import type { HassUnits } from "./units";
 
 
@@ -78,6 +78,8 @@ const DRAG_MIN_PX = 5;
 export const coarsePointer = () => window.matchMedia("(pointer: coarse)").matches;
 // A finger covers more of the map than a mouse pointer.
 const snapRadiusPx = () => (coarsePointer() ? 12 : 8);
+// A snapped wall lights this far either side of the snapped point on screen, so a whole wall never reads as a selection.
+const SNAP_MARK_HALF_PX = 24;
 const LABEL_STYLE =
   "font: 12px sans-serif; background: color-mix(in srgb, var(--card-background-color) 85%, transparent); color: var(--primary-text-color); padding: 0 3px; border-radius: 3px; pointer-events: none";
 
@@ -365,9 +367,10 @@ export class BoxInteraction {
     if (!resize) return;
     if (!resize.moved && Math.hypot(pixel.x - resize.press.x, pixel.y - resize.press.y) < DRAG_MIN_PX) return;
     resize.moved = true;
-    const { shape, sources } = this._resized(resize, pixel, free);
+    const { shape, sources, pointer, options } = this._resized(resize, pixel, free);
     this._preview(shape, resize.frame, false, false);
-    this._highlight.show(resize.frame, sources);
+    const corners = shape.coordinates[0].slice(0, -1).map((corner) => resize.frame.toLattice(corner));
+    this._showSnap(resize, sources, corners, pointer, options);
     this._callbacks.onResizing({ target: resize.target, draft: shape });
   }
 
@@ -398,7 +401,8 @@ export class BoxInteraction {
   private _resized(resize: Resize, pixel: Pixel, free: boolean) {
     const [x, y] = this._latticeAt(pixel, resize.frame);
     const pointer: [number, number] = [x + resize.offset[0], y + resize.offset[1]];
-    return resizeRectangle(resize.frame, resize.room.footprint, resize.target, pointer, resize.candidates, this._options(pixel, free, resize));
+    const options = this._options(pixel, free, resize);
+    return { ...resizeRectangle(resize.frame, resize.room.footprint, resize.target, pointer, resize.candidates, options), pointer, options };
   }
 
   private _latticeAt(pixel: Pixel, frame: PlanFrame): [number, number] {
@@ -440,9 +444,23 @@ export class BoxInteraction {
 
   private _cornerAt(event: MapMouseEvent, snapping: Snapping): LatticePoint {
     const pointer = snapping.frame.toLatticeUnits(lngLatOf(event));
-    const { point, sources } = snapPoint(pointer, snapping.candidates, this._options(event.point, event.originalEvent.altKey, snapping));
-    this._highlight.show(snapping.frame, sources);
+    const options = this._options(event.point, event.originalEvent.altKey, snapping);
+    const { point, sources } = snapPoint(pointer, snapping.candidates, options);
+    this._showSnap(snapping, sources, [point], pointer, options);
     return point;
+  }
+
+  // Lights what a gesture snapped to near `points`, never the active shape's own walls; the stretch's
+  // half length in lattice units scales from the snap radius `_options` converted at the pointer.
+  private _showSnap(
+    { frame, radiusPx }: Snapping,
+    sources: readonly SnapSource[],
+    points: readonly LatticePoint[],
+    pointer: readonly [number, number],
+    { radius }: SnapOptions,
+  ) {
+    const own = this._callbacks.snapshot().activeRoom?.footprint.coordinates.map((ring) => ring.slice(0, -1).map((corner) => frame.toLattice(corner)));
+    this._highlight.show(frame, snapMarks(sources, points, pointer, (radius * SNAP_MARK_HALF_PX) / radiusPx, own));
   }
 
   // MapLibre fires `click` for a tap too, so two taps draw a box on a phone.
@@ -480,13 +498,10 @@ export class BoxInteraction {
     const [fromX, fromY] = frame.toLatticeUnits(from);
     const [toX, toY] = frame.toLatticeUnits(lngLatOf(event));
     const rings = room.footprint.coordinates.map((ring) => ring.slice(0, -1).map((corner) => frame.toLattice(corner)));
-    const { delta, sources } = snapMove(
-      rings,
-      [toX - fromX, toY - fromY],
-      grab.candidates,
-      this._options(event.point, event.originalEvent.altKey, grab),
-    );
-    this._highlight.show(frame, sources);
+    const options = this._options(event.point, event.originalEvent.altKey, grab);
+    const { delta, sources } = snapMove(rings, [toX - fromX, toY - fromY], grab.candidates, options);
+    const corners = rings.flat().map(([x, y]): LatticePoint => [x + delta[0], y + delta[1]]);
+    this._showSnap(grab, sources, corners, [toX, toY], options);
     return delta;
   }
 

@@ -111,16 +111,18 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
 - **Snap:** each direction snaps on its own. Across and down, a corner within 8 px (12 px on a
   touch screen) of a room wall on this floor that runs along the site direction lands on that
   wall, and one near a room corner lines up with it; the outline comes after the rooms, the
-  grid last. Near two walls that meet, it lands on both. What it snaps to lights up: a thick line
-  on a wall, both walls at a corner, else a dot on the corner it lines up with. So rooms drawn
+  grid last. Near two walls that meet, it lands on both. What it snaps to lights up: a short
+  thick line on the wall around the snapped point, a short line on both walls and a dot at a
+  corner, else a dot on the corner it lines up with. The active shape's own walls never light
+  up. So rooms drawn
   side by side share their wall and count as adjacent. Walls at other angles do not snap, their
   corners do.
 - **Alt:** hold Alt to place without snapping, on the 2.5 cm (1 in) lattice. Phones always snap.
 - **Move:** a drag that starts inside the active shape moves it; a click there still sets a
   corner. A moved shape snaps by its corners in the same way, else moves by whole grid steps;
   pushed into a corner it rests against both walls. Against the outline it stops where it first
-  touches it, so a room inside stays inside and one outside stays outside, and each wall or
-  corner that stops it lights up; the rest of the drag still slides it along a wall that runs
+  touches it, so a room inside stays inside and one outside stays outside, and the stretch of
+  each wall or the corner that stops it lights up; the rest of the drag still slides it along a wall that runs
   along the site direction.
 - **Pan:** hold Space and drag. **Escape** cancels a box. **Delete** removes the active shape.
 - Draw turns the map back to the site direction and keeps it flat until another tool is picked.
