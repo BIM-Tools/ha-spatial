@@ -17,7 +17,7 @@ services:
 
   homeassistant:
     # Keep in sync with the homeassistant version pinned by requirements_test.txt.
-    image: &homeassistant-image ghcr.io/home-assistant/home-assistant:2026.10.1
+    image: &homeassistant-image ghcr.io/home-assistant/home-assistant:2026.11.0
     volumes:
       - ./.ha-config:/config
       - ./custom_components:/config/custom_components:ro

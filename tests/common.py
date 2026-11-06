@@ -3,8 +3,8 @@
 from typing import Any
 
 from homeassistant.core import HomeAssistant
-from pytest_homeassistant_custom_component.common import MockConfigEntry
-from pytest_homeassistant_custom_component.typing import WebSocketGenerator
+from pytest_homeassistant.common import MockConfigEntry
+from pytest_homeassistant.typing import WebSocketGenerator
 
 from custom_components.spatial.const import DOMAIN
 from custom_components.spatial.geometry import metres_per_degree
