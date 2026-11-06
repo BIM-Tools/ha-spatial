@@ -216,68 +216,6 @@ test("snapMove ignores a wall the moved corner would pass the end of", () => {
   expect(snapMove([corners], [7.5, 5.1], { ...NONE, roomEdges: [wall] }, OPTIONS)).toEqual({ delta: [8, 4], sources: [] });
 });
 
-// A room stored at an older bearing, so its edges tilt one lattice unit in about 150, inside an
-// outline traced the same way.
-const TILTED_OUTLINE: LatticePoint[] = [
-  [0, 0],
-  [0, 103],
-  [-125, 103],
-  [-125, 113],
-  [-115, 113],
-  [-116, 404],
-  [-324, 404],
-  [-323, 410],
-  [-448, 411],
-  [-448, 404],
-  [-672, 404],
-  [-672, 229],
-  [-672, 130],
-  [-672, 113],
-  [-672, 67],
-  [-354, 67],
-  [-354, 0],
-];
-const TILTED_ROOM: LatticePoint[] = [
-  [-485, 292],
-  [-549, 292],
-  [-635, 293],
-  [-634, 403],
-  [-484, 402],
-];
-const TOP_WALL: LatticeEdge = [
-  [-448, 404],
-  [-672, 404],
-];
-const TILTED_CANDIDATES = candidatesOf(FRAME, [], shapeOf(TILTED_OUTLINE));
-
-test.each<[number, typeof OPTIONS]>([
-  [2.3, OPTIONS],
-  [20, OPTIONS],
-  [2.3, { ...OPTIONS, free: true }],
-])("a tilted room moved up by %d ends with no corner beyond the outline", (up, options) => {
-  const { delta } = snapMove([TILTED_ROOM], [0, up], TILTED_CANDIDATES, options);
-  expect(Math.max(...TILTED_ROOM.map(([, y]) => y + delta[1]))).toBeLessThanOrEqual(404);
-});
-
-test("a tilted room moved against the outline touches it where it first meets it", () => {
-  expect(snapMove([TILTED_ROOM], [0, 2.3], TILTED_CANDIDATES, OPTIONS)).toEqual({ delta: [0, 1], sources: [{ kind: "edge", edge: TOP_WALL }] });
-});
-
-// A building with a diagonal corner on the right, and a notch whose corner points down into it.
-const NOTCHED = candidatesOf(
-  FRAME,
-  [],
-  shapeOf([
-    [0, 0],
-    [100, 0],
-    [100, 60],
-    [60, 100],
-    [50, 100],
-    [45, 90],
-    [40, 100],
-    [0, 100],
-  ]),
-);
 const boxRing = (left: number, bottom: number, right: number, top: number): LatticePoint[] => [
   [left, bottom],
   [right, bottom],
@@ -285,24 +223,23 @@ const boxRing = (left: number, bottom: number, right: number, top: number): Latt
   [left, top],
 ];
 
-const NOTCHED_LEFT: LatticeEdge = [
+// A square building: where the outline stops a room is in outline-stop.test.ts, here only that snapMove applies it.
+const SQUARE_BUILDING = candidatesOf(FRAME, [], shapeOf(boxRing(0, 0, 100, 100)));
+const BUILDING_TOP: LatticeEdge = [
+  [100, 100],
+  [0, 100],
+];
+const BUILDING_LEFT: LatticeEdge = [
   [0, 100],
   [0, 0],
 ];
-const NOTCHED_TOP: LatticeEdge = [
-  [40, 100],
-  [0, 100],
-];
 
-test.each<[string, LatticePoint[], [number, number], LatticePoint, SnapSource[]]>([
-  ["a corner stops on a diagonal wall", boxRing(70, 40, 90, 60), [20, 20], [5, 5], [{ kind: "edge", edge: [[100, 60], [60, 100]] }]],
-  ["an edge stops on an outline corner", boxRing(30, 40, 60, 60), [0, 40], [0, 30], [{ kind: "corner", at: [45, 90] }]],
-  ["a room outside stays outside", boxRing(110, 20, 130, 40), [-20, 0], [-10, 0], [{ kind: "edge", edge: [[100, 0], [100, 60]] }]],
-  ["a room against a wall slides along it", boxRing(4, 80, 24, 100), [8, 8], [8, 0], [{ kind: "edge", edge: NOTCHED_TOP }]],
-  ["a room pushed into an inner corner stops at both walls", boxRing(10, 70, 30, 90), [-20, 20], [-10, 10], [{ kind: "edge", edge: NOTCHED_TOP }, { kind: "edge", edge: NOTCHED_LEFT }]],
-  ["a room moved near an inner corner snaps into it", boxRing(10, 70, 30, 90), [-8.6, 8.7], [-10, 10], [{ kind: "edge", edge: NOTCHED_LEFT }, { kind: "edge", edge: NOTCHED_TOP }]],
-])("snapMove at the outline: %s", (_name, room, delta, expected, sources) => {
-  expect(snapMove([room], delta, NOTCHED, OPTIONS)).toEqual({ delta: expected, sources });
+test.each<[string, [number, number], typeof OPTIONS, LatticePoint, SnapSource[]]>([
+  ["stops a room at the outline", [0, 20.3], OPTIONS, [0, 10], [{ kind: "edge", edge: BUILDING_TOP }]],
+  ["stops a room at the outline with Alt too", [0, 20.3], { ...OPTIONS, free: true }, [0, 10], [{ kind: "edge", edge: BUILDING_TOP }]],
+  ["snaps a room moved near an inner corner into it", [-8.6, 8.7], OPTIONS, [-10, 10], [{ kind: "edge", edge: BUILDING_LEFT }, { kind: "edge", edge: BUILDING_TOP }]],
+])("snapMove at the outline %s", (_name, delta, options, expected, sources) => {
+  expect(snapMove([boxRing(10, 70, 30, 90)], delta, SQUARE_BUILDING, options)).toEqual({ delta: expected, sources });
 });
 
 // Two walls that meet at [0, 40], given without their corner, so only the walls themselves snap.

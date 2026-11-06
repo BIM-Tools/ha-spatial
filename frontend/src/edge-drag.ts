@@ -4,17 +4,8 @@ import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
 import type { Polygon, Position } from "geojson";
 import { boxFromCorners } from "./plan";
 import type { LatticePoint, PlanFrame } from "./site-frame";
-import {
-  NEAR_LATTICE,
-  type SnapCandidates,
-  type SnapOptions,
-  type SnapSource,
-  type SweptCorner,
-  distinctSources,
-  outlineContact,
-  snapLine,
-  snapPoint,
-} from "./snap";
+import { walkToOutline } from "./outline-stop";
+import { type SnapCandidates, type SnapOptions, type SnapSource, distinctSources, snapLine, snapPoint } from "./snap";
 
 /** A point on the map's canvas, in pixels from its top left. */
 export interface Pixel {
@@ -46,8 +37,8 @@ const keepApart = (value: number, start: number, opposite: number, step: number)
 
 /**
  * Where the side across `axis` through `corner` of the rectangle from `opposite` to `corner` stops
- * when it moves to `target`: at its first contact with the outline (`outlineContact`), rounded back
- * towards where it started, so a room inside the outline stays inside and one outside stays outside.
+ * when it moves to `target`: on the last lattice line before the outline reaches inside the
+ * rectangle (`walkToOutline`), so a room inside the outline stays inside and one outside stays outside.
  */
 function stopAtOutline(
   candidates: SnapCandidates,
@@ -56,19 +47,14 @@ function stopAtOutline(
   corner: LatticePoint,
   target: number,
 ): { value: number; source?: SnapSource } {
-  const start = corner[axis];
-  const velocity: [number, number] = [0, 0];
-  velocity[axis] = target - start;
-  const [left, right] = span(opposite[0], corner[0]);
-  const [bottom, top] = span(opposite[1], corner[1]);
-  const rectangle = ([[left, bottom], [right, bottom], [right, top], [left, top]] as LatticePoint[]).map(
-    (at): SweptCorner => ({ at, velocity: at[axis] === start ? velocity : [0, 0] }),
-  );
-  const contact = outlineContact([rectangle], candidates);
-  if (!contact) return { value: target };
-  const reached = start + contact.progress * (target - start);
-  const value = target > start ? Math.floor(reached + NEAR_LATTICE) : Math.ceil(reached - NEAR_LATTICE);
-  return { value: value + 0, source: contact.source };
+  const rectangleAt = (offset: LatticePoint) => {
+    const [left, right] = span(opposite[0], corner[0] + offset[0]);
+    const [bottom, top] = span(opposite[1], corner[1] + offset[1]);
+    return [[[left, bottom], [right, bottom], [right, top], [left, top]] as LatticePoint[]];
+  };
+  const path: LatticePoint = axis === 0 ? [target - corner[0], 0] : [0, target - corner[1]];
+  const stop = walkToOutline(rectangleAt, path, candidates);
+  return stop ? { value: corner[axis] + stop.offset[axis] + 0, source: stop.source } : { value: target };
 }
 
 /**
