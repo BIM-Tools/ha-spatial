@@ -10,6 +10,7 @@ import {
   boxChange,
   boxFromCorners,
   centreOf,
+  dropStraightCorners,
   edgeLengths,
   isAxisRectangle,
   movePolygon,
@@ -99,6 +100,25 @@ test("movePolygon moves every corner by a lattice delta", () => {
     [8, 116],
     [8, -4],
   ]);
+});
+
+test("movePolygon drops stored corners on a straight side, from the outer and the inner ring", () => {
+  const stored = shapeOf(METRIC, [[0, 0], [80, 0], [160, 0], [160, 120], [0, 120]], [[40, 40], [40, 60], [40, 80], [80, 80], [80, 40]]);
+  expect(latticeOf(METRIC, movePolygon(METRIC, stored, [8, 0]))).toEqual([
+    [[8, 0], [168, 0], [168, 120], [8, 120], [8, 0]],
+    [[48, 40], [48, 80], [88, 80], [88, 40], [48, 40]],
+  ]);
+});
+
+test.each<[string, LatticePoint[], LatticePoint[]]>([
+  ["a corner on a straight run", [[0, 0], [80, 0], [160, 0], [160, 120], [0, 120]], [[0, 0], [160, 0], [160, 120], [0, 120]]],
+  ["several on an inner ring", [[40, 40], [40, 60], [40, 80], [60, 80], [80, 80], [80, 40]], [[40, 40], [40, 80], [80, 80], [80, 40]]],
+  ["a spike back on itself", [[0, 0], [40, 0], [40, 40], [20, 40], [20, 60], [20, 40], [0, 40]], [[0, 0], [40, 0], [40, 40], [0, 40]]],
+  ["a repeated corner", [[0, 0], [40, 0], [40, 0], [40, 40], [0, 40]], [[0, 0], [40, 0], [40, 40], [0, 40]]],
+  ["nothing on an L-shape", [[0, 0], [160, 0], [160, 40], [80, 40], [80, 120], [0, 120]], [[0, 0], [160, 0], [160, 40], [80, 40], [80, 120], [0, 120]]],
+  ["nothing when a corner is one unit off the line", [[0, 0], [80, 1], [160, 0], [160, 120], [0, 120]], [[0, 0], [80, 1], [160, 0], [160, 120], [0, 120]]],
+])("dropStraightCorners: %s", (_name, corners, expected) => {
+  expect(dropStraightCorners(corners)).toEqual(expected);
 });
 
 test("centreOf is the middle of the box on the plan", () => {
