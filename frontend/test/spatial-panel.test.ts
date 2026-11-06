@@ -101,14 +101,14 @@ test("the panel has a header, the editing tools and the area strip; the card has
   await vi.waitFor(() => expect(panel.shadowRoot?.querySelector("spatial-panel-header")).not.toBeNull());
   await settle(panel);
   expect(panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!.querySelector("[role=heading]")?.textContent).toBe("Floor plan");
-  for (const name of ["Align", "Draw", "Select", "Undo", "Redo"]) expect(buttonNamed(panel, name)).toBeDefined();
+  for (const name of ["Align", "Draw", "Select", "Undo", "Redo", "Remove shape"]) expect(buttonNamed(panel, name)).toBeDefined();
   expect(panel.shadowRoot!.querySelector("spatial-area-strip")).not.toBeNull();
   const card = mountPanel({ card: true }).panel;
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalledTimes(2));
   await settle(card);
   expect(card.shadowRoot?.querySelector("spatial-panel-header")).toBeNull();
   expect(card.shadowRoot?.querySelector("spatial-area-strip")).toBeNull();
-  for (const name of ["Align", "Draw", "Select", "Undo", "Redo"]) expect(buttonNamed(card, name)).toBeUndefined();
+  for (const name of ["Align", "Draw", "Select", "Undo", "Redo", "Remove shape"]) expect(buttonNamed(card, name)).toBeUndefined();
 });
 
 const room = (floor_id: string | null, level: number | null) => ({
@@ -561,7 +561,7 @@ test("in All floors every tool is disabled and none is pressed; Align ends there
   const { panel } = mountPanel();
   await vi.waitFor(() => expect(buttonNamed(panel, "Align")).toBeDefined());
   await settle(panel);
-  for (const name of ["Align", "Draw", "Select", "Undo", "Redo"]) expect(buttonNamed(panel, name)!.disabled).toBe(true);
+  for (const name of ["Align", "Draw", "Select", "Undo", "Redo", "Remove shape"]) expect(buttonNamed(panel, name)!.disabled).toBe(true);
   expect(pressedTools(panel)).toEqual([]);
   await startAligning(panel);
   buttonNamed(panel, "All")!.click();

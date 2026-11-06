@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// Checks undo, redo and Delete.
+// Checks undo, redo and removing a shape.
 import { afterEach, expect, test, vi } from "vitest";
 import { EMPTY, buttonNamed, handlers, sources, resetFakes } from "./panel-harness";
 import {
@@ -108,11 +108,23 @@ test("the box from a first tap follows the mouse while an undo is saving", async
   release();
 });
 
-test("Delete removes the active shape in one save, and undo brings it back", async () => {
+test("Remove shape is enabled only while the active area has a shape", async () => {
+  const { panel } = mountEditor();
+  await startSelecting(panel);
+  await tapRoom(panel, "kitchen");
+  await vi.waitFor(() => expect(buttonNamed(panel, "Remove shape")!.disabled).toBe(false));
+  chip(panel, "Bath").click();
+  await vi.waitFor(() => expect(buttonNamed(panel, "Remove shape")!.disabled).toBe(true));
+});
+
+test.each<[string, (panel: HTMLElement) => void]>([
+  ["Delete", () => key("keydown", "Delete")],
+  ["the Remove shape button", (panel) => buttonNamed(panel, "Remove shape")!.click()],
+])("%s removes the active shape in one save, and undo brings it back", async (_name, remove) => {
   const { panel, connection } = mountEditor();
   await startSelecting(panel);
   await tapRoom(panel, "kitchen");
-  key("keydown", "Delete");
+  remove(panel);
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
   expect(saves(connection)[0].areas).toEqual({ kitchen: null });
   await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));

@@ -98,6 +98,11 @@ export class RoomEditor {
     return !this._saving && this._history.canRedo;
   }
 
+  /** The active area has a shape on a floor, outside Align, and nothing is saving. */
+  get canRemove() {
+    return !this._saving && this.tool !== "align" && this._floor !== "all" && this._footprints.has(this._active);
+  }
+
   /** Any room footprint on any floor, or the outline. */
   get hasShapes() {
     return this._footprints.size > 0;
@@ -346,7 +351,7 @@ export class RoomEditor {
     // A held edge or corner saves against the room as grabbed, which these would change under it.
     if (this._interaction?.resizing) return;
     if (event.key === "Delete") {
-      this._removeActiveShape();
+      this.removeActiveShape();
       return;
     }
     if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") return;
@@ -355,12 +360,13 @@ export class RoomEditor {
     else this.undo();
   };
 
-  private _removeActiveShape() {
+  /** Removes the active shape, the Building outline included, as one undo step. */
+  removeActiveShape = () => {
     const areaId = this._active;
     const footprint = this._footprints.get(areaId);
-    if (!footprint || this.tool === "align") return;
+    if (!footprint || !this.canRemove) return;
     this._whileSaving(() => this._apply({ before: { [areaId]: footprint }, after: { [areaId]: null } }));
-  }
+  };
 
   // In Select each side of the active room, when it is a rectangle on the site axis, gets a handle that
   // drags it: a chip with the length of its axis, or a grip.

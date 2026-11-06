@@ -345,9 +345,11 @@ class SpatialPanel extends LitElement {
       .tool=${editor.tool}
       .canUndo=${editor.canUndo}
       .canRedo=${editor.canRedo}
+      .canRemove=${editor.canRemove}
       @tool-select=${(event: CustomEvent<{ tool: Tool }>) => this._selectTool(event.detail.tool)}
       @undo=${editor.undo}
       @redo=${editor.redo}
+      @remove=${editor.removeActiveShape}
     ></spatial-editor-toolbar>`;
   }
 
