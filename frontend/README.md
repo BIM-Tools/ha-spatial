@@ -40,12 +40,13 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/map-paint.ts` | The map layers' colours, read from Home Assistant's theme at style load and on a theme change |
 | `src/room-labels.ts` | Room labels: area icon, name and (in the panel) net area, placed and stepped by the room's size on screen |
 | `src/styles.ts` | The floating card, pill buttons and phone bar shared by the controls, from Home Assistant's theme tokens |
-| `src/room-editor.ts` | The space editor controller: the area strip, side length fields and their touch grab handles, undo and redo, saving each action, area creation and rename |
+| `src/room-editor.ts` | The space editor controller: the area strip, undo and redo, saving each action, area creation and rename |
+| `src/side-controls.ts` | The length chip on each side of the active axis rectangle: dragged, it stretches the side through the edge drag; tapped, it opens the length field |
 | `src/box-interaction.ts` | Pointer and keyboard drafting input on the map, snapped corners, moves, edge and corner drags, Alt to place freely, Space pan, draft preview |
 | `src/snap.ts` | The snap engine, pure and in lattice units: room corners, then room axis edges, then the outline, else the grid |
 | `src/outline-stop.ts` | Where the outline stops a moved room or a stretched side, pure and on lattice integers: a walk over the lattice offsets of the path up to the first one where the outline reaches inside the shape |
 | `src/snap-highlight.ts` | The map layer that lights up what a point snaps to: a dot on a corner, a line on an edge; and `distinctSources`, which lights each up once |
-| `src/edge-drag.ts` | Edge and corner drag of an axis rectangle, pure and in lattice units: where the dragged edge or corner lands, stopped at the outline, which one a pointer grabs, and where a side length goes clear of a touch handle and the neighbouring rooms |
+| `src/edge-drag.ts` | Edge and corner drag of an axis rectangle, pure and in lattice units: where the dragged edge or corner lands, stopped at the outline, which one a pointer grabs, and its resize cursor |
 | `src/area-strip.ts` | The strip of pills, Building first: order, next area, new area names, rename field, long press, arrow keys |
 | `src/history.ts` | Session undo and redo of footprint changes |
 | `src/spatial-card.ts` | The card: wraps the panel element, without the header and tools; loads the panel bundle when created |
@@ -76,8 +77,11 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
   that `spatial/site` publishes, rebuilt on every site load, so a unit system change reaches the
   next gesture; turf finds the wall bearing and joins a box to a footprint.
 - In Adjust a press on the active axis rectangle is hit-tested on its projected corners, then its
-  edges, within the snap radius, before a move, so it follows the room on a turned map. A press on
-  a side button drags its own edge. While a resize is live the side buttons and the labels under the
+  edges, within the snap radius, before a move, so it follows the room on a turned map. A side's
+  length chip drives the same edge drag with pointer events and pointer capture, for mouse and
+  finger alike (`touch-action: none`); a release without a drag lets the click open the field. The
+  chips are not rebuilt while one is pressed, as that would drop its capture. While a resize is
+  live the side chips and the labels under the
   draft hide, as the draft shows the lengths and area, and undo, redo and Delete are ignored, as the
   save is made against the room as grabbed.
 - Every box, move, resize, removal, undo and redo is one save, one at a time: `spatial/site/update`

@@ -372,17 +372,21 @@ export class BoxInteraction {
     this._highlight.show(resize.frame, sources);
   }
 
-  /** Releases a held edge or corner; a press that did not move, or a drag back to the start, saves nothing. */
-  endResize(pixel: Pixel, free: boolean) {
+  /**
+   * Releases a held edge or corner, and says whether the press became a drag; a press that did not
+   * move, or a drag back to the start, saves nothing.
+   */
+  endResize(pixel: Pixel, free: boolean): boolean {
     const resize = this._resize;
-    if (!resize) return;
+    if (!resize) return false;
     this._resize = undefined;
-    if (!resize.moved) return;
+    if (!resize.moved) return false;
     const { shape, changed } = this._resized(resize, pixel, free);
     this._preview(undefined);
     this._highlight.clear();
     if (changed) this._callbacks.onResize(resize.room, shape);
     this._callbacks.onResizing(false);
+    return true;
   }
 
   // The active shape, when it is an axis rectangle in Adjust on a floor and nothing else is going on.

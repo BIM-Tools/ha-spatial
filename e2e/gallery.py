@@ -523,13 +523,13 @@ def touch_handles(shot: Shot) -> None:
     if not shot.page.evaluate("matchMedia('(pointer: coarse)').matches"):
         raise Skip("the browser does not report a touch screen")
     adjust_room_active(shot)
-    shot.require(shot.panel.locator("button.side-grip"), "grab handle")
+    shot.require(shot.panel.locator("button.side-chip ha-svg-icon"), "side chip with a grip mark")
 
 
 def touch_handle_drag(shot: Shot) -> None:
     touch_handles(shot)
     x, y = edge_middle(shot.room_corners("Living room"), "left")
-    # A finger on the left handle, 40 px in; the cleanup lifts it after Escape cancelled the drag.
+    # A finger on the left side's chip, 40 px in; the cleanup lifts it after Escape cancelled the drag.
     session = shot.page.context.new_cdp_session(shot.page)
 
     def touch(kind: str, at: tuple[float, float] | None) -> None:
@@ -674,14 +674,14 @@ STATES = [
     State(
         "touch-handles",
         "tools",
-        "Touch screen: a grab handle per side of the living room, lengths clear of neighbours",
+        "Touch screen: each side of the living room carries its length on a chip with a grip mark",
         touch_handles,
         touch=True,
     ),
     State(
         "touch-handle-drag",
         "tools",
-        "On a touch screen: dragging the living room's left handle in, the handles out of sight",
+        "On a touch screen: dragging the living room's left chip in, the chips out of sight",
         touch_handle_drag,
         touch=True,
     ),
