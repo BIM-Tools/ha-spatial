@@ -189,7 +189,10 @@ class Shot:
         return self.require(strip.get_by_role("button", name=name, exact=True), f"pill {name}")
 
     def activate_pill(self, area: str) -> None:
-        self.pill(area).click()
+        """Makes the pill active; a click on the active pill would rename it instead."""
+        pill = self.pill(area)
+        if pill.get_attribute("aria-pressed") != "true":
+            pill.click()
         self.settle()
 
     def hover_pill(self, area: str) -> None:
@@ -199,7 +202,7 @@ class Shot:
     def start_rename(self, area: str) -> None:
         """Clicking the active pill again turns it into a name field; `release` cancels it."""
         self.activate_pill(area)
-        self.activate_pill(area)
+        self.pill(area).click()
         self.panel.get_by_role("textbox", name="Area name").wait_for()
 
     def new_area(self) -> None:
@@ -998,7 +1001,7 @@ STATES = [
     State(
         "strip-active-unshaped",
         "strip",
-        "Utility active without a shape: Draw selected, the guide line says Draw Utility, 5 of 5",
+        "Utility active without a shape: Draw lit, the guide line says Draw Utility, 5 of 5",
         strip_active_unshaped,
     ),
     State(
