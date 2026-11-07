@@ -22,9 +22,11 @@ boxes along one wall. Every action saves at once and can be undone.
 
 ## First run
 
-Press **Open Spaces** right after adding Spatial, or later open Settings > Devices & services >
-Spatial > **Configure**; the editor has no sidebar entry and is for administrators. The panel
-opens on **All**, north up, centred on your home location.
+Press **Open floor plan** right after adding Spatial, or later choose **Floor plan** in the
+sidebar or open Settings > Devices & services > Spatial > **Configure**. The editor is for
+administrators; other users do not see it. To hide it, edit the sidebar in Home Assistant:
+long-press the title at the top of the sidebar and hide **Floor plan**. The panel opens
+on **All**, north up, centred on your home location.
 
 1. **Align.** Pick a floor, press **Align** and click your house on the map near the wall the
    rooms follow; the line at the top says "Click the wall your rooms follow" and the wall under
@@ -177,6 +179,8 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
 - Saving is silent. Refusals and failures use Home Assistant's toast. "Could not save" stays with
   **Retry**. A room that already had a shape keeps showing it as saved; a first box that failed
   stays on the map until it saves or the next box replaces it.
+- Right after Home Assistant restarts, a save can come before Spatial has loaded; the toast then
+  says "Spatial is still starting, try again in a moment", also with **Retry**.
 - Spatial refuses an indoor room that would extend beyond the outline, or a shape with no net
   area left; in the panel that save ends as "Could not save".
 

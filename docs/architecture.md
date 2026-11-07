@@ -16,8 +16,10 @@ flowchart LR
       coordinator[coordinator.py]
       geometry[geometry.py]
       store[store.py<br>.storage/spatial]
+      search[address_search.py]
     end
   end
+  nominatim[OpenStreetMap Nominatim]
   panel[Panel<br>admin, edits]
   card[Dashboard card<br>every user, read-only]
   tools[tools/<br>importer]
@@ -25,6 +27,8 @@ flowchart LR
   coordinator --> geometry
   coordinator --> store
   coordinator -- names, levels, floors; removals --> registries
+  ws --> search
+  search -- explicit address searches only --> nominatim
   panel -- websocket API and registry commands --> ws
   card -- websocket API --> ws
   tools -- websocket API and registry commands --> ws

@@ -23,7 +23,7 @@ import { BUILDING } from "./area-strip";
 import { type Guide, RoomEditor, type Toast, type Tool } from "./room-editor";
 import { type AreaInfo, RoomLabels, roomLabelStyles } from "./room-labels";
 import { floatingSurface, phoneBar } from "./styles";
-import type { HassUnits } from "./units";
+import { type HassUnits, isStillStarting, saveFailureMessage } from "./units";
 
 // The parts of Home Assistant's `hass` object this panel uses.
 interface Hass extends HassUnits {
@@ -769,7 +769,7 @@ class SpatialPanel extends LitElement {
       console.error(err);
       this._state.bearing = previousBearing;
       this._map?.easeTo({ bearing: mapBearing(this._state.axisDeg) });
-      if (typeof err?.code === "string" && typeof err.message === "string") {
+      if (typeof err?.code === "string" && typeof err.message === "string" && !isStillStarting(err)) {
         this._toast({ message: err.message });
         return;
       }
@@ -777,7 +777,7 @@ class SpatialPanel extends LitElement {
         this._map?.easeTo({ bearing: mapBearing(newBearing) });
         this._saveBearing(fields, previousBearing);
       };
-      this._toast({ message: "Could not save", action: { text: "Retry", action: retry }, duration: -1, dismissable: true });
+      this._toast({ message: saveFailureMessage(err), action: { text: "Retry", action: retry }, duration: -1, dismissable: true });
     });
   }
 

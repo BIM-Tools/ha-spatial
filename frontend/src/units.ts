@@ -1,4 +1,4 @@
-// Shows and reads lengths and areas in Home Assistant's unit system and the user's number format; storage stays metric.
+// Shows and reads lengths and areas in Home Assistant's unit system and the user's number format, and words why a save did not happen; storage stays metric.
 
 /** The parts of Home Assistant's `hass` object that decide the unit system and the number format. */
 export interface HassUnits {
@@ -20,6 +20,14 @@ export const refusalMessage = (refusal: Refusal, hass: HassUnits): string =>
   refusal === "apart"
     ? "A room is one shape: draw against it"
     : `Too small: every side needs at least ${isUsCustomary(hass) ? "4 in" : "10 cm"}`;
+
+/** Whether a websocket error means the integration has not registered its commands yet, right after a restart. */
+export const isStillStarting = (error: unknown): boolean =>
+  typeof error === "object" && error !== null && "code" in error && error.code === "unknown_command";
+
+/** The toast for a save that failed, as against one Spatial refused; trying again may help. */
+export const saveFailureMessage = (error: unknown): string =>
+  isStillStarting(error) ? "Spatial is still starting, try again in a moment" : "Could not save";
 
 /*!
  * numberFormatToLocale and formatNumber are ported from home-assistant/frontend

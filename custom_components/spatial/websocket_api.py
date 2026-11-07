@@ -12,7 +12,15 @@ from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import floor_registry as fr
 
-from .const import API_VERSION, DOMAIN, ERR_CONFLICT, EVENT_SPATIAL_UPDATED, SITE_FIELD_NAMES
+from .address_search import AddressSearchError, address_search
+from .const import (
+    API_VERSION,
+    DOMAIN,
+    ERR_CONFLICT,
+    ERR_SEARCH_FAILED,
+    EVENT_SPATIAL_UPDATED,
+    SITE_FIELD_NAMES,
+)
 from .coordinator import SpatialCoordinator
 from .geometry import validate_polygon
 
@@ -69,6 +77,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_site)
     websocket_api.async_register_command(hass, ws_update_site)
     websocket_api.async_register_command(hass, ws_subscribe)
+    websocket_api.async_register_command(hass, ws_address_search)
 
 
 def _coordinator(hass: HomeAssistant) -> SpatialCoordinator:
@@ -324,3 +333,33 @@ def ws_subscribe(
 
     connection.subscriptions[msg["id"]] = hass.bus.async_listen(EVENT_SPATIAL_UPDATED, forward)
     connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "spatial/address/search",
+        vol.Required("query"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_address_search(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Return up to five places for an address, sent to the search server only on this call.
+
+    The length is checked here, not in the schema: Home Assistant logs a schema error
+    with the value, and the query is personal data.
+    """
+    query = msg["query"].strip()
+    if not 3 <= len(query) <= 200:
+        connection.send_error(
+            msg["id"], websocket_api.ERR_INVALID_FORMAT, "Give 3 to 200 characters to search for"
+        )
+        return
+    try:
+        places = await address_search(hass).async_search(query)
+    except AddressSearchError as err:
+        connection.send_error(msg["id"], ERR_SEARCH_FAILED, str(err))
+        return
+    connection.send_result(msg["id"], {"places": places})

@@ -29,6 +29,23 @@ ERR_CONFLICT: Final = "conflict"
 # Websocket error code for an indoor room that would extend beyond the building outline.
 ERR_OUTSIDE_OUTLINE: Final = "outside_outline"
 
+# Websocket error code for an address search the search server could not answer.
+ERR_SEARCH_FAILED: Final = "search_failed"
+
+# Address search: the one server URL, and what its usage policy asks of clients
+# (https://operations.osmfoundation.org/policies/nominatim/): an identifying user
+# agent and at most one request per second.
+ADDRESS_SEARCH_URL: Final = "https://nominatim.openstreetmap.org/search"
+ADDRESS_SEARCH_USER_AGENT: Final = (
+    "HomeAssistant-Spatial (+https://github.com/BIM-Tools/ha-spatial)"
+)
+ADDRESS_SEARCH_INTERVAL_S: Final = 1.0
+ADDRESS_SEARCH_TIMEOUT_S: Final = 10
+ADDRESS_SEARCH_LIMIT: Final = 5
+# Half the side of the box around the home location that results near home are
+# preferred in, in degrees (about 25 km); results outside it still come back.
+ADDRESS_SEARCH_BIAS_DEG: Final = 0.25
+
 # Hex characters of the sha256 that identify one version of a stored entry.
 REV_LENGTH: Final = 12
 
