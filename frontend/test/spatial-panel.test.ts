@@ -25,6 +25,10 @@ import {
   zoomOut,
   easeTo,
   fakeMapLibre,
+  floorEntry,
+  jumpTo,
+  liveMarkers,
+  touchZoomRotate,
   SITE,
   sources,
   unprojectPixel,
@@ -113,7 +117,7 @@ test("the panel has a header, the editing tools and the area strip; the card has
 
 const room = (floor_id: string | null, level: number | null) => ({
   type: "Feature",
-  geometry: { type: "Point", coordinates: [0, 0] },
+  geometry: { type: "Polygon", coordinates: [[[5, 52], [5.0001, 52], [5.0001, 52.0001], [5, 52]]] },
   properties: { floor_id, level },
 });
 
@@ -135,7 +139,8 @@ test("an update with a new site bearing turns the map", async () => {
   bearing = 90;
   const [[onUpdate]] = connection.subscribeMessage.mock.calls as unknown as [[() => Promise<void>]];
   await onUpdate();
-  expect(setBearing).toHaveBeenCalledWith(0);
+  // Site bearing 90 lies right at map bearing 0; All looks from the front corner, 45 degrees less.
+  expect(setBearing).toHaveBeenCalledWith(315);
 });
 
 test("the panel follows changes through spatial/subscribe, open to non-admin users", async () => {
@@ -146,16 +151,36 @@ test("the panel follows changes through spatial/subscribe, open to non-admin use
   });
 });
 
-test("the 3D rooms extrude from base_m to top_m of each feature", async () => {
-  mountPanel();
+const stackKinds = () =>
+  (sources.stack.data as { features: { properties: { kind: string } }[] }).features.map((f) => f.properties.kind);
+
+test("All draws the stack's slabs, rooms and walls from base_m to top_m instead of the ground outline, and a floor the other way round", async () => {
+  const { panel } = mountPanel({ geojson: TWO_FLOORS });
   await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
   handlers["style.load"]();
-  expect(layers.find((layer) => layer.id === "areas-3d")).toMatchObject({
-    paint: {
-      "fill-extrusion-base": ["get", "base_m"],
-      "fill-extrusion-height": ["get", "top_m"],
-    },
-  });
+  for (const [id, kind] of [
+    ["stack-shadow", "shadow"],
+    ["stack-slabs", "slab"],
+    ["stack-slab-edges", "slab-edge"],
+    ["stack-rooms", "room"],
+    ["stack-room-edges", "edge"],
+  ]) {
+    expect(layers.find((layer) => layer.id === id)).toMatchObject({
+      type: "fill-extrusion",
+      source: "stack",
+      filter: ["==", ["get", "kind"], kind],
+      layout: { visibility: "visible" },
+      paint: { "fill-extrusion-base": ["get", "base_m"], "fill-extrusion-height": ["get", "top_m"] },
+    });
+  }
+  expect(stackKinds().filter((kind) => kind === "slab")).toHaveLength(2);
+  const visibility = (id: string) => layers.find((layer) => layer.id === id)?.layout?.visibility;
+  expect(visibility("spatial-outline")).toBe("none");
+  await settle(panel);
+  buttonNamed(panel, "No floor")!.click();
+  await settle(panel);
+  expect(visibility("stack-slabs")).toBe("none");
+  expect(visibility("spatial-outline")).toBe("visible");
 });
 
 const square = (floor_id: string, west: number, south: number) => ({
@@ -189,14 +214,52 @@ test("without a floor the map is interactive, with floor buttons", async () => {
   expect(fitBounds).not.toHaveBeenCalled();
 });
 
-test("a fixed floor all shows a static 3D map framed on all rooms", async () => {
-  const { panel } = mountStatic("all");
-  await vi.waitFor(() => expect(fitBounds).toHaveBeenCalled());
-  expect(mapCreated.mock.calls[0][0]).toMatchObject({ interactive: false, pitch: 50 });
+const floorLabels = () =>
+  liveMarkers()
+    .filter((marker) => marker.element.className === "floor-label")
+    .map((marker) => [...marker.element.children].map((line) => line.textContent).join(", "));
+
+test("a fixed floor all shows a static stack from the front corner, each slab named by Home Assistant", async () => {
+  const { panel } = mountPanel({
+    geojson: () => TWO_FLOORS,
+    card: true,
+    floor: "all",
+    hassFloors: { ground: { name: "Ground floor" }, first: { name: "First floor" } },
+  });
+  await vi.waitFor(() => expect(jumpTo).toHaveBeenCalled());
+  expect(mapCreated.mock.calls[0][0]).toMatchObject({ interactive: false });
   expect(buttons(panel)).toBe(0);
-  expect(fitBounds.mock.calls[0][0]).toEqual([5, 52, 7, 54]);
-  // Site bearing 0 puts the site's x-axis to the right at map bearing 270.
-  expect(fitBounds.mock.calls[0][1]).toMatchObject({ bearing: 270 });
+  expect(fitBounds).not.toHaveBeenCalled();
+  // Site bearing 0 puts the site's x-axis to the right at map bearing 270; the front corner is 45 degrees less.
+  expect(jumpTo.mock.calls[0][0]).toMatchObject({ bearing: 225, pitch: 55 });
+  expect(floorLabels()).toEqual(["Ground floor, 1 room", "First floor, 1 room"]);
+});
+
+test("the card neither turns nor tilts; the panel's All view may", async () => {
+  mountPanel({ card: true });
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
+  expect(mapCreated.mock.calls[0][0]).toMatchObject({ dragRotate: false, touchPitch: false });
+  expect(touchZoomRotate.isRotationEnabled()).toBe(false);
+  resetFakes();
+  mountPanel();
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
+  expect(mapCreated.mock.calls[0][0]).toMatchObject({ dragRotate: true, touchPitch: true });
+  expect(touchZoomRotate.isRotationEnabled()).toBe(true);
+});
+
+test("leaving All lays the plan flat with the wall horizontal and drops the floor labels; the compass in All returns to the front corner", async () => {
+  const { panel } = mountPanel({ geojson: TWO_FLOORS, floors: [floorEntry("ground", "Ground floor")] });
+  await vi.waitFor(() => expect(jumpTo).toHaveBeenCalledWith(expect.objectContaining({ bearing: 225, pitch: 55 })));
+  expect(floorLabels()).toEqual(["Ground floor, 1 room", "first, 1 room"]);
+  await settle(panel);
+  buttonNamed(panel, "Ground floor")!.click();
+  await settle(panel);
+  expect(easeTo).toHaveBeenLastCalledWith({ pitch: 0, bearing: 270 });
+  expect(floorLabels()).toEqual([]);
+  buttonNamed(panel, "All")!.click();
+  await settle(panel);
+  buttonNamed(panel, "Face the house")!.click();
+  expect(easeTo).toHaveBeenLastCalledWith(expect.objectContaining({ bearing: 225, pitch: 55 }));
 });
 
 test("a fixed floor id shows a static flat plan framed on that floor", async () => {
@@ -583,6 +646,18 @@ test("the selected floor is pressed and stays enabled", async () => {
 
 const groundOnly = (style: { layers: { type: string }[] }) => style.layers.map((layer) => layer.type).join() === "background";
 
+test.each([
+  { name: "a card of all floors shows no map", floor: "all", showMap: undefined, map: false },
+  { name: "a card of one floor keeps the map", floor: "ground", showMap: undefined, map: true },
+  { name: "a card with floor buttons keeps the map", floor: undefined, showMap: undefined, map: true },
+  { name: "show_map true shows it on all floors", floor: "all", showMap: true, map: true },
+  { name: "show_map false hides it on one floor", floor: "ground", showMap: false, map: false },
+])("the card's map: $name", async ({ floor, showMap, map }) => {
+  mountPanel({ geojson: TWO_FLOORS, card: true, floor, showMap });
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
+  expect(groundOnly(mapCreated.mock.calls[0][0].style)).toBe(!map);
+});
+
 test("the map toggle is on by default; off shows the plan on plain ground, and it is remembered", async () => {
   const { panel } = mountPanel();
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
@@ -623,13 +698,13 @@ test("the compass turns with the map", async () => {
   await vi.waitFor(() => expect(handlers.rotate).toBeDefined());
   await settle(panel);
   const needle = () => buttonNamed(panel, "Face the house")!.querySelector("ha-svg-icon")!.getAttribute("style");
-  // Site bearing 0 turns the map to 270.
-  expect(needle()).toContain("rotate(-270deg)");
+  // Site bearing 0 turns the map to 270, and All looks from the front corner, 45 degrees less.
+  expect(needle()).toContain("rotate(-225deg)");
   bearing = 90;
   await onUpdateOf(connection)();
   handlers.rotate();
   await settle(panel);
-  expect(needle()).toContain("rotate(0deg)");
+  expect(needle()).toContain("rotate(-315deg)");
 });
 
 const UNALIGNED = { site: { bearing_deg: null } };
@@ -637,7 +712,8 @@ const UNALIGNED = { site: { bearing_deg: null } };
 test("before any Align the map opens north up and the compass faces north, also in Draw", async () => {
   const { panel } = mountPanel(UNALIGNED);
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
-  expect(mapCreated.mock.calls[0][0]).toMatchObject({ bearing: 0 });
+  // All looks at the north-up plan from its front corner.
+  expect(mapCreated.mock.calls[0][0]).toMatchObject({ bearing: 315 });
   await showNoFloor(panel);
   buttonNamed(panel, "Draw")!.click();
   await settle(panel);
@@ -647,16 +723,16 @@ test("before any Align the map opens north up and the compass faces north, also 
   expect(easeTo).toHaveBeenLastCalledWith({ bearing: 0 });
 });
 
-test("before any Align a static card frames its rooms north up", async () => {
+test("before any Align a static card shows its stack from the front corner of the north-up plan", async () => {
   mountPanel({ ...UNALIGNED, geojson: TWO_FLOORS, card: true, floor: "all" });
-  await vi.waitFor(() => expect(fitBounds).toHaveBeenCalled());
-  expect(fitBounds.mock.calls[0][1]).toMatchObject({ bearing: 0 });
+  await vi.waitFor(() => expect(jumpTo).toHaveBeenCalled());
+  expect(jumpTo.mock.calls[0][0]).toMatchObject({ bearing: 315 });
 });
 
 test("a stored bearing of 0 is a wall direction too: the compass returns the view to 270, also in Draw", async () => {
   const { panel } = mountPanel();
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
-  expect(mapCreated.mock.calls[0][0]).toMatchObject({ bearing: 270 });
+  expect(mapCreated.mock.calls[0][0]).toMatchObject({ bearing: 225 });
   await showNoFloor(panel);
   buttonNamed(panel, "Draw")!.click();
   await settle(panel);
