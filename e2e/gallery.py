@@ -1326,7 +1326,10 @@ def main() -> None:
         else:
             shutil.rmtree(old)
     wait_for_home_assistant()
-    token = onboard()
+    # Onboarding's access token expires after 30 minutes, well within a full run.
+    token = Websocket(onboard()).call(
+        "auth/long_lived_access_token", client_name="gallery", lifespan=1
+    )
     add_spatial(token)
     prepare_first_run(token)
     # The import runs its own event loop, which Playwright's would block.
