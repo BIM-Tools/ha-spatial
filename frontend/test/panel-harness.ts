@@ -18,6 +18,8 @@ export const zoomIn = vi.fn();
 export const zoomOut = vi.fn();
 export const setStyle = vi.fn();
 export const queryRenderedFeatures = vi.fn((): object[] => []);
+// Whether a flight lands at once; a test that holds it fires `moveend` itself.
+export const camera = { lands: true };
 export let handlers: Record<string, (event?: object) => void> = {};
 export let sources: Record<string, { data: unknown }> = {};
 export let layers: {
@@ -74,6 +76,20 @@ const projectLngLat = ({ lng, lat }: { lng: number; lat: number }) => {
   return { x: pixels * Math.sin(turn) - panned.x, y: -pixels * Math.cos(turn) - panned.y };
 };
 
+// The map tiles' source and its finest zoom. MapLibre tells each rendered feature the tile it came from;
+// here that is the tile of the feature's first position.
+const TILES = "tiles";
+const TILE_ZOOM = 14;
+const withTile = (feature: object) => {
+  const geometry = (feature as { geometry?: { coordinates: unknown } }).geometry;
+  if (!geometry || "_z" in feature) return feature;
+  const [lng, lat] = (geometry.coordinates as unknown[]).flat(3) as number[];
+  const phi = (lat * Math.PI) / 180;
+  const x = Math.floor(((lng + 180) / 360) * 2 ** TILE_ZOOM);
+  const y = Math.floor(((1 - Math.log(Math.tan(phi) + 1 / Math.cos(phi)) / Math.PI) / 2) * 2 ** TILE_ZOOM);
+  return { ...feature, _z: TILE_ZOOM, _x: x, _y: y };
+};
+
 // MapLibre needs WebGL; the panel's own behaviour does not.
 export const fakeMapLibre = {
   setWorkerUrl: vi.fn(),
@@ -121,6 +137,13 @@ export const fakeMapLibre = {
       (this.listeners[event] ??= []).push(handler);
       handlers[event] = (e) => this.listeners[event].forEach((listener) => listener(e));
     }
+    once(event: string, handler: (event?: object) => void) {
+      const once = (e?: object) => {
+        this.off(event, once);
+        handler(e);
+      };
+      this.on(event, once);
+    }
     off(event: string, handler: (event?: object) => void) {
       this.listeners[event] = this.listeners[event].filter((listener) => listener !== handler);
     }
@@ -135,6 +158,7 @@ export const fakeMapLibre = {
       sources[id] = { data: source.data };
     }
     getSource(id: string) {
+      if (id === TILES) return { maxzoom: TILE_ZOOM };
       const source = sources[id];
       return source && { setData: (data: unknown) => (source.data = data) };
     }
@@ -160,12 +184,12 @@ export const fakeMapLibre = {
       return {
         layers: [
           { id: "water", type: "fill", "source-layer": "water" },
-          { id: "building-3d", type: "fill-extrusion", "source-layer": "buildings" },
+          { id: "building-3d", type: "fill-extrusion", source: TILES, "source-layer": "buildings" },
         ],
       };
     }
     queryRenderedFeatures(...args: unknown[]) {
-      return (queryRenderedFeatures as (...a: unknown[]) => object[])(...args);
+      return (queryRenderedFeatures as (...a: unknown[]) => object[])(...args).map(withTile);
     }
     setBearing(bearing: number) {
       mapBearingNow = bearing;
@@ -181,9 +205,11 @@ export const fakeMapLibre = {
     }
     flyTo(...args: unknown[]) {
       flyTo(...args);
+      if (camera.lands) handlers.moveend?.();
     }
     fitBounds(...args: unknown[]) {
       fitBounds(...args);
+      if (camera.lands) handlers.moveend?.();
     }
     getBearing() {
       return mapBearingNow;
@@ -347,6 +373,7 @@ export const resetFakes = () => {
   localStorage.clear();
   queryRenderedFeatures.mockReset();
   queryRenderedFeatures.mockReturnValue([]);
+  camera.lands = true;
   handlers = {};
   markers = [];
   panned = { x: 0, y: 0 };

@@ -4,6 +4,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import {
   EMPTY,
   buttonNamed,
+  camera,
   fitBounds,
   flyTo,
   guideText,
@@ -279,6 +280,49 @@ test("the picked place's building shows dashed until the site has a direction", 
   await onUpdateOf(connection)();
   handlers.idle();
   expect(sources["spatial-home"].data).toEqual(EMPTY);
+});
+
+// A synthetic hall around the Domtoren point across the edge between tiles 8424 and 8425 at zoom 14, as
+// each tile has it: cut at the edge plus a buffer of 8 of its 4096 units.
+const TILE_EDGE = (8425 / 2 ** 14) * 360 - 180;
+const TILE_BUFFER = (8 / 4096 / 2 ** 14) * 360;
+const hallPart = (west: number, east: number) => ({
+  type: "Polygon",
+  coordinates: [[[west, 52.0905], [east, 52.0905], [east, 52.0909], [west, 52.0909], [west, 52.0905]]],
+});
+const WEST_PART = { _z: 14, _x: 8424, _y: 5405, geometry: hallPart(5.119, TILE_EDGE + TILE_BUFFER) };
+const EAST_PART = { _z: 14, _x: 8425, _y: 5405, geometry: hallPart(TILE_EDGE - TILE_BUFFER, 5.122) };
+const lngRange = (data: unknown) => {
+  const lngs = (data as { coordinates: number[][][] }).coordinates[0].map(([lng]) => lng);
+  return [Math.min(...lngs), Math.max(...lngs)];
+};
+
+test("a picked building across a tile edge is read from the tiles under it and shows whole", async () => {
+  const { panel } = mountPanel({ homeLocation: {}, site: { bearing_deg: null }, reply: searchingAnd([DOMTOREN]) });
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
+  await searchAndPick(panel);
+  queryRenderedFeatures.mockReturnValueOnce([EAST_PART]).mockReturnValue([WEST_PART, EAST_PART]);
+  handlers.idle();
+  expect(Array.isArray((queryRenderedFeatures.mock.lastCall as unknown[])[0])).toBe(true);
+  expect(lngRange(sources["spatial-home"].data)).toEqual([5.119, 5.122]);
+});
+
+test("the picked place's building is read once the camera has landed, and then kept", async () => {
+  const { panel } = mountPanel({ homeLocation: {}, site: { bearing_deg: null }, reply: searchingAnd([DOMTOREN]) });
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
+  queryRenderedFeatures.mockReturnValue([{ geometry: TOWER }]);
+  camera.lands = false;
+  await searchAndPick(panel);
+  handlers.idle();
+  expect(sources["spatial-home"].data).toEqual(EMPTY);
+  handlers.moveend();
+  handlers.idle();
+  expect(sources["spatial-home"].data).toEqual(TOWER);
+  queryRenderedFeatures.mockReturnValue([EAST_PART]);
+  handlers.idle();
+  expect(sources["spatial-home"].data).toEqual(TOWER);
 });
 
 test("a place within 25 m of the home asks nothing", async () => {
