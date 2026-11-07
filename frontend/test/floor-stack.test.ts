@@ -56,10 +56,10 @@ test.each([
 
 test.each([
   [0, 0],
-  [1, SLAB_SPACING_M],
-  [3, 3 * SLAB_SPACING_M],
+  [1, 3.2],
+  [3, 9.6],
 ])("the slab at place %i in the stack lies at %f m", (index, base) => {
-  expect(slabBase(index)).toBe(base);
+  expect(slabBase(index)).toBeCloseTo(base, 9);
 });
 
 type Heights = [kind: string, base: number, top: number][];

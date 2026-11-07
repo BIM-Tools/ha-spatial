@@ -9,8 +9,8 @@ import type { PlanFrame } from "./site-frame";
 /** A point in the site frame, in metres: x along the site bearing, y to its left, z up. */
 export type StackPoint = [number, number, number];
 
-/** From one slab to the next: more than a storey, so each floor shows between the ones above and below it. */
-export const SLAB_SPACING_M = 5;
+/** From one slab to the next: a little more than a storey, so each floor shows between the ones above and below it. */
+export const SLAB_SPACING_M = 3.2;
 /** A thin sheet, about a hand's width. */
 export const SLAB_THICKNESS_M = 0.1;
 // The rooms lie on the slab as a thin fill and the edges a little higher, so both clear its top face.

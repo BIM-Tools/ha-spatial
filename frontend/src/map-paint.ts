@@ -92,6 +92,8 @@ export interface MapPaint {
   handleFill: string;
   // The stack of all floors: opaque, since an extrusion's opacity is one value for its whole layer.
   slab: string;
+  // The slab darkened a little, so its edge reads as a thin sheet and the shadow gives the depth.
+  slabEdge: string;
   slabRoom: string;
   slabRoomEdge: string;
   slabShadow: string;
@@ -131,6 +133,7 @@ export const readMapPaint = (element: Element, dark: boolean): MapPaint => {
     apartFill: rgba(warning, 0.16),
     handleFill: rgba(color("--card-background-color")),
     slab: rgba(slab),
+    slabEdge: rgba(mix(slab, color("--secondary-text-color"), 0.7)),
     slabRoom: rgba(mix(primary, slab, dark ? 0.14 : 0.12)),
     slabRoomEdge: rgba(mix(primary, slab, dark ? 0.75 : 0.7)),
     slabShadow: "rgba(0,0,0,1)",
@@ -146,7 +149,7 @@ export type LayerColours = Record<string, Record<string, unknown>>;
 export const layerColours = (paint: MapPaint): LayerColours => ({
   "stack-shadow": { "fill-extrusion-color": paint.slabShadow },
   "stack-slabs": { "fill-extrusion-color": paint.slab },
-  "stack-slab-edges": { "fill-extrusion-color": paint.building },
+  "stack-slab-edges": { "fill-extrusion-color": paint.slabEdge },
   "stack-rooms": { "fill-extrusion-color": paint.slabRoom },
   "stack-room-edges": { "fill-extrusion-color": paint.slabRoomEdge },
   "areas-2d": { "fill-color": paint.roomFill },
