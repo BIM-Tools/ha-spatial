@@ -696,7 +696,7 @@ STATES = [
     State(
         "map-outline-question",
         "tools",
-        "After Align without an outline: the map's rectangle dashed, Use the map's outline? and its size",
+        "After Align without an outline: the map's rectangle dashed, the question and its size",
         map_outline_question,
     ),
     State(
