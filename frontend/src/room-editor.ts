@@ -11,6 +11,7 @@ import { type Change, type FootprintBatch, History } from "./history";
 import type { LayerColours } from "./map-paint";
 import { byLevel } from "./map-view";
 import { type ChangeOrRefusal, boxChange, isAxisRectangle } from "./plan";
+import type { ScreenBox } from "./draft-labels";
 import { type SideControls, showSideControls } from "./side-controls";
 import type { PlanFrame } from "./site-frame";
 import { snapCandidatesFor } from "./snap";
@@ -420,15 +421,16 @@ export class RoomEditor {
   // While an edge or corner is dragged the draft shows its area, so the labels under it hide, and the
   // side controls follow it; a save rebuilds them when it settles. The held control keeps its pointer
   // capture, as it stays in the page.
-  private _resizing(resizing: { target: ResizeTarget; draft: Polygon } | undefined) {
+  private _resizing(resizing: { target: ResizeTarget; draft: Polygon } | undefined): readonly ScreenBox[] {
     if (Boolean(resizing) !== this._resizeLive) {
       this._resizeLive = Boolean(resizing);
       // The building's draft covers every room on the floor.
       const covered = this._active === BUILDING ? this._order().map((area) => area.area_id) : [this._active];
       this._host.hideLabels(resizing ? covered : []);
     }
-    if (resizing) this._sides?.follow(resizing.draft, resizing.target);
-    else if (!this._saving) this._showSides();
+    if (resizing) return this._sides?.follow(resizing.draft, resizing.target) ?? [];
+    if (!this._saving) this._showSides();
+    return [];
   }
 
   private async _apply(change: Change) {

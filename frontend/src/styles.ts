@@ -25,6 +25,16 @@ export const phoneBar = css`
 `;
 
 /**
+ * The pill of a chip on the plan (a side length, a grip, a draft's label), as inline style, since each
+ * map Marker builds its own element outside the panel's styles.
+ */
+export const planPill =
+  "display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; height: 22px; margin: 0; padding: 0 8px; border: 1px solid var(--divider-color); border-radius: 11px; background: var(--card-background-color); color: var(--primary-text-color); font: 500 12px var(--ha-font-family-body, Roboto, sans-serif); line-height: 20px; white-space: nowrap";
+
+/** A held chip or the open length field: a primary ring two pixels wide, so the change is not only one of colour. */
+export const planPillHeld = { borderColor: "var(--primary-color)", boxShadow: "0 0 0 1px var(--primary-color)" };
+
+/**
  * The pill buttons of the floating floor selector and toolbar: compact for a mouse, 44 px on a
  * touch screen. A host with the `chips` or `bar` attribute is the phone layout and sizes its own.
  */

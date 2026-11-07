@@ -48,14 +48,15 @@ const latticeBox = (left: number, bottom: number, right: number, top: number) =>
 // KITCHEN in lattice units: a pixel is 4 units, and lattice y runs up the screen.
 const KITCHEN_BOX = latticeBox(0, -200, 200, 0);
 
-// The draft's own chips: plain labels, not the editor's side buttons or the room labels.
+// The draft's own chips that show: plain labels, not the editor's side buttons or the room labels.
 const draftLabels = () =>
   liveMarkers()
     .filter((marker) => !marker.element.firstElementChild && !marker.element.matches(".room-label, .building-label"))
+    .filter((marker) => marker.element.style.visibility !== "hidden")
     .map((marker) => marker.element.textContent);
 // Per side of the kitchen (top, right, bottom, left): grips show nothing, the bottom and left chips a length.
 const sideTexts = () => sideButtons().map((button) => button.textContent);
-const held = () => sideButtons().map((button) => button.style.background === "var(--primary-color)");
+const held = () => sideButtons().map((button) => button.style.borderColor === "var(--primary-color)");
 // Where a side's Marker sits, in lattice units.
 const sideAt = (edgeIndex: number) => {
   const marker = liveMarkers().find((each) => each.element.firstElementChild === sideButtons()[edgeIndex])!;
@@ -76,7 +77,8 @@ const adjustKitchen = async () => {
   return mounted;
 };
 
-test("an edge drag counts the width on its chip in place, turns the held side primary, shows the draft's area instead of the room label, and saves once with one undo step", async () => {
+// The 70 x 50 px draft is too small for its area label, which shows only from 96 x 40 px.
+test("an edge drag counts the width on its chip in place, rings the held side, hides the room label under a draft too small for its area, and saves once with one undo step", async () => {
   const { panel, connection } = await adjustKitchen();
   expect(kitchenLabelShown()).toBe(true);
   const press = mouse(1, 25);
@@ -87,7 +89,7 @@ test("an edge drag counts the width on its chip in place, turns the held side pr
   expect(sideAt(2)).toEqual([60, -200]);
   expect(sideAt(3)).toEqual([-80, -100]);
   expect(held()).toEqual([false, false, false, true]);
-  expect(draftLabels()).toEqual(["35.0 m²"]);
+  expect(draftLabels()).toEqual([]);
   expect(kitchenLabelShown()).toBe(false);
   handlers.mouseup(mouse(-19.2, 25));
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
@@ -252,7 +254,7 @@ test("a tap on a grip opens the length field filled with its side's length and s
   expect(saves(connection)).toEqual([]);
 });
 
-test("dragging a grip turns it primary and counts the length on the opposite side's chip", async () => {
+test("dragging a grip rings it and counts the length on the opposite side's chip", async () => {
   const { panel, connection } = await adjustKitchen();
   const right = sideButtons()[1];
   pointer(right, "pointerdown", [50, 25]);
