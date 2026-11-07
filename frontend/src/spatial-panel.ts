@@ -30,7 +30,7 @@ import "./floor-selector";
 import "./map-stack";
 import { type MapPaint, layerColours, readMapPaint, repaint } from "./map-paint";
 import { type ThemeState, bounds, darkModeOf, mapBearing, styleUrl, withMapTilesToken, workerUrl } from "./map-view";
-import { type AlignFields, alignFields, buildingAt, wallAt } from "./outline";
+import { type AlignFields, type TileBuildings, alignFields, buildingAt, reachesUnreadTiles, wallAt } from "./outline";
 import "./panel-header";
 import type { MenuItem } from "./panel-header";
 import { type Control, type Step, nextStep } from "./onboarding";
@@ -81,6 +81,20 @@ const GLOBE_CENTRE: [number, number] = [0, 20];
 const GLOBE_ZOOM = 1.5;
 // Long enough to read the question and the distance; Home Assistant's default of 3 s is not.
 const HOME_QUESTION_MS = 10000;
+// A building is read at the point, then from the tiles under it, and once more for one that reaches a third tile.
+const MAX_BUILDING_READS = 3;
+
+const tileId = (tile: TileBuildings) => `${tile.z}/${tile.x}/${tile.y}`;
+
+// The screen box around a polygon, to read the map tiles under all of it.
+const screenBox = (map: MapLibreMap, shape: Polygon): [PointLike, PointLike] => {
+  const points = shape.coordinates[0].map(([lng, lat]) => map.project([lng, lat]));
+  const [xs, ys] = [points.map((p) => p.x), points.map((p) => p.y)];
+  return [
+    [Math.min(...xs), Math.min(...ys)],
+    [Math.max(...xs), Math.max(...ys)],
+  ];
+};
 
 type HomeLocation = { latitude: number; longitude: number };
 
@@ -369,6 +383,10 @@ class SpatialPanel extends LitElement {
   private _homeAsked = false;
   // The place last picked from the address search in this visit, where the home is.
   private _picked?: [number, number];
+  // From a pick until the camera has landed there.
+  private _flying = false;
+  // The map's building at the home, once read there.
+  private _home?: { at: [number, number]; building: Polygon };
 
   constructor() {
     super();
@@ -570,6 +588,8 @@ class SpatialPanel extends LitElement {
     if (this._step()?.kind === "align") this._selectTool("align");
     const map = this._map;
     if (!map) return;
+    this._flying = true;
+    map.once("moveend", () => (this._flying = false));
     const camera = cameraFor(event.detail.place);
     if ("bounds" in camera) map.fitBounds(camera.bounds, { maxZoom: camera.maxZoom, bearing: map.getBearing(), padding: 48 });
     else map.flyTo({ center: camera.center, zoom: camera.zoom });
@@ -1080,22 +1100,38 @@ class SpatialPanel extends LitElement {
     return this._buildingAt([event.lngLat.lng, event.lngLat.lat], event.point);
   }
 
-  // The ids of the style's layers that draw the map tiles' buildings; none while the map is hidden.
-  private _buildingLayers(): string[] {
-    return (this._map?.getStyle().layers ?? [])
-      .filter((layer) => "source-layer" in layer && layer["source-layer"] === "buildings")
-      .map((layer) => layer.id);
+  // The style's layers that draw the map tiles' buildings; none while the map is hidden.
+  private _buildingLayers() {
+    return (this._map?.getStyle().layers ?? []).filter(
+      (layer): layer is typeof layer & { source: string } => "source-layer" in layer && layer["source-layer"] === "buildings",
+    );
   }
 
-  // The part of the map tiles' buildings at `at`, on screen at `point`, when the map shows them there.
+  // The map tiles' building at `at`, on screen at `point`, when the map shows it there. It is read from the
+  // tiles of the source's finest zoom only, so it does not change while coarser tiles stand in during
+  // loading. A building across a tile edge is read from each tile it reaches and joined.
   private _buildingAt(at: [number, number], point?: PointLike): Polygon | undefined {
     const map = this._map;
     const layers = this._buildingLayers();
-    if (!map || !layers.length) return undefined;
-    return map
-      .queryRenderedFeatures(point ?? map.project(at), { layers })
-      .map((feature) => buildingAt(feature.geometry as Polygon | MultiPolygon, at))
-      .find(Boolean);
+    const zoom = layers.length ? map?.getSource(layers[0].source)?.maxzoom : undefined;
+    if (!map || zoom === undefined) return undefined;
+    const read = (where: PointLike | [PointLike, PointLike]): TileBuildings[] =>
+      map.queryRenderedFeatures(where, { layers: layers.map((layer) => layer.id) }).map((feature) => ({
+        z: feature._z,
+        x: feature._x,
+        y: feature._y,
+        geometry: feature.geometry as Polygon | MultiPolygon,
+      }));
+    let tiles = read(point ?? map.project(at));
+    let building = buildingAt(tiles, at, zoom);
+    for (let reads = 1; building && reads < MAX_BUILDING_READS && reachesUnreadTiles(building, tiles, zoom); reads++) {
+      const known = new Set(tiles.map(tileId));
+      const more = read(screenBox(map, building)).filter((tile) => !known.has(tileId(tile)));
+      if (!more.length) break;
+      tiles = [...tiles, ...more];
+      building = buildingAt(tiles, at, zoom);
+    }
+    return building;
   }
 
   // Before any Align, the first time the map has drawn its buildings around Home Assistant's home, it
@@ -1113,15 +1149,23 @@ class SpatialPanel extends LitElement {
   }
 
   // Until the site has a direction, the map's building where the home is shows dashed: at the picked
-  // place, else at Home Assistant's home. Read again on every idle map, never stored.
+  // place, else at Home Assistant's home. It is read on an idle map once the camera has landed, and kept
+  // until the home moves, so it does not change as the map loads more tiles. Never stored.
   private _showHome() {
     const source = this._map?.getSource<GeoJSONSource>("spatial-home");
     const config = this.hass?.config;
-    if (!source || !config) return;
+    if (!source || !config || this._flying) return;
     const home: [number, number] | undefined =
       this._picked ?? (homeUnknown(config) ? undefined : [config.longitude!, config.latitude!]);
-    const building = this._state.bearing === null && home ? this._buildingAt(home) : undefined;
-    source.setData(building ?? EMPTY);
+    if (this._state.bearing !== null || !home) {
+      source.setData(EMPTY);
+      return;
+    }
+    if (this._home?.at[0] !== home[0] || this._home.at[1] !== home[1]) {
+      const building = this._buildingAt(home);
+      this._home = building && { at: home, building };
+    }
+    source.setData(this._home?.building ?? EMPTY);
   }
 
   // Align on an empty plan puts the origin at the left end of the picked wall, with the building
