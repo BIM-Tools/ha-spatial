@@ -9,6 +9,16 @@ export interface Change {
   after: FootprintBatch;
 }
 
+/** The change that removes the shapes of these areas at once; undefined when none of them has one. */
+export const clearChange = (areaIds: readonly string[], footprints: ReadonlyMap<string, Polygon>): Change | undefined => {
+  const shaped = areaIds.filter((areaId) => footprints.has(areaId));
+  if (!shaped.length) return undefined;
+  return {
+    before: Object.fromEntries(shaped.map((areaId) => [areaId, footprints.get(areaId)!])),
+    after: Object.fromEntries(shaped.map((areaId) => [areaId, null])),
+  };
+};
+
 export class History {
   private _done: Change[] = [];
   private _undone: Change[] = [];

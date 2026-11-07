@@ -80,15 +80,16 @@ or close the card and pan the map to your home. The magnifier at the top of the 
 
 ## The panel
 
-The map fills the page under a header with Back (to Spatial's integration page), Help and,
-once the site has a direction, the **More options** menu. The floor buttons float top left, the
-tools top right, the map controls bottom right and the area strip at the bottom.
+The map fills the page under a header with Back (to Spatial's integration page), Help and the
+**More options** menu. The floor buttons float top left, the tools top right, the map controls
+bottom right and the area strip at the bottom.
 
 ### More options
 
 | Entry | Does |
 | --- | --- |
-| Change alignment | Starts Align again, to turn the view to another wall. Off on All, like the tools |
+| Change alignment | Once the site has a direction: starts Align again, to turn the view to another wall. Off on All, like the tools |
+| Clear *floor* | Removes every room shape on the floor in view at once, as one undo step, without asking; the building outline stays. The toast "*Floor* cleared" offers **Undo**. Off on All and on a floor without room shapes |
 
 The menu closes with Escape or a click elsewhere.
 

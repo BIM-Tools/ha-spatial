@@ -459,11 +459,21 @@ class SpatialPanel extends LitElement {
     ></spatial-editor-toolbar>`;
   }
 
-  // Once the site has a direction, Align moves out of the toolbar into the header menu; like the tools it needs a floor.
+  // Once the site has a direction, Align moves out of the toolbar into the header menu. Like the
+  // tools both entries need a floor; on All, a view only, they are off.
   private _menu(): MenuItem[] {
-    if (!this._editor || alignPlace(this._state.bearing) !== "menu") return [];
-    const changeAlignment = { label: "Change alignment", disabled: this._state.floor === "all", action: () => this._selectTool("align") };
-    return [changeAlignment];
+    const editor = this._editor;
+    if (!editor) return [];
+    const floor = this._state.floor;
+    const onAll = floor === "all";
+    const floorName = this._floorName(floor);
+    const clear = {
+      label: onAll ? "Clear floor" : `Clear ${floorName}`,
+      disabled: !editor.canClear,
+      action: () => editor.clearFloor(floorName),
+    };
+    if (alignPlace(this._state.bearing) !== "menu") return [clear];
+    return [{ label: "Change alignment", disabled: onAll, action: () => this._selectTool("align") }, clear];
   }
 
   // One line at a time, and only when there is something to say; what went wrong first.

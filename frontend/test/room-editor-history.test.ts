@@ -1,9 +1,22 @@
 // @vitest-environment happy-dom
 // Checks undo, redo and removing a shape.
 import { afterEach, expect, test, vi } from "vitest";
-import { EMPTY, buttonNamed, handlers, sources, resetFakes } from "./panel-harness";
+import {
+  EMPTY,
+  buttonNamed,
+  chooseFromMenu,
+  handlers,
+  headerButton,
+  settle,
+  sources,
+  resetFakes,
+  toastMessages,
+  toasts,
+} from "./panel-harness";
 import {
   KITCHEN,
+  pixelBox,
+  siteSaves,
   mountEditor,
   chipNames,
   activeChip,
@@ -131,4 +144,55 @@ test.each<[string, (panel: HTMLElement) => void]>([
   buttonNamed(panel, "Undo")!.click();
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
   expect(saves(connection)[1].areas).toEqual({ kitchen: KITCHEN });
+});
+
+const HALL = pixelBox(50, 0, 100, 50);
+const ATTIC = pixelBox(0, 0, 80, 80);
+
+const mountTwoFloors = () => {
+  const mounted = mountEditor();
+  mounted.setFeed([
+    { type: "Feature", id: "kitchen", geometry: KITCHEN, properties: { floor_id: "ground", level: 0 } },
+    { type: "Feature", id: "hall", geometry: HALL, properties: { floor_id: "ground", level: 0 } },
+    { type: "Feature", id: "attic", geometry: ATTIC, properties: { floor_id: "loft", level: 1 } },
+  ]);
+  return mounted;
+};
+
+// The More options button opens the menu, and pressed again closes it.
+const toggleMenu = async (panel: HTMLElement) => {
+  headerButton(panel, "More options")!.click();
+  await settle(panel);
+};
+
+test("Clear <floor> removes the floor's room shapes in one save, leaves the outline, and its toast's Undo restores them", async () => {
+  const { panel, connection } = mountTwoFloors();
+  await startSelecting(panel);
+  await chooseFromMenu(panel, "Clear Ground floor");
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  expect(saves(connection)[0].areas).toEqual({ kitchen: null, hall: null });
+  expect(siteSaves(connection)).toEqual([]);
+  await vi.waitFor(() => expect(toastMessages()).toEqual(["Ground floor cleared"]));
+  expect(toasts[0].action?.text).toBe("Undo");
+  toasts[0].action!.action();
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
+  expect(saves(connection)[1].areas).toEqual({ kitchen: KITCHEN, hall: HALL });
+});
+
+test("Clear is one undo step, and off on All and on a floor without room shapes", async () => {
+  const { panel, connection } = mountTwoFloors();
+  await vi.waitFor(() => expect(headerButton(panel, "More options")).toBeDefined());
+  await settle(panel);
+  await toggleMenu(panel);
+  expect(buttonNamed(panel, "Clear floor")!.disabled).toBe(true);
+  await toggleMenu(panel);
+  await startSelecting(panel);
+  await chooseFromMenu(panel, "Clear Ground floor");
+  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
+  await toggleMenu(panel);
+  expect(buttonNamed(panel, "Clear Ground floor")!.disabled).toBe(true);
+  await toggleMenu(panel);
+  ctrlZ();
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
+  expect(saves(connection)[1].areas).toEqual({ kitchen: KITCHEN, hall: HALL });
 });
