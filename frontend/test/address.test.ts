@@ -1,6 +1,6 @@
 // Checks the rules of the address search card that need no map: when a query may go, how a result reads, where the map goes.
 import { expect, test } from "vitest";
-import { BUILDING_ZOOM, type Place, cameraFor, canSearch, homeUnknown, placeLines } from "../src/address";
+import { BUILDING_ZOOM, type Place, cameraFor, canSearch, homeQuestion, homeUnknown, placeLines } from "../src/address";
 
 test.each([
   ["", false],
@@ -22,6 +22,19 @@ test.each([
   [{ latitude: 52, longitude: 5 }, false],
 ])("home location %j is unknown: %s", (config, unknown) => {
   expect(homeUnknown(config)).toBe(unknown);
+});
+
+// Along a meridian the distance is the arc on turf's sphere: radius times the latitude difference in radians.
+const metresNorth = (degrees: number) => (6371008.8 * degrees * Math.PI) / 180;
+
+test.each([
+  ["no home location", {}, { kind: "use" }],
+  ["a home at 0, 0", { latitude: 0, longitude: 0 }, { kind: "use" }],
+  ["the home at the place", { latitude: 52, longitude: 5 }, undefined],
+  ["the home 22 m south", { latitude: 51.9998, longitude: 5 }, undefined],
+  ["the home 33 m south", { latitude: 51.9997, longitude: 5 }, { kind: "move", metres: expect.closeTo(metresNorth(0.0003), 3) }],
+])("with %s, a place picked at 52, 5 asks %o", (_, home, question) => {
+  expect(homeQuestion(home, { lat: 52, lon: 5 })).toEqual(question);
 });
 
 test.each([

@@ -20,6 +20,7 @@ import html
 import json
 import math
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -735,6 +736,15 @@ def search_results(shot: Shot) -> None:
     shot.search_address("Domtoren", {"places": SEARCH_PLACES}, "Voorbeeldstraat 1")
 
 
+def search_home_toast(shot: Shot) -> None:
+    search_results(shot)
+    results = shot.panel.locator("spatial-address-search")
+    results.get_by_role("button", name="Voorbeeldstraat 1, Ergens, Voorbeeldland").click()
+    # Use or Move, by the home location this Home Assistant has; never pressed, so it stays.
+    shot.page.get_by_text(re.compile("Home Assistant's home")).first.wait_for()
+    shot.page.wait_for_timeout(400)
+
+
 def search_no_results(shot: Shot) -> None:
     shot.open_panel()
     shot.search_address("Voorbeeldweg 99", {"places": []}, "No address found")
@@ -958,6 +968,12 @@ STATES = [
         "search",
         "Three results, street over town",
         search_results,
+    ),
+    State(
+        "search-home-toast",
+        "search",
+        "A picked result: Home Assistant's toast offers it as the home",
+        search_home_toast,
     ),
     State(
         "search-no-results",

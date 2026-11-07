@@ -11,7 +11,7 @@ import {
   type StyleSpecification,
   setWorkerUrl,
 } from "maplibre-gl";
-import { type Place, cameraFor, homeUnknown } from "./address";
+import { type Place, cameraFor, homeQuestion, homeUnknown } from "./address";
 import "./address-search";
 import "./editor-toolbar";
 import {
@@ -40,7 +40,7 @@ import { BUILDING } from "./area-strip";
 import { type Guide, RoomEditor, type Toast, type Tool } from "./room-editor";
 import { type AreaInfo, RoomLabels, roomLabelStyles } from "./room-labels";
 import { floatingSurface, phoneBar, selectedFill } from "./styles";
-import { type HassUnits, isStillStarting, saveFailureMessage } from "./units";
+import { type HassUnits, formatDistance, isStillStarting, saveFailureMessage } from "./units";
 
 // The parts of Home Assistant's `hass` object this panel uses.
 interface Hass extends HassUnits {
@@ -78,6 +78,10 @@ const MAP_SHOWN_KEY = "spatial-show-map";
 // The whole globe in view, for a home that is not known yet.
 const GLOBE_CENTRE: [number, number] = [0, 20];
 const GLOBE_ZOOM = 1.5;
+// Long enough to read the question and the distance; Home Assistant's default of 3 s is not.
+const HOME_QUESTION_MS = 10000;
+
+type HomeLocation = { latitude: number; longitude: number };
 
 // Core rotates the map tiles token every 30 minutes and keeps two live; this
 // is the interval Home Assistant's own frontend refreshes at.
@@ -359,6 +363,8 @@ class SpatialPanel extends LitElement {
   private readonly _phoneQuery = window.matchMedia(PHONE_QUERY);
   // Set at start when there is no home and no plan: the map opens on the globe with the address search.
   private _globe = false;
+  // Set once the panel has offered to move the home to a picked place, so a second search in this visit stays quiet.
+  private _homeAsked = false;
 
   constructor() {
     super();
@@ -522,7 +528,42 @@ class SpatialPanel extends LitElement {
     const camera = cameraFor(event.detail.place);
     if ("bounds" in camera) map.fitBounds(camera.bounds, { maxZoom: camera.maxZoom, bearing: map.getBearing(), padding: 48 });
     else map.flyTo({ center: camera.center, zoom: camera.zoom });
+    this._offerHome(event.detail.place);
   };
+
+  // Asked at most once a visit, whatever the answer; nothing is stored, so a later visit may ask again.
+  private _offerHome(place: Place) {
+    const config = this.hass!.config;
+    const question = this._homeAsked ? undefined : homeQuestion(config, place);
+    if (!question) return;
+    this._homeAsked = true;
+    const back = { latitude: config.latitude ?? 0, longitude: config.longitude ?? 0 };
+    const to = { latitude: place.lat, longitude: place.lon };
+    this._toast({
+      message:
+        question.kind === "use"
+          ? "Use this as Home Assistant's home?"
+          : `Move Home Assistant's home here? The home pin is ${formatDistance(question.metres, this.hass!)} away`,
+      action: { text: question.kind === "use" ? "Use as home" : "Move", action: () => this._moveHome(to, back) },
+      duration: HOME_QUESTION_MS,
+    });
+  }
+
+  private async _moveHome(to: HomeLocation, back: HomeLocation) {
+    if (!(await this._writeHome(to))) return;
+    this._toast({ message: "Home location moved", action: { text: "Undo", action: () => this._writeHome(back) } });
+  }
+
+  // Only latitude and longitude change; Home Assistant's core config keeps everything else.
+  private async _writeHome(location: HomeLocation): Promise<boolean> {
+    try {
+      await this.hass!.connection.sendMessagePromise({ type: "config/core/update", ...location });
+      return true;
+    } catch (err) {
+      this._toast({ message: saveFailureMessage(err) });
+      return false;
+    }
+  }
 
   /** Fires Home Assistant's toast, which its notification manager shows and announces. */
   private _toast(toast: Toast) {

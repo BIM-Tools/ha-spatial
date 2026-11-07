@@ -1,4 +1,6 @@
-// Turns what the address search sends into what the search card shows and where the map goes, without a map or a page.
+// Turns what the address search sends into what the search card shows, where the map goes and what it asks about the home, without a map or a page.
+
+import distance from "@turf/distance";
 
 /** One place of a `spatial/address/search` reply; `bbox` is `[west, south, east, north]`, or null. */
 export interface Place {
@@ -24,6 +26,25 @@ export const canSearch = (query: string): boolean => {
 /** Whether Home Assistant has no home location: unset, or left at 0, 0, which is in the sea. */
 export const homeUnknown = (config: { latitude?: number | null; longitude?: number | null }): boolean =>
   config.latitude == null || config.longitude == null || (config.latitude === 0 && config.longitude === 0);
+
+/** How far a picked place may lie from Home Assistant's home before the panel offers to move the home. */
+export const HOME_MOVE_MIN_M = 25;
+
+/** What the panel asks after a picked place: use it as the first home, or move the home that far. */
+export type HomeQuestion = { kind: "use" } | { kind: "move"; metres: number };
+
+/**
+ * The question for a picked place, or none when the home already lies within 25 m of it.
+ * The distance is turf's great circle on a sphere, about 0.3% off the ellipsoid, plenty for a 25 m threshold.
+ */
+export const homeQuestion = (
+  home: { latitude?: number | null; longitude?: number | null },
+  place: Pick<Place, "lat" | "lon">,
+): HomeQuestion | undefined => {
+  if (homeUnknown(home)) return { kind: "use" };
+  const metres = distance([home.longitude!, home.latitude!], [place.lon, place.lat], { units: "meters" });
+  return metres > HOME_MOVE_MIN_M ? { kind: "move", metres } : undefined;
+};
 
 // A first part made of a house number: digits first, then letters, digits, spaces, hyphens or slashes, as in
 // "12", "12a", "12-14" or "4 bis".

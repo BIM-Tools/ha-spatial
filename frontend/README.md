@@ -38,7 +38,7 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/editor-toolbar.ts` | Align (until the site has a direction), Draw, Select, Undo, Redo and Remove: floating, or a bottom bar on a phone |
 | `src/map-stack.ts` | Address search button, map toggle, zoom and compass |
 | `src/address-search.ts` | The Find your home card: field, Search, up to five results, the no result and unavailable states; sends one `spatial/address/search` per Enter or press, never while typing |
-| `src/address.ts` | Pure rules of the address search: when a query may be sent, the street and town lines of a result, where the map goes for it, and when Home Assistant has no home location |
+| `src/address.ts` | Pure rules of the address search: when a query may be sent, the street and town lines of a result, where the map goes for it, when Home Assistant has no home location, and whether to offer the home for a picked place (turf's distance, 25 m) |
 | `src/map-paint.ts` | The map layers' colours, read from Home Assistant's theme at style load and on a theme change |
 | `src/floor-stack.ts` | All floors as an exploded stack of slabs, pure and in site frame metres: floor order, slab heights, room fills and walls, the camera fit from the front corner, and the floor labels beside each slab |
 | `src/room-labels.ts` | Room labels: area icon, name and (in the panel) net area, placed and stepped by the room's size on screen |
@@ -57,7 +57,7 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/outline.ts` | The OSM building under a click, the bearing of its nearest wall, with turf, and the fields an Align pick writes |
 | `src/site-frame.ts` | Applies the site frame from `spatial/site`: lon/lat to lattice units and back |
 | `src/plan.ts` | Boxes, side lengths, resizing and moving on the site lattice, and the outline copied from a map building; joining with turf |
-| `src/units.ts` | Lengths and areas shown in Home Assistant's unit system and number format (metric at lattice precision, US feet and inches with primes), and typed lengths read back in metres |
+| `src/units.ts` | Lengths, map distances and areas shown in Home Assistant's unit system and number format (metric at lattice precision, US feet and inches with primes), and typed lengths read back in metres |
 | `test/` | Unit tests (vitest) |
 
 ### Serving
@@ -109,5 +109,9 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
   starts on MapLibre's globe with the search card open. A picked result fits the map to its box,
   else flies to its point at building zoom, and closes the card. The query lives only in the
   card: it is not logged or stored.
+- After a pick the panel offers the place as Home Assistant's home in a `hass-notification` toast
+  (none within 25 m of the home); its action writes latitude and longitude with
+  `config/core/update`, and the next toast's Undo writes the old ones back. A flag in the panel
+  keeps it to one question per visit; nothing is stored.
 - Areas are created and renamed with Home Assistant's area registry commands; renaming the
   building sends `config/core/update` with `location_name`.
