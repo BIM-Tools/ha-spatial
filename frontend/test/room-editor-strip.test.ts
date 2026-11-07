@@ -53,7 +53,7 @@ test("the panel's floor buttons come from the floor registry in level order, wit
       : undefined,
   );
   await vi.waitFor(() => expect(floorButtonNames(panel)).toEqual(["All", "Ground floor", "Loft", "No floor"]));
-  for (const name of ["Align", "Draw", "Select", "Undo", "Redo"]) expect(buttonNamed(panel, name)).toBeDefined();
+  for (const name of ["Draw", "Select", "Undo", "Redo"]) expect(buttonNamed(panel, name)).toBeDefined();
 });
 test("an update that removes the active area makes the first area in the order active", async () => {
   const { panel, connection, setRegistry, setFeed } = mountEditor();

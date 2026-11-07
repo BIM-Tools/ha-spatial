@@ -32,7 +32,8 @@ import { type MapPaint, layerColours, readMapPaint, repaint } from "./map-paint"
 import { type ThemeState, bounds, darkModeOf, mapBearing, styleUrl, withMapTilesToken, workerUrl } from "./map-view";
 import { type AlignFields, alignFields, buildingAt, wallAt } from "./outline";
 import "./panel-header";
-import { EMPTY, PanelState } from "./panel-state";
+import type { MenuItem } from "./panel-header";
+import { EMPTY, PanelState, alignPlace } from "./panel-state";
 import { mapOutlineBox } from "./plan";
 import type { PlanFrame } from "./site-frame";
 import { BUILDING } from "./area-strip";
@@ -398,7 +399,7 @@ class SpatialPanel extends LitElement {
     const phone = this._phone && !this.card;
     return html`
       <link rel="stylesheet" href="/static/map/maplibre-gl.css" />
-      ${this.card ? nothing : html`<spatial-panel-header ?narrow=${phone}></spatial-panel-header>`}
+      ${this.card ? nothing : html`<spatial-panel-header ?narrow=${phone} .menu=${this._menu()}></spatial-panel-header>`}
       ${phone ? this._floorSelector(true) : nothing}
       <div class="stage ${editor && !phone ? "with-strip" : ""}">
         <div id="map"></div>
@@ -414,7 +415,7 @@ class SpatialPanel extends LitElement {
               .mapShown=${this._mapShown}
               .mapForced=${this._aligning}
               .bearing=${this._mapBearingDeg}
-              .aligned=${this._state.bearing !== null}
+              .aligned=${alignPlace(this._state.bearing) === "menu"}
               @map-toggle=${this._toggleMap}
               @zoom-in=${() => this._map?.zoomIn()}
               @zoom-out=${() => this._map?.zoomOut()}
@@ -446,6 +447,7 @@ class SpatialPanel extends LitElement {
       class=${bar ? "" : "toolbar"}
       ?bar=${bar}
       ?disabled=${this._state.floor === "all"}
+      ?align=${alignPlace(this._state.bearing) === "toolbar"}
       .tool=${editor.tool}
       .canUndo=${editor.canUndo}
       .canRedo=${editor.canRedo}
@@ -455,6 +457,13 @@ class SpatialPanel extends LitElement {
       @redo=${editor.redo}
       @remove=${editor.removeActiveShape}
     ></spatial-editor-toolbar>`;
+  }
+
+  // Once the site has a direction, Align moves out of the toolbar into the header menu; like the tools it needs a floor.
+  private _menu(): MenuItem[] {
+    if (!this._editor || alignPlace(this._state.bearing) !== "menu") return [];
+    const changeAlignment = { label: "Change alignment", disabled: this._state.floor === "all", action: () => this._selectTool("align") };
+    return [changeAlignment];
   }
 
   // One line at a time, and only when there is something to say; what went wrong first.
@@ -1015,7 +1024,7 @@ class SpatialPanel extends LitElement {
     // The picked wall lies low in the view with the building above it, its outside facing the viewer.
     const wallBelowCentre = (this._map?.getContainer().clientHeight ?? 0) * WALL_OFFSET_SHARE;
     this._map?.easeTo({ bearing: mapBearing(fields.bearing_deg), center: event.lngLat, offset: [0, wallBelowCentre] });
-    this._saveBearing(fields, this._state.bearing);
+    this._saveBearing(fields, this._state.bearing ?? null);
   }
 
   // A failed save turns the view back. A refusal shows Spatial's reason, as trying again would not

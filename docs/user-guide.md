@@ -42,6 +42,8 @@ or close the card and pan the map to your home. The magnifier at the top of the 
 1. **Align.** Pick a floor, press **Align** and click your house on the map near the wall the
    rooms follow; the line at the top says "Click the wall your rooms follow" and the wall under
    the pointer lights up. The map turns so that wall is horizontal, and Select is active again.
+   From then on Align is no longer in the toolbar: to pick another wall, open the header's
+   **More options** menu and choose **Change alignment**.
 
    ![Align on the ground floor: the guide line on top, the wall under the pointer highlighted](images/align.png)
 
@@ -78,9 +80,17 @@ or close the card and pan the map to your home. The magnifier at the top of the 
 
 ## The panel
 
-The map fills the page under a header with Back (to Spatial's integration page) and Help. The
-floor buttons float top left, the tools top right, the map controls bottom right and the area
-strip at the bottom.
+The map fills the page under a header with Back (to Spatial's integration page), Help and,
+once the site has a direction, the **More options** menu. The floor buttons float top left, the
+tools top right, the map controls bottom right and the area strip at the bottom.
+
+### More options
+
+| Entry | Does |
+| --- | --- |
+| Change alignment | Starts Align again, to turn the view to another wall. Off on All, like the tools |
+
+The menu closes with Escape or a click elsewhere.
 
 ### Floor buttons
 
@@ -102,7 +112,7 @@ Exactly one tool is active; **Select** is the default. The tools work on a floor
 
 | Tool | Does |
 | --- | --- |
-| Align | One click on a building on the map, near a wall, saves that wall's direction as the site direction. Without a building under the click a toast says "No building here"; when Spatial refuses the new direction, the toast gives its reason. On an empty plan, with no room and no outline drawn, it also puts the grid origin on the left end of that wall. The map stays on while Align is active |
+| Align | In the toolbar until the first Align, then in the header menu as Change alignment. One click on a building on the map, near a wall, saves that wall's direction as the site direction. Without a building under the click a toast says "No building here"; when Spatial refuses the new direction, the toast gives its reason. On an empty plan, with no room and no outline drawn, it also puts the grid origin on the left end of that wall. The map stays on while Align is active |
 | Draw | Draws boxes along the site direction (north up before any Align) for the highlighted pill. Corners snap to nearby room corners and walls on this floor and to the outline, else land on the 10 cm (4 in) grid; with Alt held they land on the 2.5 cm (1 in) lattice without snapping. While a side is shorter than one grid step only the start dot shows, and such a box is not drawn |
 | Select | A tap on a room makes it active: it is filled, edged and gets round handles on its corners. Drag the active room to move it, or a side or corner of a rectangle to resize it. Type exact side lengths (below) |
 
@@ -242,7 +252,8 @@ a touch screen), and a link to this documentation.
 At 600 px wide or less:
 
 - The floors are a chip row under the header.
-- The tools, Undo and Redo are a bar at the bottom, the strip just above it.
+- The tools, Undo, Redo and Remove are a bar at the bottom, the strip just above it; after the
+  first Align that is Draw, Select, Undo, Redo and Remove.
 - Of the map controls only the round address search and map toggle stay; pinch to zoom and turn.
 - The address search card spans the width under the header.
 - Two taps draw a box; a long press on a pill renames it.

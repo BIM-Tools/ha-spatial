@@ -1,9 +1,16 @@
 // Gives the panel Home Assistant's subpage header, built here because `hass-subpage` is lazy loaded and undefined on a deep link.
 
-import { mdiArrowLeft, mdiArrowRight, mdiClose, mdiHelpCircleOutline } from "@mdi/js";
+import { mdiArrowLeft, mdiArrowRight, mdiClose, mdiDotsVertical, mdiHelpCircleOutline } from "@mdi/js";
 import { LitElement, css, html, nothing } from "lit";
 import manifest from "../../custom_components/spatial/manifest.json";
 import { shapeFill } from "./styles";
+
+/** One entry of the header's overflow menu. */
+export interface MenuItem {
+  label: string;
+  disabled?: boolean;
+  action: () => void;
+}
 
 const KEYS: [key: string, does: string][] = [
   ["Space + drag", "Pan"],
@@ -19,12 +26,18 @@ const INTEGRATION_PAGE = "/config/integrations/integration/spatial";
 class SpatialPanelHeader extends LitElement {
   static properties = {
     narrow: { type: Boolean, reflect: true },
+    // Rare actions on the whole plan; without any the menu button is not shown.
+    menu: { attribute: false },
+    _menuOpen: { state: true },
   };
 
   // The toolbar rules of home-assistant/frontend src/layouts/hass-subpage.ts, release 20260930.3,
   // with the icon buttons at 40 px (44 px on a phone or touch screen).
   static styles = css`
+    /* Above the map, which the open menu hangs over. */
     :host {
+      position: relative;
+      z-index: 5;
       display: block;
       flex: none;
       background-color: var(--app-header-background-color);
@@ -74,6 +87,41 @@ class SpatialPanelHeader extends LitElement {
     }
     :host([narrow]) .main-title {
       margin-inline-start: var(--ha-space-2);
+    }
+    /* Home Assistant's menu is lazy loaded too, so this one is built in the look of its list items. */
+    [role="menu"] {
+      position: absolute;
+      top: calc(100% - var(--ha-space-1));
+      right: var(--ha-space-2);
+      display: flex;
+      flex-direction: column;
+      min-width: 228px;
+      padding: var(--ha-space-2) 0;
+      border-radius: var(--ha-border-radius-md, 8px);
+      background: var(--card-background-color);
+      box-shadow: var(--ha-box-shadow-m, 0 2px 8px rgba(0, 0, 0, 0.18));
+    }
+    [role="menuitem"] {
+      height: 48px;
+      padding: 0 var(--ha-space-4);
+      border: none;
+      background: none;
+      color: var(--primary-text-color);
+      font-family: var(--ha-font-family-body, Roboto, sans-serif);
+      font-size: var(--ha-font-size-m);
+      text-align: start;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    [role="menuitem"]:hover,
+    [role="menuitem"]:focus-visible {
+      background: color-mix(in srgb, var(--primary-text-color) 8%, transparent);
+      outline: none;
+    }
+    [role="menuitem"]:disabled {
+      background: none;
+      color: var(--disabled-text-color);
+      cursor: default;
     }
     /* Home Assistant's dialog is lazy loaded too, so the help is a native dialog in its look. */
     dialog {
@@ -178,10 +226,19 @@ class SpatialPanelHeader extends LitElement {
   `;
 
   declare narrow: boolean;
+  declare menu: MenuItem[];
+  declare _menuOpen: boolean;
 
   constructor() {
     super();
     this.narrow = false;
+    this.menu = [];
+    this._menuOpen = false;
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this._closeMenu(false);
   }
 
   // Back is a link to the integration's page, so a ctrl-click opens it in a new tab, as in Home Assistant.
@@ -202,7 +259,9 @@ class SpatialPanelHeader extends LitElement {
           aria-haspopup="dialog"
           @click=${this._openHelp}
         ></ha-icon-button>
+        ${this.menu.length ? this._menuButton() : nothing}
       </div>
+      ${this._menuOpen && this.menu.length ? this._menuList() : nothing}
       <dialog aria-labelledby="help-title" @keydown=${this._helpKey} @close=${this._helpClosed}>
         <div class="title">
           <h2 id="help-title">Help</h2>
@@ -223,6 +282,75 @@ class SpatialPanelHeader extends LitElement {
         <a class="docs" href=${manifest.documentation} target="_blank" rel="noreferrer">Documentation</a>
       </dialog>
     `;
+  }
+
+  private _menuButton() {
+    return html`<ha-icon-button
+      class="more"
+      .path=${mdiDotsVertical}
+      .label=${"More options"}
+      aria-haspopup="menu"
+      aria-expanded=${this._menuOpen ? "true" : "false"}
+      @click=${this._toggleMenu}
+    ></ha-icon-button>`;
+  }
+
+  private _menuList() {
+    return html`<div role="menu" aria-label="More options" @keydown=${this._menuKey}>
+      ${this.menu.map(
+        (item) =>
+          html`<button role="menuitem" ?disabled=${item.disabled} @click=${(event: MouseEvent) => this._choose(item, event.detail === 0)}>${item.label}</button>`,
+      )}
+    </div>`;
+  }
+
+  private _items() {
+    return [...this.renderRoot.querySelectorAll<HTMLButtonElement>("[role=menuitem]:not(:disabled)")];
+  }
+
+  private async _toggleMenu() {
+    if (this._menuOpen) {
+      this._closeMenu(true);
+      return;
+    }
+    this._menuOpen = true;
+    // Captured, so a press on the map closes the menu before the map acts on it.
+    window.addEventListener("pointerdown", this._pressOutside, true);
+    await this.updateComplete;
+    this._items()[0]?.focus();
+  }
+
+  private _closeMenu(refocus: boolean) {
+    window.removeEventListener("pointerdown", this._pressOutside, true);
+    if (!this._menuOpen) return;
+    this._menuOpen = false;
+    if (refocus) this.renderRoot.querySelector<HTMLElement>("ha-icon-button.more")?.focus();
+  }
+
+  private _pressOutside = (event: Event) => {
+    const inside = event.composedPath().some((target) => target instanceof Element && target.matches("[role=menu], ha-icon-button.more"));
+    if (!inside) this._closeMenu(false);
+  };
+
+  // A pointer leaves the focus where it was, a key gives it back to the menu button.
+  private _choose(item: MenuItem, byKey: boolean) {
+    this._closeMenu(byKey);
+    item.action();
+  }
+
+  // Like the help sheet, no key reaches the editor while the menu has the focus.
+  private _menuKey(event: KeyboardEvent) {
+    event.stopPropagation();
+    const items = this._items();
+    const at = items.indexOf(event.composedPath()[0] as HTMLButtonElement);
+    if (event.key === "Escape" || event.key === "Tab") {
+      if (event.key === "Escape") event.preventDefault();
+      this._closeMenu(event.key === "Escape");
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      items[(at + step + items.length) % items.length]?.focus();
+    }
   }
 
   private get _dialog() {
