@@ -51,7 +51,7 @@ Change these only through an issue that names the reason.
 | Footprint | One area has at most one `Polygon`, inner rings (holes) allowed; no MultiPolygon, its parts cannot carry identity |
 | Rooms across floors | `floors_up` per area: the Home Assistant floor is the main and lowest floor; the room occupies the floors above it, contiguous |
 | Adjacency | Derived from shared edges, outer and inner rings, on every floor a room occupies; room edges are wall axes, compared exactly on the lattice; never stored |
-| Address search | The backend may call OpenStreetMap Nominatim, only on an explicit search, with an identifying user agent and its rate limit; country geocoders and authoritative outlines stay outside the integration |
+| Address search | The backend may call OpenStreetMap Nominatim, only on an explicit search, with an identifying user agent and its rate limit; country geocoders and authoritative outlines stay outside the integration; the server is the one setting in the options form (Configure), default OpenStreetMap's public server |
 | Home location | When the chosen building lies more than 25 m from Home Assistant's home, onboarding asks once whether to move the home there, and remembers the answer; a move changes latitude and longitude only, through core config, and can be undone |
 | Units | Display follows Home Assistant's unit system; storage stays metric WGS84 |
 | Area | `area_m2` is net: the axial polygon inset by half walls, half a grid step (5 cm, 2 in) interior and 15 cm (3 in) along the outline |
