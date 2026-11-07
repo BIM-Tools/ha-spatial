@@ -13,7 +13,7 @@ const KEYS: [key: string, does: string][] = [
   ["Delete", "Remove the active shape"],
 ];
 
-// The integration's page, whose Configure opens the editor.
+// The integration's page, whose Configure links back to the editor.
 const INTEGRATION_PAGE = "/config/integrations/integration/spatial";
 
 class SpatialPanelHeader extends LitElement {

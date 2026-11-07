@@ -32,10 +32,12 @@ ERR_OUTSIDE_OUTLINE: Final = "outside_outline"
 # Websocket error code for an address search the search server could not answer.
 ERR_SEARCH_FAILED: Final = "search_failed"
 
-# Address search: the one server URL, and what its usage policy asks of clients
-# (https://operations.osmfoundation.org/policies/nominatim/): an identifying user
-# agent and at most one request per second.
-ADDRESS_SEARCH_URL: Final = "https://nominatim.openstreetmap.org/search"
+# Address search: the default server, the option that replaces it, and what its usage
+# policy asks of clients (https://operations.osmfoundation.org/policies/nominatim/): a
+# server that can be changed without a software update, an identifying user agent and
+# at most one request per second.
+DEFAULT_ADDRESS_SEARCH_SERVER: Final = "https://nominatim.openstreetmap.org"
+CONF_ADDRESS_SEARCH_SERVER: Final = "address_search_server"
 ADDRESS_SEARCH_USER_AGENT: Final = (
     "HomeAssistant-Spatial (+https://github.com/BIM-Tools/ha-spatial)"
 )

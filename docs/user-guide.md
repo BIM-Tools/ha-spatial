@@ -23,10 +23,12 @@ boxes along one wall. Every action saves at once and can be undone.
 ## First run
 
 Press **Open floor plan** right after adding Spatial, or later choose **Floor plan** in the
-sidebar or open Settings > Devices & services > Spatial > **Configure**. The editor is for
-administrators; other users do not see it. To hide it, edit the sidebar in Home Assistant:
-long-press the title at the top of the sidebar and hide **Floor plan**. The panel opens
-on **All**, north up, centred on your home location.
+sidebar or open Settings > Devices & services > Spatial > **Configure** and press **Open the
+floor plan**. The editor is for administrators; other users do not see it. To hide it, edit the
+sidebar in Home Assistant: long-press the title at the top of the sidebar and hide **Floor
+plan**. The Configure form also holds **Address search server**: leave it at OpenStreetMap
+unless you run your own Nominatim server or OpenStreetMap asks you to change it. The panel
+opens on **All**, north up, centred on your home location.
 
 1. **Align.** Pick a floor, press **Align** and click your house on the map near the wall the
    rooms follow; the line at the top says "Click the wall your rooms follow" and the wall under

@@ -12,5 +12,22 @@
     "create_entry": {
       "default": "Your rooms and floors, drawn on Home Assistant's map. Next: place your home.\n\n[Open floor plan]({panel_url})"
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Spatial",
+        "description": "**Draw and edit your home**\n\n[Open the floor plan]({panel_url})",
+        "data": {
+          "address_search_server": "Address search server"
+        },
+        "data_description": {
+          "address_search_server": "Used to find your address. Change it only if you run your own OpenStreetMap (Nominatim) server or the default asks you to."
+        }
+      }
+    },
+    "error": {
+      "invalid_server": "Enter a web address starting with https:// (http:// is allowed on your local network)."
+    }
   }
 }

@@ -11,12 +11,17 @@ from pytest_homeassistant.common import MockUser
 from pytest_homeassistant.test_util.aiohttp import AiohttpClientMocker
 from pytest_homeassistant.typing import WebSocketGenerator
 
-from custom_components.spatial.address_search import AddressSearchError, parse_results
-from custom_components.spatial.const import ADDRESS_SEARCH_URL, ADDRESS_SEARCH_USER_AGENT
+from custom_components.spatial.address_search import (
+    AddressSearchError,
+    is_allowed_search_server,
+    parse_results,
+)
+from custom_components.spatial.const import ADDRESS_SEARCH_USER_AGENT, DOMAIN
 
 from .common import call, setup_entry
 
 QUERY = "Example Street 1, Exampletown"
+SEARCH_URL = "https://nominatim.openstreetmap.org/search"
 
 TOWER = {
     "display_name": "Tower, Square, Town",
@@ -77,6 +82,37 @@ def test_parse_results_refuses_a_non_list() -> None:
         parse_results({"error": "busy"})
 
 
+@pytest.mark.parametrize(
+    ("url", "allowed"),
+    [
+        ("https://search.example.org", True),
+        ("https://search.example.org:8443/nominatim", True),
+        ("http://192.168.1.20:8080", True),
+        ("http://10.0.0.5", True),
+        ("http://127.0.0.1:8080", True),
+        ("http://169.254.10.1", True),
+        ("http://[fd00::20]/nominatim", True),
+        ("http://[::1]", True),
+        ("http://nominatim.local", True),
+        ("http://nominatim:8080", True),
+        ("http://search.example.org", False),
+        ("http://8.8.8.8", False),
+        ("http://[2001:4860::8888]", False),
+        ("nominatim.example.org", False),
+        ("ftp://nominatim.local", False),
+        ("javascript:alert(1)", False),
+        ("https://", False),
+        ("https://search.example.org:port", False),
+        ("https://search.example.org/?q=x", False),
+        ("https://search.example.org/#top", False),
+        ("https://search example.org", False),
+    ],
+)
+def test_is_allowed_search_server(url: str, allowed: bool) -> None:
+    """Test https is allowed anywhere, plain http only for a host on the local network."""
+    assert is_allowed_search_server(url) is allowed
+
+
 async def test_search_returns_places_and_identifies_itself(
     hass: HomeAssistant,
     hass_ws_client: WebSocketGenerator,
@@ -85,7 +121,7 @@ async def test_search_returns_places_and_identifies_itself(
 ) -> None:
     """Test a search sends the identifying agent, language and home bias, and logs nothing of it."""
     caplog.set_level(logging.DEBUG)
-    aioclient_mock.get(ADDRESS_SEARCH_URL, json=[TOWER])
+    aioclient_mock.get(SEARCH_URL, json=[TOWER])
     msg = await call(await hass_ws_client(hass), type="spatial/address/search", query=f" {QUERY} ")
 
     assert msg["success"], msg
@@ -153,7 +189,7 @@ async def test_search_failure_is_an_error_without_the_query(
 ) -> None:
     """Test an upstream failure returns search_failed with a reason, and nowhere the query."""
     caplog.set_level(logging.DEBUG)
-    aioclient_mock.get(ADDRESS_SEARCH_URL, **answer)
+    aioclient_mock.get(SEARCH_URL, **answer)
     msg = await call(await hass_ws_client(hass), type="spatial/address/search", query=QUERY)
 
     assert msg["error"]["code"] == "search_failed"
@@ -166,7 +202,7 @@ async def test_searches_are_one_second_apart(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator, aioclient_mock: AiohttpClientMocker
 ) -> None:
     """Test a search right after another waits out the second Nominatim asks for, failed or not."""
-    aioclient_mock.get(ADDRESS_SEARCH_URL, status=503)
+    aioclient_mock.get(SEARCH_URL, status=503)
     client = await hass_ws_client(hass)
     with (
         patch(
@@ -179,3 +215,19 @@ async def test_searches_are_one_second_apart(
         await call(client, type="spatial/address/search", query=QUERY)
     sleep.assert_awaited_once_with(0.75)
     assert aioclient_mock.call_count == 2
+
+
+async def test_search_uses_the_configured_server(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Test a server set under Configure is asked, with no restart, instead of the public one."""
+    [entry] = hass.config_entries.async_entries(DOMAIN)
+    hass.config_entries.async_update_entry(
+        entry, options={"address_search_server": "http://192.168.1.20:8080"}
+    )
+    aioclient_mock.get("http://192.168.1.20:8080/search", json=[TOWER])
+
+    msg = await call(await hass_ws_client(hass), type="spatial/address/search", query=QUERY)
+
+    assert msg["success"], msg
+    assert aioclient_mock.call_count == 1
