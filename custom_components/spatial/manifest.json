@@ -1,7 +1,7 @@
 {
   "domain": "spatial",
   "name": "Spatial",
-  "codeowners": ["@brewsky"],
+  "codeowners": ["@janbrouwer"],
   "config_flow": true,
   "dependencies": ["http", "panel_custom", "websocket_api"],
   "documentation": "https://github.com/BIM-Tools/ha-spatial",
