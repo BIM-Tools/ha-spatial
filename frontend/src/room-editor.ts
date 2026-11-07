@@ -10,6 +10,7 @@ import type { ResizeTarget } from "./edge-drag";
 import { type Change, type FootprintBatch, History, clearChange } from "./history";
 import type { LayerColours } from "./map-paint";
 import { byLevel } from "./map-view";
+import type { Plan } from "./onboarding";
 import { type ChangeOrRefusal, boxChange, edgeLengths, isAxisRectangle } from "./plan";
 import type { ScreenBox } from "./draft-labels";
 import { type SideControls, showSideControls } from "./side-controls";
@@ -38,21 +39,6 @@ export interface Toast {
   duration?: number;
   dismissable?: boolean;
   id?: string;
-}
-
-/** A button on the guide line; the lit one is the step the guide suggests. */
-export interface GuideAction {
-  label: string;
-  lit?: boolean;
-  run: () => void;
-}
-
-/** One line on the map that says what to do next, with a second line and buttons when it asks something. */
-export interface Guide {
-  text: string;
-  step?: string;
-  detail?: string;
-  actions?: GuideAction[];
 }
 
 /** What the editor needs from the panel that holds it. */
@@ -130,36 +116,29 @@ export class RoomEditor {
   }
 
   /**
-   * While aligning, what to click; after Use outline, to check one length; while the map offers an
-   * outline, whether to use it; with an area without a shape active, that it is next and how far the floor is.
+   * What the guide reads of the plan: every floor with its areas and which have a shape, the active pill,
+   * and the outline with its open question, the map's offer or the length to check after Use outline.
    */
-  get guide(): Guide | undefined {
-    if (this.tool === "align") return { text: "Click the wall your rooms follow" };
-    if (this._checkingLength && this._floor !== "all" && this._active === BUILDING && this._footprints.has(BUILDING)) {
-      return {
-        text: "Check one length you know",
-        detail: "For example the front of the house. Tap it to type the real size.",
-        actions: [{ label: "Looks right", lit: true, run: this._lengthChecked }],
-      };
-    }
-    const offered = this._offeredOutline();
+  plan(floorName: (floor: string | null) => string): Pick<
+    Plan,
+    "outlineStored" | "outlineOffer" | "checkingLength" | "floors" | "tool" | "active"
+  > {
+    const offered = this._mapOutlineDeclined ? undefined : this._offeredOutline();
     const frame = this._host.siteFrame();
-    if (offered && frame && !this._mapOutlineDeclined) {
-      const [width, depth] = edgeLengths(frame, offered);
-      return {
-        text: "Use the map's outline?",
-        detail: formatSize(width, depth, this._host.units()),
-        actions: [
-          { label: "Draw it myself", run: this._drawOutlineMyself },
-          { label: "Use outline", lit: true, run: this._useMapOutline },
-        ],
-      };
-    }
-    const order = this._order();
-    const active = order.find((area) => area.area_id === this._active);
-    if (!active || this._footprints.has(active.area_id)) return undefined;
-    const shaped = order.filter((area) => this._footprints.has(area.area_id)).length;
-    return { text: `Draw ${active.name}`, step: `${shaped + 1} of ${order.length}` };
+    const [width, depth] = offered && frame ? edgeLengths(frame, offered) : [];
+    const floors = [...this.floors.map((entry) => entry.floor_id), null].map((floor) => ({
+      floor,
+      name: floorName(floor),
+      areas: stripOrder(this._areas, floor).map(({ area_id, name }) => ({ area_id, name, shaped: this._footprints.has(area_id) })),
+    }));
+    return {
+      outlineStored: this._footprints.has(BUILDING),
+      outlineOffer: width === undefined ? undefined : formatSize(width, depth, this._host.units()),
+      checkingLength: this._checkingLength && this._active === BUILDING && this._footprints.has(BUILDING),
+      floors,
+      tool: this.tool,
+      active: this._active,
+    };
   }
 
   attach(map: MapLibreMap) {
@@ -296,8 +275,8 @@ export class RoomEditor {
     this._map?.getSource<GeoJSONSource>("spatial-map-outline")?.setData(this._offeredOutline() ?? NOTHING);
   }
 
-  // One write and one undo step; then the outline is active in Select, where its side chips take a typed length.
-  private _useMapOutline = () => {
+  /** One write and one undo step; then the outline is active in Select, where its side chips take a typed length. */
+  useMapOutline = () => {
     const outline = this._offeredOutline();
     if (!outline) return;
     this._whileSaving(async () => {
@@ -307,15 +286,17 @@ export class RoomEditor {
     });
   };
 
-  private _drawOutlineMyself = () => {
+  /** Answers the map's offer for this visit: Draw on, with the offered outline as a snap target. */
+  drawOutlineMyself = () => {
     this._mapOutlineDeclined = true;
     this._host.selectTool("draw");
     this._host.requestUpdate();
   };
 
-  private _lengthChecked = () => {
+  /** Ends the length check and moves on to the first area to draw. */
+  lengthChecked = () => {
     this._checkingLength = false;
-    this._host.requestUpdate();
+    this._select(firstToDraw(this._order(), this._linked()));
   };
 
   // An empty history saves nothing, so it must not count as a save that supersedes a failed one.
@@ -341,7 +322,7 @@ export class RoomEditor {
       });
     });
 
-  /** The area strip; on All only the Building pill and a hint. */
+  /** The area strip; on All only the Building pill. */
   render(hovered?: string) {
     return html`<spatial-area-strip
       ?allFloors=${this._floor === "all"}

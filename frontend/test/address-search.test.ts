@@ -1,7 +1,24 @@
 // @vitest-environment happy-dom
 // Checks the panel's address search wiring: when the card opens, what it sends, what it shows and where the map goes.
 import { afterEach, expect, test, vi } from "vitest";
-import { buttonNamed, fitBounds, flyTo, mapCreated, type Mount, mountPanel, type Reply, resetFakes, settle, toasts } from "./panel-harness";
+import {
+  EMPTY,
+  buttonNamed,
+  fitBounds,
+  flyTo,
+  guideText,
+  handlers,
+  mapCreated,
+  type Mount,
+  mountPanel,
+  onUpdateOf,
+  queryRenderedFeatures,
+  type Reply,
+  resetFakes,
+  settle,
+  sources,
+  toasts,
+} from "./panel-harness";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
 
@@ -52,11 +69,25 @@ test.each([
   ["a home at 0, 0", { latitude: 0, longitude: 0 }, true],
   ["a home", { latitude: 52, longitude: 5 }, false],
 ])("with %s and an empty plan, the panel opens on the globe with the search card: %s", async (_, homeLocation, globe) => {
-  const { panel } = mountPanel({ homeLocation });
+  const { panel } = mountPanel({ homeLocation, site: { bearing_deg: null } });
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
   await settle(panel);
   expect(card(panel) !== null).toBe(globe);
   expect(mapCreated.mock.calls[0][0].zoom < 5).toBe(globe);
+});
+
+test.each([
+  ["no building", [], true],
+  ["a building", [{ geometry: { type: "Polygon", coordinates: [[[4.9, 51.9], [5.1, 51.9], [5.1, 52.1], [4.9, 51.9]]] } }], false],
+])("before any Align, a home with %s under it on the drawn map opens the search card: %s", async (_, buildings, opened) => {
+  const { panel } = mountPanel({ site: { bearing_deg: null } });
+  await vi.waitFor(() => expect(handlers.idle).toBeDefined());
+  await settle(panel);
+  expect(card(panel)).toBeNull();
+  queryRenderedFeatures.mockReturnValue(buildings);
+  handlers.idle();
+  await settle(panel);
+  expect(card(panel) !== null).toBe(opened);
 });
 
 test("a plan keeps the panel on the house without a home location", async () => {
@@ -219,6 +250,35 @@ test("without a home location, a picked place offers Use as home", async () => {
   expect(toasts.map((toast) => [toast.message, toast.action?.text])).toEqual([["Use this as Home Assistant's home?", "Use as home"]]);
   toasts[0].action!.action();
   await vi.waitFor(() => expect(homeWrites(connection)).toEqual([{ type: "config/core/update", latitude: 52.0907, longitude: 5.1214 }]));
+});
+
+// The map tiles' building around the Domtoren point.
+const TOWER = { type: "Polygon", coordinates: [[[5.121, 52.0903], [5.1218, 52.0903], [5.1218, 52.0911], [5.121, 52.0911], [5.121, 52.0903]]] };
+const toolPressed = (panel: HTMLElement, name: string) => buttonNamed(panel, name)?.getAttribute("aria-pressed");
+
+test("on a first visit without a home, a pick leaves the panel on a floor with Align on and its line", async () => {
+  const { panel } = mountPanel({ homeLocation: {}, site: { bearing_deg: null }, reply: searchingAnd([DOMTOREN]) });
+  await vi.waitFor(() => expect(card(panel)).not.toBeNull());
+  await searchAndPick(panel);
+  expect(buttonNamed(panel, "No floor")!.getAttribute("aria-pressed")).toBe("true");
+  expect(toolPressed(panel, "Align")).toBe("true");
+  expect(buttonNamed(panel, "Align")!.disabled).toBe(false);
+  expect(guideText(panel)).toBe("Click the front wall of your home The view turns so that wall lies flat.");
+});
+
+test("the picked place's building shows dashed until the site has a direction", async () => {
+  let bearing: number | null = null;
+  const { panel, connection } = mountPanel({ homeLocation: {}, site: () => ({ bearing_deg: bearing }), reply: searchingAnd([DOMTOREN]) });
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
+  queryRenderedFeatures.mockReturnValue([{ geometry: TOWER }]);
+  await searchAndPick(panel);
+  handlers.idle();
+  expect(sources["spatial-home"].data).toEqual(TOWER);
+  bearing = 0;
+  await onUpdateOf(connection)();
+  handlers.idle();
+  expect(sources["spatial-home"].data).toEqual(EMPTY);
 });
 
 test("a place within 25 m of the home asks nothing", async () => {

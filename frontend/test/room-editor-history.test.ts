@@ -211,7 +211,8 @@ test("No floor offers no clear, even with shaped outdoor areas", async () => {
 
 test("Clear is one undo step, and off on All and on a floor without room shapes", async () => {
   const { panel, connection } = mountTwoFloors();
-  await vi.waitFor(() => expect(headerButton(panel, "More options")).toBeDefined());
+  await vi.waitFor(() => expect(buttonNamed(panel, "All")).toBeDefined());
+  buttonNamed(panel, "All")!.click();
   await settle(panel);
   await toggleMenu(panel);
   expect(buttonNamed(panel, "Clear floor")!.disabled).toBe(true);

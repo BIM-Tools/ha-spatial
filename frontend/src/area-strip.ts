@@ -44,7 +44,7 @@ class SpatialAreaStrip extends LitElement {
     // The area whose pill is a name field, or "".
     renaming: { attribute: false },
     hovered: { attribute: false },
-    // All floors is a view only: the strip shows the building and a hint.
+    // All floors is a view only: the strip shows the building alone.
     allFloors: { type: Boolean },
     // Home Assistant's location name; only an admin may rename it.
     buildingName: { attribute: false },
@@ -134,13 +134,6 @@ class SpatialAreaStrip extends LitElement {
       height: 24px;
       background: var(--divider-color);
     }
-    .hint {
-      flex: none;
-      padding: 0 12px 0 4px;
-      color: var(--secondary-text-color);
-      font-size: var(--ha-font-size-m);
-      white-space: nowrap;
-    }
     .rename {
       gap: 8px;
       padding: 0 4px 0 12px;
@@ -221,9 +214,7 @@ class SpatialAreaStrip extends LitElement {
 
   render() {
     if (this.allFloors) {
-      return html`<span class="pill" data-linked=${this.linked.has(BUILDING)}
-          ><span class="square"></span>${this.buildingName}</span
-        ><span class="hint">Choose a floor to edit its rooms</span>`;
+      return html`<span class="pill" data-linked=${this.linked.has(BUILDING)}><span class="square"></span>${this.buildingName}</span>`;
     }
     const building = { area_id: BUILDING, name: this.buildingName, floor_id: null };
     return html`${this._pillOrField(building)}<span class="divider"></span>${this.order.map((area) =>
