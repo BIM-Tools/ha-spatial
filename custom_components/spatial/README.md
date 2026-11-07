@@ -49,6 +49,7 @@
 | `spatial/area/update_geometries` | yes | `areas`?: `{area_id: polygon or null}` (null removes); `properties`?: `{area_id: {floors_up?, on_facade_override?}}` (for areas with a footprint after the change; omitted ones are kept); `site`?: `{bearing_deg?, origin?, outline?}` (null removes one); `expected_rev`?: `{area_id: rev or null}` (null: expect no footprint); `expected_site_rev`?; areas, properties and/or site | `{area_m2: {area_id: m²}, rev: {area_id: rev or null}, site_rev}` (`rev` of every area in areas or properties) |
 | `spatial/floor/update` | yes | `floor_id`, `elevation_m`?, `height_m`? (null clears one; omitted ones are kept) | - |
 | `spatial/site/update` | yes | `bearing_deg`? (0 to under 360, or null to remove), `origin`? (`[lon, lat]`, or null to remove), `outline`? (Polygon, or null to remove); at least one; `expected_rev`? (the site rev) | `{site_rev}` |
+| `spatial/address/search` | yes | `query` (3 to 200 characters after trimming) | `{places: [{label, lat, lon, bbox}]}`: up to 5 places from OpenStreetMap Nominatim, places near Home Assistant's home preferred; `bbox` is `[west, south, east, north]` or null |
 
 - Feature properties, ready for automations and exports:
 
@@ -76,7 +77,8 @@
   still matches, so an undo never overwrites a change made elsewhere; without them the last
   writer wins.
 - Errors: `not_found` (unknown area or floor), `invalid_format` (bad input, a polygon that fails on the lattice, or a room without net area; the message names the area or `outline`), `outside_outline` (an indoor room would extend beyond the outline: a written room, or any room when the outline, origin or bearing changes, lies across it; the message lists the area ids), `conflict` (an
-  expected rev no longer matches; the message lists the area ids and `site`), `unauthorized`.
+  expected rev no longer matches; the message lists the area ids and `site`), `search_failed` (the search server could not be reached or gave no usable answer; the message says which, so a client can offer to try again), `unauthorized`.
+- `spatial/address/search` sends the query to OpenStreetMap Nominatim, one request per second at most across the integration (a search waits for the previous one), with Home Assistant's language and an identifying user agent; see [Privacy](../../README.md#privacy).
 - Event `spatial_updated` fires after every change, including every floor registry change (it can change the floors a room occupies); non-admin users follow it through `spatial/subscribe`.
 
 ### Compatibility
@@ -114,9 +116,10 @@ are in the [frontend README](../../frontend/README.md).
 
 | File | Responsibility |
 | --- | --- |
-| `__init__.py` | Setup, `runtime_data`, websocket registration, admin-only `spatial` panel behind Configure, without a sidebar entry, and the card module (bundles in `frontend/`, served at `/spatial_static`) |
+| `__init__.py` | Setup, `runtime_data`, websocket registration, admin-only `spatial` panel, in the sidebar as "Floor plan" and behind Configure, and the card module (bundles in `frontend/`, served at `/spatial_static`) |
 | `config_flow.py` | Single-instance config flow, with a link to the editor on its success step |
 | `coordinator.py` | Data access, registry sync, queries |
 | `store.py` | Persistence and migration of data saved by older releases |
 | `geometry.py` | All geometry: the site frame and lattice, validation, net area, point in polygon, shared edges, the room's relation to the outline |
 | `websocket_api.py` | Websocket commands and validation |
+| `address_search.py` | The address search request to Nominatim, its rate limit and the mapping of its answer |
