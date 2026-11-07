@@ -967,7 +967,7 @@ STATES = [
     State(
         "search-home-toast",
         "search",
-        "A picked result far from the home: Home Assistant's toast offers to move the home there",
+        "A picked result: Home Assistant's toast offers it as the home",
         search_home_toast,
     ),
     State(
