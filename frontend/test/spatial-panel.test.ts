@@ -371,16 +371,19 @@ test("Align is a tool until the first Align; then it leaves the toolbar and the 
 });
 
 test("before the site is read neither the toolbar nor the menu offers Align", async () => {
-  let answerSite: (site: object) => void = () => {};
+  let answerSite: ((site: object) => void) | undefined;
   const { panel } = mountPanel({
     reply: async (message) =>
       message.type === "spatial/site" ? new Promise((resolve) => (answerSite = resolve)) : undefined,
   });
-  await vi.waitFor(() => expect(panel.shadowRoot?.querySelector("spatial-panel-header")).not.toBeNull());
+  await vi.waitFor(() => expect(answerSite).toBeDefined());
+  // Any render while the site is pending, such as one from a changed hass.
+  (panel as unknown as { requestUpdate(): void }).requestUpdate();
   await settle(panel);
+  expect(buttonNamed(panel, "Draw")).toBeDefined();
   expect(buttonNamed(panel, "Align")).toBeUndefined();
   expect(headerButton(panel, "More options")).toBeUndefined();
-  answerSite(siteReply({ bearing_deg: null }));
+  answerSite!(siteReply({ bearing_deg: null }));
   await vi.waitFor(() => expect(buttonNamed(panel, "Align")).toBeDefined());
 });
 
