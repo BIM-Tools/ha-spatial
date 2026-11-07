@@ -235,7 +235,7 @@ class Shot:
 
     # Camera
 
-    def frame(self, floor: str | None, zoom_delta: float = 0.0, pitch: float = 0.0) -> None:
+    def frame(self, floor: str | None, zoom_delta: float = 0.0) -> None:
         """Fits the floor's rooms (all rooms for None) in view, keeping the site's bearing."""
         points = self.house.floor_points(floor)
         lons = [point[0] for point in points]
@@ -246,18 +246,17 @@ class Shot:
             else {"top": 150, "bottom": 150, "left": 120, "right": 120}
         )
         self.panel.evaluate(
-            """(panel, {bounds, padding, zoomDelta, pitch}) => {
+            """(panel, {bounds, padding, zoomDelta}) => {
                 const map = panel._map;
                 const bearing = map.getBearing();
                 const camera = map.cameraForBounds(bounds, { padding, bearing });
                 const zoom = camera.zoom + zoomDelta;
-                map.jumpTo({ center: camera.center, zoom, bearing, pitch });
+                map.jumpTo({ center: camera.center, zoom, bearing, pitch: 0 });
             }""",
             {
                 "bounds": [[min(lons), min(lats)], [max(lons), max(lats)]],
                 "padding": padding,
                 "zoomDelta": zoom_delta,
-                "pitch": pitch,
             },
         )
         self.settle()
@@ -414,8 +413,8 @@ def floor_plan(shot: Shot) -> None:
 
 
 def all_floors(shot: Shot) -> None:
+    # All is the default floor, in its own computed view.
     shot.open_panel()
-    shot.frame(None, zoom_delta=-0.3, pitch=50)
 
 
 def map_off(shot: Shot) -> None:

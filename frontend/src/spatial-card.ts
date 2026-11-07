@@ -12,6 +12,7 @@ class SpatialMapCard extends HTMLElement {
   private _panel = document.createElement("spatial-panel") as HTMLElement & {
     hass?: unknown;
     floor?: string;
+    showMap?: boolean;
   };
 
   static getStubConfig() {
@@ -34,11 +35,15 @@ class SpatialMapCard extends HTMLElement {
     import(/* @vite-ignore */ panelUrl(import.meta.url)).catch(console.error);
   }
 
-  setConfig(config: { floor?: unknown }) {
+  setConfig(config: { floor?: unknown; show_map?: unknown }) {
     if (config.floor !== undefined && typeof config.floor !== "string") {
       throw new Error("floor must be a string: all or a floor_id");
     }
+    if (config.show_map !== undefined && typeof config.show_map !== "boolean") {
+      throw new Error("show_map must be true or false");
+    }
     this._panel.floor = config.floor;
+    this._panel.showMap = config.show_map;
   }
 
   getCardSize() {

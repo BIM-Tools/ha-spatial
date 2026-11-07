@@ -22,6 +22,8 @@ export class PlanFrame {
     private readonly _fromLattice: [[number, number], [number, number]],
     readonly unitM: number,
     readonly unitsPerStep: number,
+    // The direction of the x-axis, clockwise from north, which the views of all floors turn from.
+    readonly bearingDeg: number,
   ) {}
 
   static fromSite(frame: SiteFrameData): PlanFrame {
@@ -31,7 +33,7 @@ export class PlanFrame {
       [d / det, -b / det],
       [-c / det, a / det],
     ];
-    return new PlanFrame(frame.origin, frame.to_lattice, inverse, frame.unit_m, frame.units_per_step);
+    return new PlanFrame(frame.origin, frame.to_lattice, inverse, frame.unit_m, frame.units_per_step, frame.bearing_deg);
   }
 
   /** Lattice units, not rounded. */

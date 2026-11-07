@@ -12,7 +12,7 @@ boxes along one wall. Every action saves at once and can be undone.
 | Footprint | One polygon per area, drawn on the wall axes (the middle of each wall), so neighbouring rooms share edges | Spatial |
 | Building | The outline on the axis of the exterior walls, one per installation; indoor rooms stay inside it. Its name is Home Assistant's location name | Spatial; the name from Home Assistant's core config |
 | Site direction | The direction of one wall of your house; the map turns so that wall is horizontal, and boxes follow it | Spatial |
-| Floor height | Elevation and height per floor, for the 3D view | Spatial |
+| Floor height | Elevation and height per floor, for tools and exports | Spatial |
 
 - Home Assistant owns areas and floors: rename or move an area in Home Assistant and the map
   follows. The building carries Home Assistant's location name ("Home" unless you changed it).
@@ -52,7 +52,7 @@ opens on **All**, north up, centred on your home location.
 
 4. **Next floor.** Press the next floor button and draw its rooms; the outline shows on every
    floor as a guide.
-5. **All.** Press **All** to see the floors stacked in 3D.
+5. **All.** Press **All** to see the floors as a stack of slabs, seen from the front corner of the house.
 
    ![All floors stacked in 3D; the strip shows only Building and a hint](images/all.png)
 
@@ -66,7 +66,7 @@ strip at the bottom.
 
 | Button | Shows |
 | --- | --- |
-| All | Every floor stacked in 3D. A view only: the tools, Undo and Redo are off, and the strip shows the Building pill with "Choose a floor to edit its rooms" |
+| All | Every floor as a slab with its rooms, stacked with a gap between floors and seen from the front corner of the house, each slab named on its right with its number of rooms. Turn it with the right mouse button or two fingers; the compass returns to the view from the front corner. A view only: the tools, Undo and Redo are off, and the strip shows the Building pill with "Choose a floor to edit its rooms" |
 | A floor | That floor as a flat plan; every floor of Home Assistant is listed, ordered by level, also an empty one |
 | No floor | Areas without a floor |
 
@@ -231,14 +231,20 @@ At 600 px wide or less:
 
 Add a card with `type: custom:spatial-map-card`, best in a view of type Panel, so the map fills
 it; elsewhere the card is 400 px high. Everyone who can see the dashboard sees the map, also
-users who are not an administrator. The card has no tools, always shows the map, and its labels
+users who are not an administrator. The card has no tools, and its labels
 show icon and name without the area.
 
 | `floor` | Shows |
 | --- | --- |
-| not set | Floor buttons for the floors with rooms; pan, zoom and rotate |
-| `all` | All floors in 3D, fixed |
+| not set | Floor buttons for the floors with rooms; pan and zoom |
+| `all` | All floors as a stack of slabs from the front corner, fixed |
 | a `floor_id` | That floor as a plan, fixed |
+
+| `show_map` | Shows |
+| --- | --- |
+| not set | No map under all floors (`floor: all`); the map under one floor or the floor buttons |
+| `true` | The map |
+| `false` | The plan on the card's own background |
 
 A fixed view has no buttons, frames the rooms' footprints and follows every change:
 
@@ -258,7 +264,7 @@ cards:
 | On the facade: a room sharing the outline | The API (`on_facade`) |
 | Outdoor: a room outside the outline | The API (`is_external`) |
 | Room at a point | The API (`spatial/query_point`) |
-| 3D: each room from the base of its floor to the top of the highest floor it occupies | All, and the card |
+| Stack: a slab per floor in floor order, each room on the slab of every floor it occupies | All, and the card |
 
 The sizes shown while drawing are previews; the saved net area comes from the integration. The
 exact rules, and where they are approximate, are in the
@@ -272,8 +278,8 @@ each one means, and the [importer](../tools/README.md) sets floor heights.
 
 | Setting | In the panel |
 | --- | --- |
-| Floor elevation and height (`spatial/floor/update`) | Where each floor sits in 3D |
-| `floors_up` | The room counts on each of those floors for neighbours and the 3D view |
+| Floor elevation and height (`spatial/floor/update`) | Not shown; the slabs in All lie evenly apart in floor order |
+| `floors_up` | The room counts on each of those floors for neighbours, and lies on each of their slabs in All |
 | `on_facade_override` | Not shown |
 | Grid origin (the site's `origin`) | Where the 10 cm (4 in) drawing grid starts; only Align on an empty plan sets it from the panel |
 
@@ -294,4 +300,4 @@ each one means, and the [importer](../tools/README.md) sets floor heights.
   in that tile.
 - Undo covers this session only, and overwrites changes made elsewhere in the meantime. An undo
   for an area deleted in Home Assistant keeps failing; reload the panel to clear the history.
-- A fixed card frames the footprints, so tall floors in its 3D view can reach past the frame.
+- The slabs in All lie evenly apart in floor order, whatever elevation a floor has.
