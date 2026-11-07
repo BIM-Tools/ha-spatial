@@ -37,11 +37,22 @@ opens on **All**, north up, centred on your home location.
    ![Align on the ground floor: the guide line on top, the wall under the pointer highlighted](images/align.png)
 
 2. **Draw the building.** Press **Draw**. The strip at the bottom starts with the building,
-   under Home Assistant's location name and highlighted while there is no outline. Draw it on
-   the middle of the exterior walls, with the building on the map as a guide: press and drag
-   from one corner to the opposite one, or click one corner and then the other. After the first
-   box the next area is highlighted; for an L or other shape, choose the building again and add
-   boxes against the outline.
+   under Home Assistant's location name and highlighted while there is no outline. When the map
+   has a building where you aligned, its rectangle along the site direction shows dashed, 150 mm
+   inside the map's line (the map shows the outer face of the walls, the outline is their axis),
+   and the line at the top asks "Use the map's outline?" with its size, for example
+   "9.80 × 7.60 m":
+   - **Use outline** saves that rectangle as the outline (Undo takes it back) and makes it
+     active in Select with its width and depth. The line then says "Check one length you know":
+     click the width or depth and type a length you have measured, for example the front of the
+     house; **Looks right** closes the line.
+   - **Draw it myself** keeps Draw on, and the dashed rectangle becomes something the outline's
+     corners snap to.
+
+   To draw it, put it on the middle of the exterior walls, with the building on the map as a
+   guide: press and drag from one corner to the opposite one, or click one corner and then the
+   other. After the first box the next area is highlighted; for an L or other shape, choose the
+   building again and add boxes against the outline.
 3. **Draw the rooms.** After an area's first shape, the next area of the floor without one is
    highlighted, and the line at the top says "Draw Kitchen" with how far the floor is, for
    example "3 of 5". Draw each room on the wall axes, so neighbours share their edges and the
@@ -292,12 +303,16 @@ each one means, and the [importer](../tools/README.md) sets floor heights.
   first. A moved room travels in a straight line from where it was picked up, so a drag around a
   corner of the outline or of a room stops at that corner.
 - Snapping uses the rooms on this floor and the outline: not the floor below, diagonal walls or
-  buildings on the map. A moved room lines up its corners with others, not its walls with their
+  buildings on the map, except the map's dashed rectangle while the building has no outline. A moved room lines up its corners with others, not its walls with their
   corners.
 - After the first room or the outline, a new Align keeps the grid origin, so the grid turns
   around the old origin.
 - Align needs a building in the map tiles. A building cut by a tile border gives only the part
   in that tile.
+- The map's outline is offered as a rectangle only: an L-shaped house gets a box drawn onto it.
+  It is offered when the map shows a building at the grid origin, which Align on an empty plan
+  puts on the clicked wall, or after an Align in the same visit; with the map hidden it is not
+  offered. The map's buildings are about 0.4 m accurate, so check one length.
 - Undo covers this session only, and overwrites changes made elsewhere in the meantime. An undo
   for an area deleted in Home Assistant keeps failing; reload the panel to clear the history.
 - The slabs in All lie evenly apart in floor order, whatever elevation a floor has.

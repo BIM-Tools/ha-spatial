@@ -10,12 +10,12 @@ import type { ResizeTarget } from "./edge-drag";
 import { type Change, type FootprintBatch, History } from "./history";
 import type { LayerColours } from "./map-paint";
 import { byLevel } from "./map-view";
-import { type ChangeOrRefusal, boxChange, isAxisRectangle } from "./plan";
+import { type ChangeOrRefusal, boxChange, edgeLengths, isAxisRectangle } from "./plan";
 import type { ScreenBox } from "./draft-labels";
 import { type SideControls, showSideControls } from "./side-controls";
 import type { PlanFrame } from "./site-frame";
 import { snapCandidatesFor } from "./snap";
-import { type HassUnits, refusalMessage, saveFailureMessage } from "./units";
+import { type HassUnits, formatSize, refusalMessage, saveFailureMessage } from "./units";
 
 interface Connection {
   sendMessagePromise<T>(message: { type: string; [key: string]: unknown }): Promise<T>;
@@ -40,10 +40,19 @@ export interface Toast {
   id?: string;
 }
 
-/** One line on the map that says what to do next. */
+/** A button on the guide line; the lit one is the step the guide suggests. */
+export interface GuideAction {
+  label: string;
+  lit?: boolean;
+  run: () => void;
+}
+
+/** One line on the map that says what to do next, with a second line and buttons when it asks something. */
 export interface Guide {
   text: string;
   step?: string;
+  detail?: string;
+  actions?: GuideAction[];
 }
 
 /** What the editor needs from the panel that holds it. */
@@ -63,6 +72,7 @@ export interface EditorHost {
 
 // A later save that succeeds closes the failure toast through this id.
 const SAVE_FAILED_ID = "spatial-save-failed";
+const NOTHING: FeatureCollection = { type: "FeatureCollection", features: [] };
 
 export class RoomEditor {
   floors: FloorEntry[] = [];
@@ -82,6 +92,12 @@ export class RoomEditor {
   private _resizeLive = false;
 
   private _editingSide?: number;
+  // The outline a map building offers, from the panel; never stored until Use outline.
+  private _mapOutline?: Polygon;
+  // Draw it myself answers the offer for this visit.
+  private _mapOutlineDeclined = false;
+  // After Use outline the guide asks to check one length, until Looks right.
+  private _checkingLength = false;
   // Counts acknowledged saves and started refreshes, so an older refresh cannot undo a newer save.
   private _changes = 0;
 
@@ -108,9 +124,32 @@ export class RoomEditor {
     return this._footprints.size > 0;
   }
 
-  /** While aligning, what to click; with an area without a shape active, that it is next and how far the floor is. */
+  /**
+   * While aligning, what to click; after Use outline, to check one length; while the map offers an
+   * outline, whether to use it; with an area without a shape active, that it is next and how far the floor is.
+   */
   get guide(): Guide | undefined {
     if (this.tool === "align") return { text: "Click the wall your rooms follow" };
+    if (this._checkingLength && this._floor !== "all" && this._active === BUILDING && this._footprints.has(BUILDING)) {
+      return {
+        text: "Check one length you know",
+        detail: "For example the front of the house. Tap it to type the real size.",
+        actions: [{ label: "Looks right", lit: true, run: this._lengthChecked }],
+      };
+    }
+    const offered = this._offeredOutline();
+    const frame = this._host.siteFrame();
+    if (offered && frame && !this._mapOutlineDeclined) {
+      const [width, depth] = edgeLengths(frame, offered);
+      return {
+        text: "Use the map's outline?",
+        detail: formatSize(width, depth, this._host.units()),
+        actions: [
+          { label: "Draw it myself", run: this._drawOutlineMyself },
+          { label: "Use outline", lit: true, run: this._useMapOutline },
+        ],
+      };
+    }
     const order = this._order();
     const active = order.find((area) => area.area_id === this._active);
     if (!active || this._footprints.has(active.area_id)) return undefined;
@@ -162,6 +201,13 @@ export class RoomEditor {
       layout: building,
       paint: { ...colours["spatial-active-building"], "line-width": 2.5 },
     });
+    map.addSource("spatial-map-outline", { type: "geojson", data: this._offeredOutline() ?? NOTHING });
+    map.addLayer({
+      id: "spatial-map-outline",
+      type: "line",
+      source: "spatial-map-outline",
+      paint: { ...colours["spatial-map-outline"], "line-width": 2, "line-dasharray": [2, 1] },
+    });
     map.addSource("spatial-handles", { type: "geojson", data: this._handles() });
     map.addLayer({
       id: "spatial-handles",
@@ -203,6 +249,7 @@ export class RoomEditor {
     this._footprints = new Map(feed.features.map((feature) => [String(feature.id), feature.geometry as Polygon]));
     if (outline) this._footprints.set(BUILDING, outline);
     this._showHandles();
+    this._showMapOutline();
     const order = this._order();
     if (![BUILDING, ...order.map((area) => area.area_id)].includes(this._active)) {
       this._setActive(order[0]?.area_id ?? BUILDING);
@@ -222,6 +269,49 @@ export class RoomEditor {
     this._interaction?.toolChanged();
     this._select(this._active);
   }
+
+  /** The outline the map's building offers in the current site frame, or undefined when there is none. */
+  setMapOutline(outline: Polygon | undefined) {
+    if (JSON.stringify(outline) === JSON.stringify(this._mapOutline)) return;
+    this._mapOutline = outline;
+    this._showMapOutline();
+    this._host.requestUpdate();
+  }
+
+  // While the Building on a floor has no outline, the map's offers itself: dashed, as the guide's
+  // question, and as what drawing the Building snaps to. Rooms never see it.
+  private _offeredOutline(): Polygon | undefined {
+    if (this.tool === "align" || this._floor === "all" || this._active !== BUILDING || this._footprints.has(BUILDING)) {
+      return undefined;
+    }
+    return this._mapOutline;
+  }
+
+  private _showMapOutline() {
+    this._map?.getSource<GeoJSONSource>("spatial-map-outline")?.setData(this._offeredOutline() ?? NOTHING);
+  }
+
+  // One write and one undo step; then the outline is active in Select, where its side chips take a typed length.
+  private _useMapOutline = () => {
+    const outline = this._offeredOutline();
+    if (!outline) return;
+    this._whileSaving(async () => {
+      await this._apply({ before: { [BUILDING]: null }, after: { [BUILDING]: outline } });
+      this._checkingLength = true;
+      this._host.selectTool("select");
+    });
+  };
+
+  private _drawOutlineMyself = () => {
+    this._mapOutlineDeclined = true;
+    this._host.selectTool("draw");
+    this._host.requestUpdate();
+  };
+
+  private _lengthChecked = () => {
+    this._checkingLength = false;
+    this._host.requestUpdate();
+  };
 
   // An empty history saves nothing, so it must not count as a save that supersedes a failed one.
   undo = () =>
@@ -271,6 +361,8 @@ export class RoomEditor {
 
   private _snapshot(): EditorSnapshot {
     const footprint = this._footprints.get(this._active);
+    // The offered outline snaps as the outline would, while the Building is drawn.
+    const offered = this._offeredOutline();
     return {
       tool: this.tool,
       floorPicked: this._floor !== "all",
@@ -280,7 +372,7 @@ export class RoomEditor {
       siteFrame: this._host.siteFrame(),
       units: this._host.units(),
       floorAreaIds: this._order().map((area) => area.area_id),
-      footprints: this._footprints,
+      footprints: offered ? new Map(this._footprints).set(BUILDING, offered) : this._footprints,
     };
   }
 
@@ -301,6 +393,7 @@ export class RoomEditor {
     this._active = areaId;
     if (areaId !== this._renaming) this._renaming = "";
     this._showHandles();
+    this._showMapOutline();
     if (!this._map?.getLayer("spatial-active")) return;
     for (const layerId of ["spatial-active", "spatial-active-fill"]) this._map.setFilter(layerId, this._activeFilter());
     for (const layerId of ["spatial-active-building", "spatial-active-building-fill"]) {
@@ -505,6 +598,7 @@ export class RoomEditor {
       else this._footprints.delete(areaId);
     }
     this._showHandles();
+    this._showMapOutline();
   }
 
   // The area exists in Home Assistant at once, so its name can be typed before it has a shape. It

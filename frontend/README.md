@@ -41,7 +41,7 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/floor-stack.ts` | All floors as an exploded stack of slabs, pure and in site frame metres: floor order, slab heights, room fills and walls, the camera fit from the front corner, and the floor labels beside each slab |
 | `src/room-labels.ts` | Room labels: area icon, name and (in the panel) net area, placed and stepped by the room's size on screen |
 | `src/styles.ts` | The floating card, pill buttons and phone bar shared by the controls, from Home Assistant's theme tokens |
-| `src/room-editor.ts` | The space editor controller: the area strip, undo and redo, saving each action, area creation and rename |
+| `src/room-editor.ts` | The space editor controller: the area strip, the guide line, the map's outline offered to the Building, undo and redo, saving each action, area creation and rename |
 | `src/side-controls.ts` | A handle on each side of the active axis rectangle, a length chip on one side per axis (`sideHandles` in `plan.ts` picks it) and a grip on the other: dragged, it stretches the side through the edge drag; tapped, it opens the length field |
 | `src/box-interaction.ts` | Pointer and keyboard drafting input on the map, snapped corners, moves, edge and corner drags, Alt to place freely, Space pan, draft preview |
 | `src/snap.ts` | The snap engine, pure and in lattice units: room corners, then room axis edges, then the outline, else the grid |
@@ -54,7 +54,7 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/map-view.ts` | Pure helpers: map bearing, style URL, map tiles token, floor order, room bounds |
 | `src/outline.ts` | The OSM building under a click, the bearing of its nearest wall, with turf, and the fields an Align pick writes |
 | `src/site-frame.ts` | Applies the site frame from `spatial/site`: lon/lat to lattice units and back |
-| `src/plan.ts` | Boxes, side lengths, resizing and moving on the site lattice; joining with turf |
+| `src/plan.ts` | Boxes, side lengths, resizing and moving on the site lattice, and the outline copied from a map building; joining with turf |
 | `src/units.ts` | Lengths and areas shown in Home Assistant's unit system and number format (metric at lattice precision, US feet and inches with primes), and typed lengths read back in metres |
 | `test/` | Unit tests (vitest) |
 
@@ -94,5 +94,11 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 - Align sends `bearing_deg`: the direction of the OSM building's outer edge nearest the click, with
   the building on its left. On an empty plan (no footprint and no outline) it also sends `origin`,
   that edge's left end in the aligned view.
+- The map's outline: the panel keeps the building Align picked, or finds the building a grid step
+  inside the site origin once the map is idle, and `mapOutlineBox` in `plan.ts` turns it into the
+  bounding rectangle along the site axes, 150 mm inward, on the lattice. While the Building pill
+  is active without an outline, the editor shows it dashed with the guide line's question and adds
+  it as the outline to the snap candidates of a Building gesture only. Use outline saves it like a
+  drawn box, in one write and one undo step; nothing about the map building is stored.
 - Areas are created and renamed with Home Assistant's area registry commands; renaming the
   building sends `config/core/update` with `location_name`.

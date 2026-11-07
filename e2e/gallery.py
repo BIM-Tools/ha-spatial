@@ -37,6 +37,7 @@ from draw_room import (
     wait_for_home_assistant,
 )
 from playwright.sync_api import Browser, Locator, Page, sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 TOOLS_DIR = Path(os.environ.get("TOOLS_DIR", "/tools"))
 sys.path.insert(0, str(TOOLS_DIR))
@@ -467,6 +468,39 @@ def align_wall_hover(shot: Shot) -> None:
     shot.settle()
 
 
+def map_outline_question(shot: Shot) -> None:
+    # The example house's outline goes, and Align picks the nearest building the map tiles draw;
+    # the cleanup puts back the site direction and the outline.
+    websocket = Websocket(shot.house.token)
+    site = websocket.call("spatial/site")
+    websocket.call("spatial/site/update", outline=None)
+
+    def restore_site() -> None:
+        websocket.call("spatial/site/update", bearing_deg=site["bearing_deg"])
+        websocket.call("spatial/site/update", outline=site["outline"])
+
+    shot.cleanups.append(restore_site)
+    align_active(shot)
+    building = shot.building_near(*shot.room_centre("Living room"))
+    if building is None:
+        raise Skip("no OSM building near the house in the map tiles")
+    shot.click(*building)
+    shot.activate_pill("Building")
+    question = shot.panel.get_by_role("button", name="Use outline", exact=True)
+    try:
+        question.wait_for(timeout=SETTLE_TIMEOUT_MS)
+    except PlaywrightTimeoutError as error:
+        raise Skip("the map's outline was not offered") from error
+    shot.settle()
+
+
+def map_outline_check(shot: Shot) -> None:
+    map_outline_question(shot)
+    shot.panel.get_by_role("button", name="Use outline", exact=True).click()
+    shot.panel.get_by_role("button", name="Looks right", exact=True).wait_for()
+    shot.settle()
+
+
 def draw_active(shot: Shot) -> None:
     floor_plan(shot)
     shot.select_tool("Draw")
@@ -658,6 +692,18 @@ STATES = [
         "Align with the wall under the pointer highlighted, on the nearest OSM building",
         align_wall_hover,
         phone=False,
+    ),
+    State(
+        "map-outline-question",
+        "tools",
+        "After Align without an outline: the map's rectangle dashed, Use the map's outline? and its size",
+        map_outline_question,
+    ),
+    State(
+        "map-outline-check",
+        "tools",
+        "After Use outline: the outline active in Select, the guide asks to check one length",
+        map_outline_check,
     ),
     State("draw-active", "tools", "Draw active: the area strip with Building first", draw_active),
     State(

@@ -7,6 +7,7 @@ import {
   type GeoJSONSource,
   type MapMouseEvent,
   Map as MapLibreMap,
+  type PointLike,
   type StyleSpecification,
   setWorkerUrl,
 } from "maplibre-gl";
@@ -30,10 +31,12 @@ import { type ThemeState, bounds, darkModeOf, mapBearing, styleUrl, withMapTiles
 import { type AlignFields, alignFields, buildingAt, wallAt } from "./outline";
 import "./panel-header";
 import { EMPTY, PanelState } from "./panel-state";
+import { mapOutlineBox } from "./plan";
+import type { PlanFrame } from "./site-frame";
 import { BUILDING } from "./area-strip";
 import { type Guide, RoomEditor, type Toast, type Tool } from "./room-editor";
 import { type AreaInfo, RoomLabels, roomLabelStyles } from "./room-labels";
-import { floatingSurface, phoneBar } from "./styles";
+import { floatingSurface, phoneBar, selectedFill } from "./styles";
 import { type HassUnits, isStillStarting, saveFailureMessage } from "./units";
 
 // The parts of Home Assistant's `hass` object this panel uses.
@@ -222,6 +225,54 @@ class SpatialPanel extends LitElement {
       flex: none;
       color: var(--secondary-text-color);
     }
+    /* A question: two lines of text and its answers, which wrap below the text when narrow. */
+    .guide.question {
+      flex-wrap: wrap;
+      max-width: 560px;
+      border-radius: 24px;
+      padding: var(--ha-space-2) var(--ha-space-2) var(--ha-space-2) var(--ha-space-4);
+    }
+    .guide.question .lines {
+      display: flex;
+      flex: 1 1 200px;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .guide.question .text {
+      font-weight: 500;
+      white-space: normal;
+    }
+    .guide .detail {
+      color: var(--secondary-text-color);
+      font-size: var(--ha-font-size-s);
+    }
+    .guide .actions {
+      display: flex;
+      gap: var(--ha-space-1);
+      margin-left: auto;
+    }
+    .guide button {
+      height: 36px;
+      padding: 0 14px;
+      border: none;
+      border-radius: 18px;
+      background: none;
+      color: var(--primary-text-color);
+      font: inherit;
+      font-weight: 500;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .guide button.lit {
+      background: ${selectedFill};
+      box-shadow: 0 0 0 1.5px var(--primary-color);
+    }
+    @media (pointer: coarse) {
+      .guide button {
+        height: 44px;
+        border-radius: 22px;
+      }
+    }
     /* MapLibre's attribution sits bottom right, where a wide strip would cover it. */
     .stage.with-strip .maplibregl-ctrl-bottom-right {
       bottom: 68px;
@@ -285,6 +336,8 @@ class SpatialPanel extends LitElement {
   private _stack?: FloorStack;
   // Only the admin panel edits; the card stays read-only.
   private _editor?: RoomEditor;
+  // The map tiles' building that Align picked, or the one at the site origin; kept for this visit only.
+  private _mapBuilding?: Polygon;
   private readonly _phoneQuery = window.matchMedia(PHONE_QUERY);
 
   constructor() {
@@ -388,6 +441,18 @@ class SpatialPanel extends LitElement {
       ? { text: "Map could not load" }
       : (this._editor?.guide ?? (noRooms ? { text: "No rooms yet" } : undefined));
     if (!guide) return nothing;
+    if (guide.actions) {
+      return html`<div class="guide-row">
+        <div class="guide question" role="status">
+          <span class="lines"><span class="text">${guide.text}</span><span class="detail">${guide.detail}</span></span>
+          <span class="actions">
+            ${guide.actions.map(
+              (action) => html`<button class=${action.lit ? "lit" : ""} @click=${action.run}>${action.label}</button>`,
+            )}
+          </span>
+        </div>
+      </div>`;
+    }
     return html`<div class="guide-row">
       <div class="guide" role="status">
         <span class="text">${guide.text}</span>${guide.step ? html`<span class="step">${guide.step}</span>` : nothing}
@@ -513,6 +578,7 @@ class SpatialPanel extends LitElement {
       this._map?.getSource<GeoJSONSource>("outline")?.setData(this._state.outline);
       this._buildStack();
       this._showLabels();
+      this._offerMapOutline();
       return site;
     };
     const editor = this.card
@@ -601,6 +667,8 @@ class SpatialPanel extends LitElement {
     if (editor) {
       this._showBearing(this._mapBearingDeg);
       map.on("rotate", () => this._showBearing(map.getBearing()));
+      // The map's buildings can be read once their tiles are drawn.
+      map.on("idle", () => this._offerMapOutline());
     }
     editor?.attach(map);
     // After the editor, so the click that ends Align is not also a room pick in Select.
@@ -840,16 +908,39 @@ class SpatialPanel extends LitElement {
   }
 
   private _buildingUnder(event: MapMouseEvent): Polygon | undefined {
-    const map = this._map!;
+    return this._buildingAt([event.lngLat.lng, event.lngLat.lat], event.point);
+  }
+
+  // The part of the map tiles' buildings at `at`, on screen at `point`, when the map shows them there.
+  private _buildingAt(at: [number, number], point?: PointLike): Polygon | undefined {
+    const map = this._map;
+    if (!map) return undefined;
     const layers = map
       .getStyle()
       .layers.filter((layer) => "source-layer" in layer && layer["source-layer"] === "buildings")
       .map((layer) => layer.id);
-    const at: [number, number] = [event.lngLat.lng, event.lngLat.lat];
+    if (!layers.length) return undefined;
     return map
-      .queryRenderedFeatures(event.point, { layers })
+      .queryRenderedFeatures(point ?? map.project(at), { layers })
       .map((feature) => buildingAt(feature.geometry as Polygon | MultiPolygon, at))
       .find(Boolean);
+  }
+
+  // Align on an empty plan puts the origin at the left end of the picked wall, with the building
+  // along the x-axis and to its left, so a point one grid step in on both axes lies inside it.
+  private _buildingAtOrigin(frame: PlanFrame): Polygon | undefined {
+    const [lon, lat] = frame.fromLattice([frame.unitsPerStep, frame.unitsPerStep]);
+    return this._buildingAt([lon, lat]);
+  }
+
+  // The map's building offers its outline once the site frame follows the stored bearing and until
+  // the Building has an outline; the editor decides where it shows. Nothing about it is stored.
+  private _offerMapOutline() {
+    const [editor, frame] = [this._editor, this._state.frame];
+    if (!editor || !frame) return;
+    const aligned = this._state.bearing !== null && frame.bearingDeg === this._state.bearing;
+    if (aligned && this._state.outline.type !== "Polygon") this._mapBuilding ??= this._buildingAtOrigin(frame);
+    editor.setMapOutline(aligned && this._mapBuilding ? mapOutlineBox(frame, this._mapBuilding) : undefined);
   }
 
   private _previewWall(event: MapMouseEvent) {
@@ -869,6 +960,8 @@ class SpatialPanel extends LitElement {
       this._toast({ message: "No building here" });
       return;
     }
+    // Its outline is offered once the new frame arrives.
+    this._mapBuilding = building;
     const at: Position = [event.lngLat.lng, event.lngLat.lat];
     const fields = alignFields(building, at, this._editor?.hasShapes ?? false);
     // The picked wall lies low in the view with the building above it, its outside facing the viewer.
