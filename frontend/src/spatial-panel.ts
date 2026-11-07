@@ -1100,29 +1100,30 @@ class SpatialPanel extends LitElement {
     return this._buildingAt([event.lngLat.lng, event.lngLat.lat], event.point);
   }
 
-  // The style's layers that draw the map tiles' buildings; none while the map is hidden.
-  private _buildingLayers() {
-    return (this._map?.getStyle().layers ?? []).filter(
-      (layer): layer is typeof layer & { source: string } => "source-layer" in layer && layer["source-layer"] === "buildings",
-    );
+  // The ids of the style's layers that draw the map tiles' buildings; none while the map is hidden.
+  private _buildingLayers(): string[] {
+    return (this._map?.getStyle().layers ?? [])
+      .filter((layer) => "source-layer" in layer && layer["source-layer"] === "buildings")
+      .map((layer) => layer.id);
   }
 
-  // The map tiles' building at `at`, on screen at `point`, when the map shows it there. It is read from the
-  // tiles of the source's finest zoom only, so it does not change while coarser tiles stand in during
-  // loading. A building across a tile edge is read from each tile it reaches and joined.
+  // The map tiles' building at `at`, on screen at `point`, when the map shows it there. MapLibre cuts the
+  // source's tiles again into the tiles of the view's zoom, so a building is cut at those edges too; it is
+  // read from each tile it reaches and joined. Only the finest tiles under the point count, so a coarser
+  // tile standing in while finer ones load does not mix in.
   private _buildingAt(at: [number, number], point?: PointLike): Polygon | undefined {
     const map = this._map;
     const layers = this._buildingLayers();
-    const zoom = layers.length ? map?.getSource(layers[0].source)?.maxzoom : undefined;
-    if (!map || zoom === undefined) return undefined;
+    if (!map || !layers.length) return undefined;
     const read = (where: PointLike | [PointLike, PointLike]): TileBuildings[] =>
-      map.queryRenderedFeatures(where, { layers: layers.map((layer) => layer.id) }).map((feature) => ({
+      map.queryRenderedFeatures(where, { layers }).map((feature) => ({
         z: feature._z,
         x: feature._x,
         y: feature._y,
         geometry: feature.geometry as Polygon | MultiPolygon,
       }));
     let tiles = read(point ?? map.project(at));
+    const zoom = Math.max(...tiles.map((tile) => tile.z));
     let building = buildingAt(tiles, at, zoom);
     for (let reads = 1; building && reads < MAX_BUILDING_READS && reachesUnreadTiles(building, tiles, zoom); reads++) {
       const known = new Set(tiles.map(tileId));

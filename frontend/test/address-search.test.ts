@@ -308,6 +308,20 @@ test("a picked building across a tile edge is read from the tiles under it and s
   expect(lngRange(sources["spatial-home"].data)).toEqual([5.119, 5.122]);
 });
 
+test("the picked place's building is read from the tiles MapLibre renders at the view's zoom, without a coarser stand-in", async () => {
+  const { panel } = mountPanel({ homeLocation: {}, site: { bearing_deg: null }, reply: searchingAnd([DOMTOREN]) });
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
+  await searchAndPick(panel);
+  // Past the source's zoom 14 MapLibre cuts its tiles into zoom 18 tiles, and features carry those.
+  queryRenderedFeatures.mockReturnValue([
+    { _z: 17, _x: 67400, _y: 43241, geometry: hallPart(5.1, 5.13) },
+    { _z: 18, _x: 134801, _y: 86482, geometry: TOWER },
+  ]);
+  handlers.idle();
+  expect(sources["spatial-home"].data).toEqual(TOWER);
+});
+
 test("the picked place's building is read once the camera has landed, and then kept", async () => {
   const { panel } = mountPanel({ homeLocation: {}, site: { bearing_deg: null }, reply: searchingAnd([DOMTOREN]) });
   await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
