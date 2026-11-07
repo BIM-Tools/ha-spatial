@@ -39,6 +39,13 @@ check the spelling or add the town. When the search server cannot be reached, pr
 or close the card and pan the map to your home. The magnifier at the top of the map controls
 (**Find an address**) opens the same card at any time.
 
+**Home location.** After you pick a result, Home Assistant's toast offers to make it the home
+location Home Assistant uses for zones and presence: **Use as home** when Home Assistant has no
+home location yet, or **Move** when the place lies more than 25 m from it, with the distance.
+Only the latitude and longitude change; the toast **Home location moved** offers **Undo**. Within
+25 m nothing is asked, and once asked, a later search in the same visit asks nothing. This
+needs an administrator, like the panel.
+
 1. **Align.** Pick a floor, press **Align** and click your house on the map near the wall the
    rooms follow; the line at the top says "Click the wall your rooms follow" and the wall under
    the pointer lights up. The map turns so that wall is horizontal, and Select is active again.
@@ -236,7 +243,7 @@ a touch screen), and a link to this documentation.
 
 | Control | Does |
 | --- | --- |
-| Find an address | Opens the address search card; picking a result flies the map there |
+| Find an address | Opens the address search card; picking a result flies the map there and may offer to move the home location |
 | Map | Shows or hides the map under the plan; off shows the plan on the page colour. Remembered in this browser |
 | Zoom in, zoom out | Zooms the map |
 | Compass | Turns with the map; a click turns back to the site direction ("Face the house"), or north up before any Align ("Face north") |

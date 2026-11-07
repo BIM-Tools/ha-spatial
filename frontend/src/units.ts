@@ -9,6 +9,7 @@ export interface HassUnits {
 const METRES_PER_INCH = 0.0254;
 const SQUARE_METRES_PER_SQUARE_FOOT = METRES_PER_INCH * METRES_PER_INCH * 144;
 const INCHES_PER_FOOT = 12;
+const METRES_PER_MILE = 1609.344;
 
 export const isUsCustomary =(hass: HassUnits): boolean => hass.config.unit_system.length === "mi";
 
@@ -97,6 +98,14 @@ export function typedLength(metres: number, hass: HassUnits): string {
   if (isUsCustomary(hass)) return feetAndInches(metres);
   const { value, digits } = metricLattice(metres);
   return `${value.toFixed(digits)} m`;
+}
+
+/** A distance on the map: whole metres up to a kilometre, then kilometres with one decimal; or feet up to a mile, then miles. */
+export function formatDistance(metres: number, hass: HassUnits): string {
+  const [small, smallUnit, large, largeUnit] = isUsCustomary(hass)
+    ? [metres / (METRES_PER_INCH * INCHES_PER_FOOT), "ft", metres / METRES_PER_MILE, "mi"]
+    : [metres, "m", metres / 1000, "km"];
+  return large < 1 ? `${formatNumber(small, hass, 0)} ${smallUnit}` : `${formatNumber(large, hass, 1)} ${largeUnit}`;
 }
 
 /** Square metres with one decimal, or whole square feet. */

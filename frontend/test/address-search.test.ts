@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // Checks the panel's address search wiring: when the card opens, what it sends, what it shows and where the map goes.
 import { afterEach, expect, test, vi } from "vitest";
-import { buttonNamed, fitBounds, flyTo, mapCreated, mountPanel, type Reply, resetFakes, settle } from "./panel-harness";
+import { buttonNamed, fitBounds, flyTo, mapCreated, type Mount, mountPanel, type Reply, resetFakes, settle, toasts } from "./panel-harness";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
 
@@ -31,8 +31,8 @@ const pressEnter = async (panel: HTMLElement) => {
   await settle(panel);
 };
 
-const openSearch = async (reply?: Reply) => {
-  const mounted = mountPanel({ reply });
+const openSearch = async (reply?: Reply, mount: Mount = {}) => {
+  const mounted = mountPanel({ ...mount, reply });
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
   await settle(mounted.panel);
   buttonNamed(mounted.panel, "Find an address")!.click();
@@ -171,4 +171,66 @@ test("Close and Escape close the card", async () => {
   field(panel).dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
   await settle(panel);
   expect(card(panel)).toBeNull();
+});
+
+const homeWrites = (connection: ReturnType<typeof mountPanel>["connection"]) =>
+  connection.sendMessagePromise.mock.calls.map(([message]) => message).filter((message) => message.type === "config/core/update");
+
+// Answers the searches with these places and every core config write with success.
+const searchingAnd =
+  (...answers: object[][]): Reply =>
+  async (message) => {
+    if (message.type === "config/core/update") return null;
+    if (message.type !== "spatial/address/search") return undefined;
+    return { places: answers.shift() };
+  };
+
+const searchAndPick = async (panel: HTMLElement) => {
+  if (!card(panel)) {
+    buttonNamed(panel, "Find an address")!.click();
+    await settle(panel);
+  }
+  await type(panel, "Domtoren");
+  await pressEnter(panel);
+  inCard(panel).querySelector<HTMLButtonElement>("li button")!.click();
+  await settle(panel);
+};
+
+test("a place far from the home offers Move, which writes the place as the home, and Undo writes the old home back", async () => {
+  const { panel, connection } = await openSearch(searchingAnd([DOMTOREN]));
+  await searchAndPick(panel);
+  expect(toasts).toHaveLength(1);
+  expect(toasts[0].message).toMatch(/^Move Home Assistant's home here\? The home pin is 1\d\.\d km away$/);
+  expect(toasts[0].action!.text).toBe("Move");
+  toasts[0].action!.action();
+  await vi.waitFor(() => expect(toasts).toHaveLength(2));
+  expect(toasts[1]).toMatchObject({ message: "Home location moved", action: { text: "Undo" } });
+  toasts[1].action!.action();
+  await vi.waitFor(() => expect(homeWrites(connection)).toHaveLength(2));
+  expect(homeWrites(connection)).toEqual([
+    { type: "config/core/update", latitude: 52.0907, longitude: 5.1214 },
+    { type: "config/core/update", latitude: 52, longitude: 5 },
+  ]);
+});
+
+test("without a home location, a picked place offers Use as home", async () => {
+  const { panel, connection } = await openSearch(searchingAnd([DOMTOREN]), { homeLocation: {} });
+  await searchAndPick(panel);
+  expect(toasts.map((toast) => [toast.message, toast.action?.text])).toEqual([["Use this as Home Assistant's home?", "Use as home"]]);
+  toasts[0].action!.action();
+  await vi.waitFor(() => expect(homeWrites(connection)).toEqual([{ type: "config/core/update", latitude: 52.0907, longitude: 5.1214 }]));
+});
+
+test("a place within 25 m of the home asks nothing", async () => {
+  const { panel } = await openSearch(searchingAnd([VOORBEELDSTRAAT]));
+  await searchAndPick(panel);
+  expect(toasts).toEqual([]);
+});
+
+test("a second pick in the same visit asks nothing, whatever the first answer", async () => {
+  const { panel, connection } = await openSearch(searchingAnd([DOMTOREN], [DOMTOREN]));
+  await searchAndPick(panel);
+  await searchAndPick(panel);
+  expect(toasts).toHaveLength(1);
+  expect(homeWrites(connection)).toEqual([]);
 });
