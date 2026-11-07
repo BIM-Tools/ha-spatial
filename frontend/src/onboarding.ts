@@ -24,6 +24,8 @@ export interface Plan {
   buildingAtHome: boolean | undefined;
   // The address search was used or closed in this visit.
   searched: boolean;
+  // A building on the map was clicked as the home in this visit, since the last search pick.
+  homeClicked: boolean;
   // The site has a direction.
   aligned: boolean;
   outlineStored: boolean;
@@ -50,6 +52,7 @@ export interface GuideButton {
 export interface Step {
   kind:
     | "find"
+    | "click-home"
     | "choose-floor"
     | "align"
     | "outline-question"
@@ -84,13 +87,17 @@ const nextFloor = (floors: PlanFloor[], current: Floor): PlanFloor | undefined =
 
 /**
  * Custom. The one step the plan is at, in this order: find the home when Home Assistant has none or
- * the map draws no building there; on All, which floor to open; align; check one length after Use
+ * the map draws no building there; click the home's building, until one was clicked in this visit (Align
+ * switched on by hand goes ahead); on All, which floor to open; align; check one length after Use
  * outline; the outline, as the map's question or drawn by hand; the active area while it has no shape;
  * the floor done with Next floor; done. An area the user picked to edit, while others wait, says nothing.
  */
 export function nextStep(plan: Plan): Step {
   const floor = plan.floor === "all" ? workFloor(plan.floors) : plan.floor;
   if (!plan.aligned && !plan.searched && (!plan.homeKnown || plan.buildingAtHome === false)) return { kind: "find", floor };
+  if (!plan.aligned && !plan.homeClicked && plan.tool !== "align") {
+    return { kind: "click-home", text: "Click your home", detail: "Point at your house and click it.", floor };
+  }
   const done = plan.aligned && plan.outlineStored && !plan.floors.some(unshaped);
   if (plan.floor === "all") return done ? { kind: "done", text: CHOOSE_FLOOR } : { kind: "choose-floor", text: CHOOSE_FLOOR, floor };
   if (!plan.aligned || plan.tool === "align") {

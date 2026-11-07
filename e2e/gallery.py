@@ -799,9 +799,27 @@ def empty_plan(token: str) -> None:
     websocket.call("spatial/site/update", bearing_deg=None, origin=None, outline=None)
 
 
-def first_run_align(shot: Shot) -> None:
+def home_building(shot: Shot) -> tuple[float, float]:
+    """Page pixels well inside the map tiles' building at the first run's home."""
+    home = shot.screen_point(FIRST_RUN_HOME["longitude"], FIRST_RUN_HOME["latitude"])
+    building = shot.building_near(*home)
+    if building is None:
+        raise Skip("no OSM building at the home in the map tiles")
+    return building
+
+
+def first_run_click_home(shot: Shot) -> None:
     empty_plan(shot.token)
     shot.open_panel()
+    shot.panel.get_by_text("Click your home").wait_for()
+    shot.settle()
+    shot.hover(*home_building(shot))
+    shot.settle()
+
+
+def first_run_align(shot: Shot) -> None:
+    first_run_click_home(shot)
+    shot.click(*home_building(shot))
     shot.panel.get_by_text("Click the front wall of your home").wait_for()
     shot.settle()
 
@@ -809,11 +827,7 @@ def first_run_align(shot: Shot) -> None:
 def first_run_outline(shot: Shot) -> None:
     first_run_align(shot)
     shot.select_tool("Align")
-    home = shot.screen_point(FIRST_RUN_HOME["longitude"], FIRST_RUN_HOME["latitude"])
-    building = shot.building_near(*home)
-    if building is None:
-        raise Skip("no OSM building at the home in the map tiles")
-    shot.click(*building)
+    shot.click(*home_building(shot))
     try:
         shot.panel.get_by_role("button", name="Use outline", exact=True).wait_for(
             timeout=SETTLE_TIMEOUT_MS
@@ -864,9 +878,15 @@ def first_run_floor_done(shot: Shot) -> None:
 
 FIRST_RUN = [
     State(
+        "first-run-click-home",
+        "first-run",
+        "A fresh plan, the home on a building: ground floor open, Click your home, the building under the pointer lit",
+        first_run_click_home,
+    ),
+    State(
         "first-run-align",
         "first-run",
-        "A fresh plan, the home on a building: ground floor open, the home dashed, Align lit",
+        "The home clicked: the building dashed, Align lit",
         first_run_align,
     ),
     State(
