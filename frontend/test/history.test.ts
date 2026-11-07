@@ -1,6 +1,6 @@
 // Checks the session undo history: what each step hands back to the caller.
 import { expect, test } from "vitest";
-import { History } from "../src/history";
+import { History, clearChange } from "../src/history";
 
 const change = (name: string) => ({
   before: { [name]: null },
@@ -28,8 +28,43 @@ test("recording after an undo clears redo", () => {
   expect(history.redo()).toBeUndefined();
 });
 
+test("only the change the next undo takes back is the latest", () => {
+  const history = new History();
+  const [first, second] = [change("a"), change("b")];
+  expect(history.isLatest(first)).toBe(false);
+  history.record(first);
+  expect(history.isLatest(first)).toBe(true);
+  history.record(second);
+  expect(history.isLatest(first)).toBe(false);
+  history.undo();
+  expect(history.isLatest(first)).toBe(true);
+});
+
 test("undo and redo on an empty history return nothing", () => {
   const history = new History();
   expect(history.undo()).toBeUndefined();
   expect(history.redo()).toBeUndefined();
+});
+
+const square = (size: number) => ({
+  type: "Polygon" as const,
+  coordinates: [[[0, 0], [size, 0], [size, size], [0, size], [0, 0]]],
+});
+const FOOTPRINTS = new Map([
+  ["kitchen", square(1)],
+  ["hall", square(2)],
+  ["attic", square(3)],
+]);
+
+test.each([
+  [
+    "the floor's shaped areas, not those of other floors",
+    ["kitchen", "hall", "study"],
+    { before: { kitchen: square(1), hall: square(2) }, after: { kitchen: null, hall: null } },
+  ],
+  ["one shaped area", ["hall"], { before: { hall: square(2) }, after: { hall: null } }],
+  ["nothing when no area has a shape", ["study"], undefined],
+  ["nothing for a floor without areas", [], undefined],
+])("clearing a floor removes %s", (_name, areaIds, change) => {
+  expect(clearChange(areaIds, FOOTPRINTS)).toEqual(change);
 });

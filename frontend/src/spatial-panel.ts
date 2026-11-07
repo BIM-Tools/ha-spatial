@@ -7,9 +7,12 @@ import {
   type GeoJSONSource,
   type MapMouseEvent,
   Map as MapLibreMap,
+  type PointLike,
   type StyleSpecification,
   setWorkerUrl,
 } from "maplibre-gl";
+import { type Place, cameraFor, homeQuestion, homeUnknown } from "./address";
+import "./address-search";
 import "./editor-toolbar";
 import {
   type FloorStack,
@@ -29,17 +32,20 @@ import { type MapPaint, layerColours, readMapPaint, repaint } from "./map-paint"
 import { type ThemeState, bounds, darkModeOf, mapBearing, styleUrl, withMapTilesToken, workerUrl } from "./map-view";
 import { type AlignFields, alignFields, buildingAt, wallAt } from "./outline";
 import "./panel-header";
-import { EMPTY, PanelState } from "./panel-state";
+import type { MenuItem } from "./panel-header";
+import { EMPTY, PanelState, alignPlace } from "./panel-state";
+import { mapOutlineBox } from "./plan";
+import type { PlanFrame } from "./site-frame";
 import { BUILDING } from "./area-strip";
 import { type Guide, RoomEditor, type Toast, type Tool } from "./room-editor";
 import { type AreaInfo, RoomLabels, roomLabelStyles } from "./room-labels";
-import { floatingSurface, phoneBar } from "./styles";
-import { type HassUnits, isStillStarting, saveFailureMessage } from "./units";
+import { floatingSurface, phoneBar, selectedFill } from "./styles";
+import { type HassUnits, formatDistance, isStillStarting, saveFailureMessage } from "./units";
 
 // The parts of Home Assistant's `hass` object this panel uses.
 interface Hass extends HassUnits {
-  // The location name is the building's name.
-  config: HassUnits["config"] & { location_name: string };
+  // The location name is the building's name; without a home location the panel starts at the address search.
+  config: HassUnits["config"] & { location_name: string; latitude?: number; longitude?: number };
   user?: { is_admin: boolean };
   connection: {
     sendMessagePromise<T>(message: { type: string; [key: string]: unknown }): Promise<T>;
@@ -69,6 +75,13 @@ const START_ZOOM = 19;
 const PHONE_QUERY = "(max-width: 600px)";
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 const MAP_SHOWN_KEY = "spatial-show-map";
+// The whole globe in view, for a home that is not known yet.
+const GLOBE_CENTRE: [number, number] = [0, 20];
+const GLOBE_ZOOM = 1.5;
+// Long enough to read the question and the distance; Home Assistant's default of 3 s is not.
+const HOME_QUESTION_MS = 10000;
+
+type HomeLocation = { latitude: number; longitude: number };
 
 // Core rotates the map tiles token every 30 minutes and keeps two live; this
 // is the interval Home Assistant's own frontend refreshes at.
@@ -124,6 +137,7 @@ class SpatialPanel extends LitElement {
     _hovered: { state: true },
     _mapShown: { state: true },
     _phone: { state: true },
+    _searchOpen: { state: true },
   };
 
   static styles = [
@@ -222,6 +236,54 @@ class SpatialPanel extends LitElement {
       flex: none;
       color: var(--secondary-text-color);
     }
+    /* A question: two lines of text and its answers, which wrap below the text when narrow. */
+    .guide.question {
+      flex-wrap: wrap;
+      max-width: 560px;
+      border-radius: 24px;
+      padding: var(--ha-space-2) var(--ha-space-2) var(--ha-space-2) var(--ha-space-4);
+    }
+    .guide.question .lines {
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .guide.question .text {
+      font-weight: 500;
+      white-space: normal;
+    }
+    .guide .detail {
+      color: var(--secondary-text-color);
+      font-size: var(--ha-font-size-s);
+    }
+    .guide .actions {
+      display: flex;
+      gap: var(--ha-space-1);
+      margin-left: auto;
+    }
+    .guide button {
+      height: 36px;
+      padding: 0 14px;
+      border: none;
+      border-radius: 18px;
+      background: none;
+      color: var(--primary-text-color);
+      font: inherit;
+      font-weight: 500;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .guide button.lit {
+      background: ${selectedFill};
+      box-shadow: 0 0 0 1.5px var(--primary-color);
+    }
+    @media (pointer: coarse) {
+      .guide button {
+        height: 44px;
+        border-radius: 22px;
+      }
+    }
     /* MapLibre's attribution sits bottom right, where a wide strip would cover it. */
     .stage.with-strip .maplibregl-ctrl-bottom-right {
       bottom: 68px;
@@ -251,6 +313,16 @@ class SpatialPanel extends LitElement {
       display: flex;
       border-top: 1px solid var(--divider-color);
     }
+    /* On a phone the search card spans the width under the header. */
+    spatial-address-search.sheet {
+      ${phoneBar}
+      position: absolute;
+      top: 0;
+      right: 0;
+      left: 0;
+      width: auto;
+      border-bottom: 1px solid var(--divider-color);
+    }
   `,
   ];
 
@@ -264,6 +336,7 @@ class SpatialPanel extends LitElement {
   declare _hovered: string | undefined;
   declare _mapShown: boolean;
   declare _phone: boolean;
+  declare _searchOpen: boolean;
 
   // The site, its frame, the rooms and the floor in view.
   private readonly _state = new PanelState(this);
@@ -285,7 +358,13 @@ class SpatialPanel extends LitElement {
   private _stack?: FloorStack;
   // Only the admin panel edits; the card stays read-only.
   private _editor?: RoomEditor;
+  // The map tiles' building that Align picked, or the one at the site origin; kept for this visit only.
+  private _mapBuilding?: Polygon;
   private readonly _phoneQuery = window.matchMedia(PHONE_QUERY);
+  // Set at start when there is no home and no plan: the map opens on the globe with the address search.
+  private _globe = false;
+  // Set once the panel has offered to move the home to a picked place, so a second search in this visit stays quiet.
+  private _homeAsked = false;
 
   constructor() {
     super();
@@ -293,6 +372,7 @@ class SpatialPanel extends LitElement {
     this._hovered = undefined;
     this._mapShown = readMapShown();
     this._phone = false;
+    this._searchOpen = false;
   }
 
   connectedCallback() {
@@ -325,13 +405,14 @@ class SpatialPanel extends LitElement {
     const phone = this._phone && !this.card;
     return html`
       <link rel="stylesheet" href="/static/map/maplibre-gl.css" />
-      ${this.card ? nothing : html`<spatial-panel-header ?narrow=${phone}></spatial-panel-header>`}
+      ${this.card ? nothing : html`<spatial-panel-header ?narrow=${phone} .menu=${this._menu()}></spatial-panel-header>`}
       ${phone ? this._floorSelector(true) : nothing}
       <div class="stage ${editor && !phone ? "with-strip" : ""}">
         <div id="map"></div>
         <div class="top ${phone ? "phone" : ""}">
           ${phone ? nothing : this._floorSelector(false)}
-          ${editor && !phone ? this._toolbar(editor, false) : nothing} ${this._guide()}
+          ${editor && !phone ? this._toolbar(editor, false) : nothing}
+          ${this._searchOpen && !phone ? html`<div class="guide-row">${this._searchCard(false)}</div>` : this._guide()}
         </div>
         ${editor
           ? html`<spatial-map-stack
@@ -340,14 +421,16 @@ class SpatialPanel extends LitElement {
               .mapShown=${this._mapShown}
               .mapForced=${this._aligning}
               .bearing=${this._mapBearingDeg}
-              .aligned=${this._state.bearing !== null}
+              .aligned=${alignPlace(this._state.bearing) === "menu"}
               @map-toggle=${this._toggleMap}
               @zoom-in=${() => this._map?.zoomIn()}
               @zoom-out=${() => this._map?.zoomOut()}
               @compass=${this._faceSite}
+              @address-search=${() => (this._searchOpen = true)}
             ></spatial-map-stack>`
           : nothing}
         ${editor && !phone ? html`<div class="strip" @area-hover=${this._hoverFromStrip}>${editor.render(this._hovered)}</div>` : nothing}
+        ${this._searchOpen && phone ? this._searchCard(true) : nothing}
       </div>
       ${editor && phone ? html`<div class="strip-bar" @area-hover=${this._hoverFromStrip}>${editor.render(this._hovered)}</div>` : nothing}
       ${editor && phone ? this._toolbar(editor, true) : nothing}
@@ -370,6 +453,7 @@ class SpatialPanel extends LitElement {
       class=${bar ? "" : "toolbar"}
       ?bar=${bar}
       ?disabled=${this._state.floor === "all"}
+      ?align=${alignPlace(this._state.bearing) === "toolbar"}
       .tool=${editor.tool}
       .canUndo=${editor.canUndo}
       .canRedo=${editor.canRedo}
@@ -381,6 +465,24 @@ class SpatialPanel extends LitElement {
     ></spatial-editor-toolbar>`;
   }
 
+  // Once the site has a direction, Align moves out of the toolbar into the header menu. Like the
+  // tools both entries need a floor; on All, a view only, they are off. No floor is not a floor to
+  // clear, so it keeps the plain, disabled entry.
+  private _menu(): MenuItem[] {
+    const editor = this._editor;
+    if (!editor) return [];
+    const floor = this._state.floor;
+    const onAll = floor === "all";
+    const floorName = this._floorName(floor);
+    const clear = {
+      label: onAll || floor === null ? "Clear floor" : `Clear ${floorName}`,
+      disabled: !editor.canClear,
+      action: () => editor.clearFloor(floorName),
+    };
+    if (alignPlace(this._state.bearing) !== "menu") return [clear];
+    return [{ label: "Change alignment", disabled: onAll, action: () => this._selectTool("align") }, clear];
+  }
+
   // One line at a time, and only when there is something to say; what went wrong first.
   private _guide() {
     const noRooms = this._state.hasNoRooms(this.floor);
@@ -388,11 +490,79 @@ class SpatialPanel extends LitElement {
       ? { text: "Map could not load" }
       : (this._editor?.guide ?? (noRooms ? { text: "No rooms yet" } : undefined));
     if (!guide) return nothing;
+    if (guide.actions) {
+      return html`<div class="guide-row">
+        <div class="guide question" role="status">
+          <span class="lines"><span class="text">${guide.text}</span><span class="detail">${guide.detail}</span></span>
+          <span class="actions">
+            ${guide.actions.map(
+              (action) => html`<button class=${action.lit ? "lit" : ""} @click=${action.run}>${action.label}</button>`,
+            )}
+          </span>
+        </div>
+      </div>`;
+    }
     return html`<div class="guide-row">
       <div class="guide" role="status">
         <span class="text">${guide.text}</span>${guide.step ? html`<span class="step">${guide.step}</span>` : nothing}
       </div>
     </div>`;
+  }
+
+  private _searchCard(sheet: boolean) {
+    return html`<spatial-address-search
+      class=${sheet ? "sheet" : ""}
+      .search=${this._searchAddress}
+      @place-pick=${this._flyToPlace}
+      @search-close=${() => (this._searchOpen = false)}
+    ></spatial-address-search>`;
+  }
+
+  private _searchAddress = async (query: string): Promise<Place[]> =>
+    (await this.hass!.connection.sendMessagePromise<{ places: Place[] }>({ type: "spatial/address/search", query })).places;
+
+  private _flyToPlace = (event: CustomEvent<{ place: Place }>) => {
+    this._searchOpen = false;
+    const map = this._map;
+    if (!map) return;
+    const camera = cameraFor(event.detail.place);
+    if ("bounds" in camera) map.fitBounds(camera.bounds, { maxZoom: camera.maxZoom, bearing: map.getBearing(), padding: 48 });
+    else map.flyTo({ center: camera.center, zoom: camera.zoom });
+    this._offerHome(event.detail.place);
+  };
+
+  // Asked at most once a visit, whatever the answer; nothing is stored, so a later visit may ask again.
+  private _offerHome(place: Place) {
+    const config = this.hass!.config;
+    const question = this._homeAsked ? undefined : homeQuestion(config, place);
+    if (!question) return;
+    this._homeAsked = true;
+    const back = { latitude: config.latitude ?? 0, longitude: config.longitude ?? 0 };
+    const to = { latitude: place.lat, longitude: place.lon };
+    this._toast({
+      message:
+        question.kind === "use"
+          ? "Use this as Home Assistant's home?"
+          : `Move Home Assistant's home here? The home pin is ${formatDistance(question.metres, this.hass!)} away`,
+      action: { text: question.kind === "use" ? "Use as home" : "Move", action: () => this._moveHome(to, back) },
+      duration: HOME_QUESTION_MS,
+    });
+  }
+
+  private async _moveHome(to: HomeLocation, back: HomeLocation) {
+    if (!(await this._writeHome(to))) return;
+    this._toast({ message: "Home location moved", action: { text: "Undo", action: () => this._writeHome(back) } });
+  }
+
+  // Only latitude and longitude change; Home Assistant's core config keeps everything else.
+  private async _writeHome(location: HomeLocation): Promise<boolean> {
+    try {
+      await this.hass!.connection.sendMessagePromise({ type: "config/core/update", ...location });
+      return true;
+    } catch (err) {
+      this._toast({ message: saveFailureMessage(err) });
+      return false;
+    }
   }
 
   /** Fires Home Assistant's toast, which its notification manager shows and announces. */
@@ -462,7 +632,8 @@ class SpatialPanel extends LitElement {
         : plainStyle(this._groundColour());
       if (key !== this._pendingStyleKey) return undefined;
       this._styleKey = key;
-      return style;
+      // MapLibre's globe turns into the flat map as it zooms in, so a home found on it is drawn as always.
+      return this._globe ? { ...style, projection: { type: "globe" } } : style;
     } finally {
       if (key === this._pendingStyleKey) this._pendingStyleKey = "";
     }
@@ -513,6 +684,7 @@ class SpatialPanel extends LitElement {
       this._map?.getSource<GeoJSONSource>("outline")?.setData(this._state.outline);
       this._buildStack();
       this._showLabels();
+      this._offerMapOutline();
       return site;
     };
     const editor = this.card
@@ -566,6 +738,9 @@ class SpatialPanel extends LitElement {
     this._unsubscribe = unsubscribe;
 
     this._state.bearing = site.bearing_deg;
+    const planDrawn = this._state.areas.features.length > 0 || this._state.outline.type === "Polygon";
+    this._globe = Boolean(editor) && !planDrawn && homeUnknown(hass.config);
+    if (this._globe) this._searchOpen = true;
     const style = await this._loadStyle();
     if (stopped() || !style) return;
     setWorkerUrl(workerUrl(import.meta.url));
@@ -574,9 +749,9 @@ class SpatialPanel extends LitElement {
       container: this.renderRoot.querySelector<HTMLElement>("#map")!,
       style,
       transformRequest: (url) => withMapTilesToken(url, location.origin, this._token),
-      center: [site.lon, site.lat],
-      zoom: START_ZOOM,
-      pitch: this._state.floor === "all" ? VIEW_PITCH_DEG : 0,
+      center: this._globe ? GLOBE_CENTRE : [site.lon, site.lat],
+      zoom: this._globe ? GLOBE_ZOOM : START_ZOOM,
+      pitch: this._state.floor === "all" && !this._globe ? VIEW_PITCH_DEG : 0,
       bearing: this._mapBearingDeg,
       interactive: !this.floor,
       // A dashboard scrolls under the card, so the card neither turns nor tilts; the panel's All view may orbit.
@@ -601,6 +776,8 @@ class SpatialPanel extends LitElement {
     if (editor) {
       this._showBearing(this._mapBearingDeg);
       map.on("rotate", () => this._showBearing(map.getBearing()));
+      // The map's buildings can be read once their tiles are drawn.
+      map.on("idle", () => this._offerMapOutline());
     }
     editor?.attach(map);
     // After the editor, so the click that ends Align is not also a room pick in Select.
@@ -840,16 +1017,39 @@ class SpatialPanel extends LitElement {
   }
 
   private _buildingUnder(event: MapMouseEvent): Polygon | undefined {
-    const map = this._map!;
+    return this._buildingAt([event.lngLat.lng, event.lngLat.lat], event.point);
+  }
+
+  // The part of the map tiles' buildings at `at`, on screen at `point`, when the map shows them there.
+  private _buildingAt(at: [number, number], point?: PointLike): Polygon | undefined {
+    const map = this._map;
+    if (!map) return undefined;
     const layers = map
       .getStyle()
       .layers.filter((layer) => "source-layer" in layer && layer["source-layer"] === "buildings")
       .map((layer) => layer.id);
-    const at: [number, number] = [event.lngLat.lng, event.lngLat.lat];
+    if (!layers.length) return undefined;
     return map
-      .queryRenderedFeatures(event.point, { layers })
+      .queryRenderedFeatures(point ?? map.project(at), { layers })
       .map((feature) => buildingAt(feature.geometry as Polygon | MultiPolygon, at))
       .find(Boolean);
+  }
+
+  // Align on an empty plan puts the origin at the left end of the picked wall, with the building
+  // along the x-axis and to its left, so a point one grid step in on both axes lies inside it.
+  private _buildingAtOrigin(frame: PlanFrame): Polygon | undefined {
+    const [lon, lat] = frame.fromLattice([frame.unitsPerStep, frame.unitsPerStep]);
+    return this._buildingAt([lon, lat]);
+  }
+
+  // The map's building offers its outline once the site frame follows the stored bearing and until
+  // the Building has an outline; the editor decides where it shows. Nothing about it is stored.
+  private _offerMapOutline() {
+    const [editor, frame] = [this._editor, this._state.frame];
+    if (!editor || !frame) return;
+    const aligned = this._state.bearing !== null && frame.bearingDeg === this._state.bearing;
+    if (aligned && this._state.outline.type !== "Polygon") this._mapBuilding ??= this._buildingAtOrigin(frame);
+    editor.setMapOutline(aligned && this._mapBuilding ? mapOutlineBox(frame, this._mapBuilding) : undefined);
   }
 
   private _previewWall(event: MapMouseEvent) {
@@ -869,12 +1069,14 @@ class SpatialPanel extends LitElement {
       this._toast({ message: "No building here" });
       return;
     }
+    // Its outline is offered once the new frame arrives.
+    this._mapBuilding = building;
     const at: Position = [event.lngLat.lng, event.lngLat.lat];
     const fields = alignFields(building, at, this._editor?.hasShapes ?? false);
     // The picked wall lies low in the view with the building above it, its outside facing the viewer.
     const wallBelowCentre = (this._map?.getContainer().clientHeight ?? 0) * WALL_OFFSET_SHARE;
     this._map?.easeTo({ bearing: mapBearing(fields.bearing_deg), center: event.lngLat, offset: [0, wallBelowCentre] });
-    this._saveBearing(fields, this._state.bearing);
+    this._saveBearing(fields, this._state.bearing ?? null);
   }
 
   // A failed save turns the view back. A refusal shows Spatial's reason, as trying again would not

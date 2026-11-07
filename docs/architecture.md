@@ -4,6 +4,17 @@ For developers: how the parts fit together. How to use Spatial is in the
 [user guide](user-guide.md); the rules for changing it, the settled decisions and all commands
 are in [AGENTS.md](../AGENTS.md).
 
+## At a glance
+
+| What | How |
+| --- | --- |
+| Stored | Per area: at most one footprint (a GeoJSON Polygon in WGS84, holes allowed), `floors_up` and an optional facade override. Per floor: elevation and height. Per installation: one site with origin, bearing and building outline |
+| Read, never copied | Area and floor ids, names, icons, levels and floor assignment, from Home Assistant's registries |
+| Derived on every read | Net area, neighbouring rooms (shared walls, on each floor a room occupies), outdoor (outside the outline), on the facade, the room a point lies in |
+| Coordinates | WGS84, the world of Home Assistant's zones and map; measured in one local frame at the site origin, on a 2.5 cm (1 in) lattice so shared walls compare exactly |
+| Contract | The `spatial/*` websocket commands, versioned by `api_version` in `spatial/site` ([Compatibility](../custom_components/spatial/README.md#compatibility)) |
+| Not in scope | Walls, doors, furniture, device positions, tracking, CAD or BIM files inside Home Assistant; bridges for those run outside and use the websocket API |
+
 ## Parts
 
 ```mermaid

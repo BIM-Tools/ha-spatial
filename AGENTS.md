@@ -52,7 +52,7 @@ Change these only through an issue that names the reason.
 | Rooms across floors | `floors_up` per area: the Home Assistant floor is the main and lowest floor; the room occupies the floors above it, contiguous |
 | Adjacency | Derived from shared edges, outer and inner rings, on every floor a room occupies; room edges are wall axes, compared exactly on the lattice; never stored |
 | Address search | The backend may call OpenStreetMap Nominatim, only on an explicit search, with an identifying user agent and its rate limit; country geocoders and authoritative outlines stay outside the integration; the server is the one setting in the options form (Configure), default OpenStreetMap's public server |
-| Home location | When the chosen building lies more than 25 m from Home Assistant's home, onboarding asks once whether to move the home there, and remembers the answer; a move changes latitude and longitude only, through core config, and can be undone |
+| Home location | After an address search result is picked, the panel offers it as Home Assistant's home when there is none or it lies more than 25 m away, and not again in that visit; nothing is remembered; a move changes latitude and longitude only, through core config, and can be undone |
 | Units | Display follows Home Assistant's unit system; storage stays metric WGS84 |
 | Area | `area_m2` is net: the axial polygon inset by half walls, half a grid step (5 cm, 2 in) interior and 15 cm (3 in) along the outline |
 | Outdoor, facade | The outline is the exterior wall axis and a hard limit: an indoor room never extends beyond it; `is_external` means a room outside it (IFC `IsExternal`); `on_facade` is derived from sharing the outline, with an optional override |
@@ -61,7 +61,7 @@ Change these only through an issue that names the reason.
 | Site anchor | One direction per installation; the centre follows all footprints, else the outline; aligns views only, so stored geometry never moves with it, except through the explicit, confirmed and undoable "Change alignment" (rotation reduced to a right angle, then snapped to the grid, in one write) |
 | Site grid | Stored as written in WGS84, read on a lattice of a quarter drawing grid step (2.5 cm or 1 in, from Home Assistant's unit system) in the frame of the site origin and bearing; drawing snaps to 10 cm (4 in); the integration publishes the frame in `spatial/site` and the panel draws in it; the first Align on an empty plan sets the origin to the left end of the picked wall |
 | Dependencies | Pure Python in the integration; no shapely or other compiled packages |
-| Finding the building | OSM buildings in Home Assistant's map tiles set the axis only, and may act as an unstored snap guide while the outline is drawn on the map |
+| Finding the building | OSM buildings in Home Assistant's map tiles set the axis, act as an unstored snap guide while the outline is drawn, and can be copied once as the outline on an explicit choice (bounding rectangle along the site axes, 150 mm inward); nothing about the map building is stored |
 | Frontend packages | Packages shared with Home Assistant's frontend use the exact version that frontend ships |
 | Domain | `spatial` |
 

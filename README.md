@@ -12,8 +12,11 @@ Room footprints for Home Assistant areas, on the same map as your zones.
 - Net room areas and neighbouring rooms follow from the footprints; nothing extra to maintain.
 - Small: pure Python, no extra dependencies, Home Assistant's own map and theme; the data
   stays in Home Assistant.
+- Not a CAD tool or a tracker: no walls, doors, furniture or device positions. Positioning
+  projects can ask which room a point lies in through the websocket API.
 
-Early version: the API and storage format can still change.
+Early version: the storage format can still change; the websocket API is versioned
+(`api_version`, see the [integration README](custom_components/spatial/README.md#compatibility)).
 
 ## Install
 

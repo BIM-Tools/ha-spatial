@@ -30,18 +30,47 @@ plan**. The Configure form also holds **Address search server**: leave it at Ope
 unless you run your own Nominatim server or OpenStreetMap asks you to change it. The panel
 opens on **All**, north up, centred on your home location.
 
+**Find your home.** When Home Assistant has no home location yet and nothing is drawn, the
+panel opens on the globe with the card **Find your home**. Type your street, house number and
+town and press **Search** or Enter; Spatial asks OpenStreetMap only then, never while you type,
+and does not keep what you typed. Pick one of up to five results, street on the first line and
+town on the second (arrow keys move through them), and the map flies there. With no result,
+check the spelling or add the town. When the search server cannot be reached, press **Retry**,
+or close the card and pan the map to your home. The magnifier at the top of the map controls
+(**Find an address**) opens the same card at any time.
+
+**Home location.** After you pick a result, Home Assistant's toast offers to make it the home
+location Home Assistant uses for zones and presence: **Use as home** when Home Assistant has no
+home location yet, or **Move** when the place lies more than 25 m from it, with the distance.
+Only the latitude and longitude change; the toast **Home location moved** offers **Undo**. Within
+25 m nothing is asked, and once asked, a later search in the same visit asks nothing. This
+needs an administrator, like the panel.
+
 1. **Align.** Pick a floor, press **Align** and click your house on the map near the wall the
    rooms follow; the line at the top says "Click the wall your rooms follow" and the wall under
    the pointer lights up. The map turns so that wall is horizontal, and Select is active again.
+   From then on Align is no longer in the toolbar: to pick another wall, open the header's
+   **More options** menu and choose **Change alignment**.
 
    ![Align on the ground floor: the guide line on top, the wall under the pointer highlighted](images/align.png)
 
 2. **Draw the building.** Press **Draw**. The strip at the bottom starts with the building,
-   under Home Assistant's location name and highlighted while there is no outline. Draw it on
-   the middle of the exterior walls, with the building on the map as a guide: press and drag
-   from one corner to the opposite one, or click one corner and then the other. After the first
-   box the next area is highlighted; for an L or other shape, choose the building again and add
-   boxes against the outline.
+   under Home Assistant's location name and highlighted while there is no outline. When the map
+   has a building where you aligned, its rectangle along the site direction shows dashed, 150 mm
+   inside the map's line (the map shows the outer face of the walls, the outline is their axis),
+   and the line at the top asks "Use the map's outline?" with its size, for example
+   "9.80 × 7.60 m":
+   - **Use outline** saves that rectangle as the outline (Undo takes it back) and makes it
+     active in Select with its width and depth. The line then says "Check one length you know":
+     click the width or depth and type a length you have measured, for example the front of the
+     house; **Looks right** closes the line.
+   - **Draw it myself** keeps Draw on, and the dashed rectangle becomes something the outline's
+     corners snap to.
+
+   To draw it, put it on the middle of the exterior walls, with the building on the map as a
+   guide: press and drag from one corner to the opposite one, or click one corner and then the
+   other. After the first box the next area is highlighted; for an L or other shape, choose the
+   building again and add boxes against the outline.
 3. **Draw the rooms.** After an area's first shape, the next area of the floor without one is
    highlighted, and the line at the top says "Draw Kitchen" with how far the floor is, for
    example "3 of 5". Draw each room on the wall axes, so neighbours share their edges and the
@@ -58,9 +87,18 @@ opens on **All**, north up, centred on your home location.
 
 ## The panel
 
-The map fills the page under a header with Back (to Spatial's integration page) and Help. The
-floor buttons float top left, the tools top right, the map controls bottom right and the area
-strip at the bottom.
+The map fills the page under a header with Back (to Spatial's integration page), Help and the
+**More options** menu. The floor buttons float top left, the tools top right, the map controls
+bottom right and the area strip at the bottom.
+
+### More options
+
+| Entry | Does |
+| --- | --- |
+| Change alignment | Once the site has a direction: starts Align again, to turn the view to another wall. Off on All, like the tools |
+| Clear *floor* | Removes every room shape on the floor in view at once, as one undo step, without asking; the building outline stays. The toast "*Floor* cleared" offers **Undo**, which takes back the clear only while nothing has changed since. Off on All, on No floor and on a floor without room shapes |
+
+The menu closes with Escape or a click elsewhere.
 
 ### Floor buttons
 
@@ -82,7 +120,7 @@ Exactly one tool is active; **Select** is the default. The tools work on a floor
 
 | Tool | Does |
 | --- | --- |
-| Align | One click on a building on the map, near a wall, saves that wall's direction as the site direction. Without a building under the click a toast says "No building here"; when Spatial refuses the new direction, the toast gives its reason. On an empty plan, with no room and no outline drawn, it also puts the grid origin on the left end of that wall. The map stays on while Align is active |
+| Align | In the toolbar until the first Align, then in the header menu as Change alignment. One click on a building on the map, near a wall, saves that wall's direction as the site direction. Without a building under the click a toast says "No building here"; when Spatial refuses the new direction, the toast gives its reason. On an empty plan, with no room and no outline drawn, it also puts the grid origin on the left end of that wall. The map stays on while Align is active |
 | Draw | Draws boxes along the site direction (north up before any Align) for the highlighted pill. Corners snap to nearby room corners and walls on this floor and to the outline, else land on the 10 cm (4 in) grid; with Alt held they land on the 2.5 cm (1 in) lattice without snapping. While a side is shorter than one grid step only the start dot shows, and such a box is not drawn |
 | Select | A tap on a room makes it active: it is filled, edged and gets round handles on its corners. Drag the active room to move it, or a side or corner of a rectangle to resize it. Type exact side lengths (below) |
 
@@ -206,6 +244,7 @@ a touch screen), and a link to this documentation.
 
 | Control | Does |
 | --- | --- |
+| Find an address | Opens the address search card; picking a result flies the map there and may offer to move the home location |
 | Map | Shows or hides the map under the plan; off shows the plan on the page colour. Remembered in this browser |
 | Zoom in, zoom out | Zooms the map |
 | Compass | Turns with the map; a click turns back to the site direction ("Face the house"), or north up before any Align ("Face north") |
@@ -221,8 +260,10 @@ a touch screen), and a link to this documentation.
 At 600 px wide or less:
 
 - The floors are a chip row under the header.
-- The tools, Undo and Redo are a bar at the bottom, the strip just above it.
-- Of the map controls only the round map toggle stays; pinch to zoom and turn.
+- The tools, Undo, Redo and Remove are a bar at the bottom, the strip just above it; after the
+  first Align that is Draw, Select, Undo, Redo and Remove.
+- Of the map controls only the round address search and map toggle stay; pinch to zoom and turn.
+- The address search card spans the width under the header.
 - Two taps draw a box; a long press on a pill renames it.
 
 ## Dashboard card
@@ -292,12 +333,18 @@ each one means, and the [importer](../tools/README.md) sets floor heights.
   first. A moved room travels in a straight line from where it was picked up, so a drag around a
   corner of the outline or of a room stops at that corner.
 - Snapping uses the rooms on this floor and the outline: not the floor below, diagonal walls or
-  buildings on the map. A moved room lines up its corners with others, not its walls with their
+  buildings on the map, except the map's dashed rectangle while the building has no outline. A moved room lines up its corners with others, not its walls with their
   corners.
 - After the first room or the outline, a new Align keeps the grid origin, so the grid turns
   around the old origin.
 - Align needs a building in the map tiles. A building cut by a tile border gives only the part
   in that tile.
+- The map's outline is offered as a rectangle only: an L-shaped house gets a box drawn onto it.
+  It is offered when the map shows a building at the grid origin, which Align on an empty plan
+  puts on the clicked wall, or after an Align in the same visit; with the map hidden it is not
+  offered. The map's buildings are about 0.4 m accurate, so check one length.
 - Undo covers this session only, and overwrites changes made elsewhere in the meantime. An undo
   for an area deleted in Home Assistant keeps failing; reload the panel to clear the history.
 - The slabs in All lie evenly apart in floor order, whatever elevation a floor has.
+- A search result shows the house number after the street, also where addresses are written the
+  other way round, and its second line may start with a neighbourhood rather than the town.

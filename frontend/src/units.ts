@@ -9,6 +9,7 @@ export interface HassUnits {
 const METRES_PER_INCH = 0.0254;
 const SQUARE_METRES_PER_SQUARE_FOOT = METRES_PER_INCH * METRES_PER_INCH * 144;
 const INCHES_PER_FOOT = 12;
+const METRES_PER_MILE = 1609.344;
 
 export const isUsCustomary =(hass: HassUnits): boolean => hass.config.unit_system.length === "mi";
 
@@ -84,11 +85,27 @@ export function formatLength(metres: number, hass: HassUnits): string {
   return `${formatNumber(value, hass, digits)} m`;
 }
 
+/** The overall size of a rectangle, width first: `9.80 × 7.60 m` with one unit, or feet and inches each. */
+export function formatSize(widthM: number, depthM: number, hass: HassUnits): string {
+  if (isUsCustomary(hass)) return `${feetAndInches(widthM)} × ${feetAndInches(depthM)}`;
+  const [width, depth] = [metricLattice(widthM), metricLattice(depthM)];
+  const digits = Math.max(width.digits, depth.digits);
+  return `${formatNumber(width.value, hass, digits)} × ${formatNumber(depth.value, hass, digits)} m`;
+}
+
 /** A length as a field starts with it: in ASCII digits with a dot, which parseLength reads in every number format. */
 export function typedLength(metres: number, hass: HassUnits): string {
   if (isUsCustomary(hass)) return feetAndInches(metres);
   const { value, digits } = metricLattice(metres);
   return `${value.toFixed(digits)} m`;
+}
+
+/** A distance on the map: whole metres up to a kilometre, then kilometres with one decimal; or feet up to a mile, then miles. */
+export function formatDistance(metres: number, hass: HassUnits): string {
+  const [small, smallUnit, large, largeUnit] = isUsCustomary(hass)
+    ? [metres / (METRES_PER_INCH * INCHES_PER_FOOT), "ft", metres / METRES_PER_MILE, "mi"]
+    : [metres, "m", metres / 1000, "km"];
+  return large < 1 ? `${formatNumber(small, hass, 0)} ${smallUnit}` : `${formatNumber(large, hass, 1)} ${largeUnit}`;
 }
 
 /** Square metres with one decimal, or whole square feet. */

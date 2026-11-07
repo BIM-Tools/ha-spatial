@@ -12,6 +12,7 @@ export const mapCreated = vi.fn();
 export const setBearing = vi.fn();
 export const easeTo = vi.fn();
 export const fitBounds = vi.fn();
+export const flyTo = vi.fn();
 export const jumpTo = vi.fn();
 export const zoomIn = vi.fn();
 export const zoomOut = vi.fn();
@@ -178,6 +179,9 @@ export const fakeMapLibre = {
       mapBearingNow = options.bearing ?? mapBearingNow;
       easeTo(options);
     }
+    flyTo(...args: unknown[]) {
+      flyTo(...args);
+    }
     fitBounds(...args: unknown[]) {
       fitBounds(...args);
     }
@@ -276,9 +280,20 @@ export interface Mount extends Home {
   /** The card's show_map option. */
   showMap?: boolean;
   units?: HassUnits;
+  /** Home Assistant's home location; at the site centre unless a test says otherwise. */
+  homeLocation?: { latitude?: number; longitude?: number };
 }
 
-export const mountPanel = ({ reply, hassFloors = {}, card = false, floor, showMap, units = METRIC_UNITS, ...home }: Mount = {}) => {
+export const mountPanel = ({
+  reply,
+  hassFloors = {},
+  card = false,
+  floor,
+  showMap,
+  units = METRIC_UNITS,
+  homeLocation = { latitude: SITE[1], longitude: SITE[0] },
+  ...home
+}: Mount = {}) => {
   const fromHome = homeReply(home);
   const sendMessagePromise = vi.fn<Reply>(async (message) => {
     const answered = reply && (await reply(message));
@@ -306,8 +321,7 @@ export const mountPanel = ({ reply, hassFloors = {}, card = false, floor, showMa
   };
   panel.floor = floor;
   panel.showMap = showMap;
-  panel.hass = { connection, floors: hassFloors, themes: { darkMode: false }, ...units };
-  panel.toggleAttribute("card", card);
+  panel.hass = { connection, floors: hassFloors, themes: { darkMode: false }, ...units, config: { ...units.config, ...homeLocation } };  panel.toggleAttribute("card", card);
   document.body.append(panel);
   const tokenCalls = () =>
     sendMessagePromise.mock.calls.filter(([message]) => message.type === "map_tiles/access_token").length;
@@ -324,6 +338,7 @@ export const resetFakes = () => {
   mapCreated.mockClear();
   setBearing.mockClear();
   fitBounds.mockClear();
+  flyTo.mockClear();
   easeTo.mockClear();
   jumpTo.mockClear();
   zoomIn.mockClear();
@@ -356,7 +371,23 @@ export const buttonsIn = (root: ParentNode): HTMLButtonElement[] =>
 export const buttonNamed = (panel: HTMLElement, name: string) =>
   buttonsIn(panel.shadowRoot!).find((button) => (button.getAttribute("aria-label") ?? button.textContent?.trim()) === name);
 
-export const floorButtonNames = (panel: HTMLElement) =>
+/** The header's icon button with this label; Home Assistant's `ha-icon-button` is not defined here, so it is clicked as a plain element. */
+export const headerButton = (panel: HTMLElement, label: string) =>
+  [
+    ...panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!.querySelectorAll<HTMLElement & { label?: string }>(
+      "ha-icon-button",
+    ),
+  ].find((button) => button.label === label);
+
+/** Opens the header's More options menu and chooses an entry. */
+export const chooseFromMenu = async (panel: HTMLElement, entry: string) => {
+  headerButton(panel, "More options")!.click();
+  await settle(panel);
+  buttonNamed(panel, entry)!.click();
+  await settle(panel);
+};
+
+export const floorButtonNames =(panel: HTMLElement) =>
   [...(panel.shadowRoot?.querySelector("spatial-floor-selector")?.shadowRoot?.querySelectorAll("button") ?? [])].map(
     (button) => button.textContent?.trim(),
   );

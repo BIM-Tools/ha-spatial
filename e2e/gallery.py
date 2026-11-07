@@ -20,6 +20,7 @@ import html
 import json
 import math
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -37,6 +38,7 @@ from draw_room import (
     wait_for_home_assistant,
 )
 from playwright.sync_api import Browser, Locator, Page, sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 TOOLS_DIR = Path(os.environ.get("TOOLS_DIR", "/tools"))
 sys.path.insert(0, str(TOOLS_DIR))
@@ -218,12 +220,59 @@ class Shot:
         self.require(stack.get_by_role("button", name="Show map"), "map toggle").click()
         self.settle()
 
+    def answer_address_search(self, answer: dict[str, object]) -> None:
+        """Answers the panel's address searches with `answer`, never asking OpenStreetMap.
+
+        An answer with `places` is the reply, any other is the error; the next page load drops it.
+        """
+        self.panel.evaluate(
+            """(panel, answer) => {
+                const connection = panel.hass.connection;
+                const send = connection.sendMessagePromise.bind(connection);
+                connection.sendMessagePromise = (message) => {
+                    if (message.type !== "spatial/address/search") return send(message);
+                    return answer.places ? Promise.resolve(answer) : Promise.reject(answer);
+                };
+            }""",
+            answer,
+        )
+
+    def open_address_search(self) -> None:
+        stack = self.panel.locator("spatial-map-stack")
+        self.require(stack.get_by_role("button", name="Find an address"), "address search").click()
+        self.panel.get_by_role("searchbox", name="Address").wait_for()
+        self.settle()
+
+    def search_address(self, query: str, answer: dict[str, object], shows: str) -> None:
+        """Searches with a made-up answer and waits until the card shows the text `shows`."""
+        self.answer_address_search(answer)
+        self.open_address_search()
+        field = self.panel.get_by_role("searchbox", name="Address")
+        field.fill(query)
+        field.press("Enter")
+        self.panel.locator("spatial-address-search").get_by_text(shows).first.wait_for()
+        self.settle()
+
     def open_help(self) -> None:
         header = self.panel.locator("spatial-panel-header")
         help_button = self.require(header.get_by_role("button", name="Help", exact=True), "Help")
         # Its own icon takes the pointer, which Playwright's hit test counts as covering it.
         help_button.click(force=True)
         header.get_by_role("dialog").wait_for()
+        self.settle()
+
+    def open_menu(self) -> None:
+        header = self.panel.locator("spatial-panel-header")
+        more = self.require(header.get_by_role("button", name="More options"), "More options")
+        # As with Help, its own icon takes the pointer.
+        more.click(force=True)
+        header.get_by_role("menu").wait_for()
+        self.settle()
+
+    def choose_from_menu(self, entry: str) -> None:
+        self.open_menu()
+        menu = self.panel.locator("spatial-panel-header").get_by_role("menu")
+        self.require(menu.get_by_role("menuitem", name=entry), f"menu entry {entry}").click()
         self.settle()
 
     def wait_for_toast(self, message: str) -> None:
@@ -437,9 +486,15 @@ def floor_view(floor: str) -> Callable[[Shot], None]:
     return setup
 
 
-def align_active(shot: Shot) -> None:
+def menu_open(shot: Shot) -> None:
     floor_plan(shot)
-    shot.select_tool("Align")
+    shot.open_menu()
+
+
+def align_active(shot: Shot) -> None:
+    # The example house has a direction, so Align is in the header menu.
+    floor_plan(shot)
+    shot.choose_from_menu("Change alignment")
 
 
 def align_wall_hover(shot: Shot) -> None:
@@ -464,6 +519,39 @@ def align_wall_hover(shot: Shot) -> None:
     )
     if not highlighted:
         raise Skip("the wall under the pointer was not highlighted")
+    shot.settle()
+
+
+def map_outline_question(shot: Shot) -> None:
+    # The example house's outline goes, and Align picks the nearest building the map tiles draw;
+    # the cleanup puts back the site direction and the outline.
+    websocket = Websocket(shot.house.token)
+    site = websocket.call("spatial/site")
+    websocket.call("spatial/site/update", outline=None)
+
+    def restore_site() -> None:
+        websocket.call("spatial/site/update", bearing_deg=site["bearing_deg"])
+        websocket.call("spatial/site/update", outline=site["outline"])
+
+    shot.cleanups.append(restore_site)
+    align_active(shot)
+    building = shot.building_near(*shot.room_centre("Living room"))
+    if building is None:
+        raise Skip("no OSM building near the house in the map tiles")
+    # Without the outline the Building pill is first to draw, so it is active already.
+    shot.click(*building)
+    question = shot.panel.get_by_role("button", name="Use outline", exact=True)
+    try:
+        question.wait_for(timeout=SETTLE_TIMEOUT_MS)
+    except PlaywrightTimeoutError as error:
+        raise Skip("the map's outline was not offered") from error
+    shot.settle()
+
+
+def map_outline_check(shot: Shot) -> None:
+    map_outline_question(shot)
+    shot.panel.get_by_role("button", name="Use outline", exact=True).click()
+    shot.panel.get_by_role("button", name="Looks right", exact=True).wait_for()
     shot.settle()
 
 
@@ -624,6 +712,50 @@ def toast_apart_box(shot: Shot) -> None:
     shot.wait_for_toast("A room is one shape: draw against it")
 
 
+# Places as the search would answer: the public landmark the example house stands next to, and
+# made-up ones; never a house number or postcode of a real street.
+SEARCH_PLACES = [
+    {
+        "label": "Domtoren, Domplein, Utrecht",
+        "lat": 52.0907,
+        "lon": 5.1214,
+        "bbox": [5.1212, 52.0905, 5.1216, 52.0909],
+    },
+    {"label": "Domkerk, Achter de Dom, Utrecht", "lat": 52.0910, "lon": 5.1224, "bbox": None},
+    {"label": "1, Voorbeeldstraat, Ergens, Voorbeeldland", "lat": 52.0, "lon": 5.0, "bbox": None},
+]
+
+
+def search_empty(shot: Shot) -> None:
+    shot.open_panel()
+    shot.open_address_search()
+
+
+def search_results(shot: Shot) -> None:
+    shot.open_panel()
+    shot.search_address("Domtoren", {"places": SEARCH_PLACES}, "Voorbeeldstraat 1")
+
+
+def search_home_toast(shot: Shot) -> None:
+    search_results(shot)
+    results = shot.panel.locator("spatial-address-search")
+    results.get_by_role("button", name="Voorbeeldstraat 1, Ergens, Voorbeeldland").click()
+    # Use or Move, by the home location this Home Assistant has; never pressed, so it stays.
+    shot.page.get_by_text(re.compile("Home Assistant's home")).first.wait_for()
+    shot.page.wait_for_timeout(400)
+
+
+def search_no_results(shot: Shot) -> None:
+    shot.open_panel()
+    shot.search_address("Voorbeeldweg 99", {"places": []}, "No address found")
+
+
+def search_unavailable(shot: Shot) -> None:
+    shot.open_panel()
+    failure = {"code": "search_failed", "message": "The search server could not be reached"}
+    shot.search_address("Voorbeeldstraat 1", failure, "isn't available right now")
+
+
 def card(view: str) -> Callable[[Shot], None]:
     def setup(shot: Shot) -> None:
         shot.open_card(view)
@@ -647,6 +779,12 @@ STATES = [
     State("map-off", "chrome", "Ground floor with the map hidden", map_off),
     State("help-open", "chrome", "The help sheet open: symbols and keys", help_open),
     State(
+        "menu-open",
+        "chrome",
+        "The header's More options menu open: Change alignment, Clear Ground floor",
+        menu_open,
+    ),
+    State(
         "align-active",
         "tools",
         "Align active: the guide line says what to click and the map is forced on",
@@ -658,6 +796,18 @@ STATES = [
         "Align with the wall under the pointer highlighted, on the nearest OSM building",
         align_wall_hover,
         phone=False,
+    ),
+    State(
+        "map-outline-question",
+        "tools",
+        "After Align without an outline: the map's rectangle dashed, the question and its size",
+        map_outline_question,
+    ),
+    State(
+        "map-outline-check",
+        "tools",
+        "After Use outline: the outline active in Select, the guide asks to check one length",
+        map_outline_check,
     ),
     State("draw-active", "tools", "Draw active: the area strip with Building first", draw_active),
     State(
@@ -806,6 +956,36 @@ STATES = [
         "floors",
         "No floor: Garden and Driveway in the strip, nothing drawn",
         floor_view("No floor"),
+    ),
+    State(
+        "search-empty",
+        "search",
+        "Find your home opened from the map controls: field, lit Search, OpenStreetMap footnote",
+        search_empty,
+    ),
+    State(
+        "search-results",
+        "search",
+        "Three results, street over town",
+        search_results,
+    ),
+    State(
+        "search-home-toast",
+        "search",
+        "A picked result: Home Assistant's toast offers it as the home",
+        search_home_toast,
+    ),
+    State(
+        "search-no-results",
+        "search",
+        "A search without results says to check the spelling or add the town",
+        search_no_results,
+    ),
+    State(
+        "search-unavailable",
+        "search",
+        "The search server failed: Retry, and the hint to pan the map",
+        search_unavailable,
     ),
     State("card-floor", "card", "Dashboard card fixed to the ground floor", card("floor")),
     State("card-all", "card", "Dashboard card with all floors", card("all")),

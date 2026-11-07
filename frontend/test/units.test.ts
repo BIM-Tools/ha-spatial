@@ -1,7 +1,7 @@
 // Checks lengths and areas in both of Home Assistant's unit systems and in several number formats.
 
 import { expect, test } from "vitest";
-import { type HassUnits, type Refusal, formatArea, formatLength, parseLength, refusalMessage, saveFailureMessage, typedLength } from "../src/units";
+import { type HassUnits, type Refusal, formatArea, formatDistance, formatLength, formatSize, parseLength, refusalMessage, saveFailureMessage, typedLength } from "../src/units";
 import { METRIC_UNITS as METRIC, US_UNITS as US, unitsOf } from "./units-fixture";
 
 const INCH_M = 0.0254;
@@ -132,4 +132,22 @@ test.each<[string, unknown, string]>([
   ["a non-object error", 3, "Could not save"],
 ])("saveFailureMessage words %s", (_case, error, message) => {
   expect(saveFailureMessage(error)).toBe(message);
+});
+test.each<[number, number, HassUnits, string]>([
+  [9.8, 7.6, METRIC, "9.80 × 7.60 m"],
+  [9.8, 7.625, METRIC, "9.800 × 7.625 m"],
+  [12.4, 7.6, unitsOf("km", "decimal_comma"), "12,40 × 7,60 m"],
+  [386 * INCH_M, 300 * INCH_M, US, "32′ 2″ × 25′ 0″"],
+])("a size of %d by %d m shows as %j", (width, depth, units, text) => {
+  expect(formatSize(width, depth, units)).toBe(text);
+});
+test.each<[number, HassUnits, string]>([
+  [26.4, METRIC, "26 m"],
+  [999.4, METRIC, "999 m"],
+  [1500, METRIC, "1.5 km"],
+  [1500, unitsOf("km", "decimal_comma"), "1,5 km"],
+  [30.48, US, "100 ft"],
+  [3218.688, US, "2.0 mi"],
+])("a distance of %d m shows as %j", (metres, units, text) => {
+  expect(formatDistance(metres, units)).toBe(text);
 });

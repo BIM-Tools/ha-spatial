@@ -33,6 +33,12 @@ interface FootprintReader {
 export const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 const EAST_DEG = 90;
 
+/** Where Align is offered: in the toolbar until the site has a direction, then in the header menu; nowhere before the site is read. */
+export const alignPlace = (bearing: number | null | undefined): "toolbar" | "menu" | undefined => {
+  if (bearing === undefined) return undefined;
+  return bearing === null ? "toolbar" : "menu";
+};
+
 export class PanelState implements ReactiveController {
   areas: FeatureCollection = EMPTY;
   outline: Polygon | FeatureCollection = EMPTY;
@@ -41,7 +47,8 @@ export class PanelState implements ReactiveController {
   // Rebuilt on every site load, so a unit system change reaches the next gesture.
   frame: PlanFrame | undefined;
   private _floor: Floor = "all";
-  private _bearing: number | null = null;
+  // Undefined until the site is read, null until the first Align.
+  private _bearing: number | null | undefined = undefined;
 
   constructor(private readonly _host: ReactiveControllerHost) {
     _host.addController(this);
@@ -61,7 +68,7 @@ export class PanelState implements ReactiveController {
   }
 
   /** The stored site direction, which names the compass; set ahead of a save so the view turns at once. */
-  get bearing(): number | null {
+  get bearing(): number | null | undefined {
     return this._bearing;
   }
 

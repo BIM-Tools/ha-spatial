@@ -1,6 +1,6 @@
-// Map controls in Home Assistant's look, since MapLibre's own controls do not follow its theme: map toggle, zoom and compass.
+// Map controls in Home Assistant's look, since MapLibre's own controls do not follow its theme: address search, map toggle, zoom and compass.
 
-import { mdiMap, mdiMinus, mdiNavigation, mdiPlus } from "@mdi/js";
+import { mdiMagnify, mdiMap, mdiMinus, mdiNavigation, mdiPlus } from "@mdi/js";
 import { LitElement, css, html } from "lit";
 import { floatingSurface, selectedFill } from "./styles";
 
@@ -12,7 +12,7 @@ class SpatialMapStack extends LitElement {
     bearing: { attribute: false },
     // Whether Align has set a site direction; without one the compass faces north.
     aligned: { attribute: false },
-    // A phone pinches to zoom and turn, so it gets only a round map toggle.
+    // A phone pinches to zoom and turn, so it gets only a round address search and map toggle.
     round: { type: Boolean, reflect: true },
   };
 
@@ -92,6 +92,11 @@ class SpatialMapStack extends LitElement {
   }
 
   render() {
+    const search = html`
+      <button aria-label="Find an address" @click=${() => this._fire("address-search")}>
+        <ha-svg-icon .path=${mdiMagnify}></ha-svg-icon>
+      </button>
+    `;
     const toggle = html`
       <button
         aria-label="Show map"
@@ -102,9 +107,9 @@ class SpatialMapStack extends LitElement {
         <ha-svg-icon .path=${mdiMap}></ha-svg-icon>
       </button>
     `;
-    if (this.round) return toggle;
+    if (this.round) return html`${search}${toggle}`;
     return html`
-      ${toggle}
+      ${search}${toggle}
       <button aria-label="Zoom in" @click=${() => this._fire("zoom-in")}>
         <ha-svg-icon .path=${mdiPlus}></ha-svg-icon>
       </button>

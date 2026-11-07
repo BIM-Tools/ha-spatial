@@ -69,6 +69,24 @@ export function boxFromCorners(frame: PlanFrame, a: LatticePoint, b: LatticePoin
   return { type: "Polygon", coordinates: [ringToWgs84(frame, corners)] };
 }
 
+// The map shows the outer face of a building's walls; the outline lies on their axis.
+const MAP_OUTLINE_INSET_M = 0.15;
+
+/**
+ * Custom. The outline copied from a map building: the bounding rectangle of its outer ring along the
+ * site axes, each side moved 150 mm inward and rounded to the lattice. Undefined when a side would be
+ * under one grid step.
+ */
+export function mapOutlineBox(frame: PlanFrame, building: Polygon): Polygon | undefined {
+  const corners = building.coordinates[0].map((corner) => frame.toLatticeUnits(corner));
+  const inset = MAP_OUTLINE_INSET_M / frame.unitM;
+  const inward = (values: number[]) => [Math.round(Math.min(...values) + inset), Math.round(Math.max(...values) - inset)];
+  const [left, right] = inward(corners.map(([x]) => x));
+  const [bottom, top] = inward(corners.map(([, y]) => y));
+  if (right - left < frame.unitsPerStep || top - bottom < frame.unitsPerStep) return undefined;
+  return boxFromCorners(frame, [left, bottom], [right, top]);
+}
+
 export function sideLabels(
   frame: PlanFrame,
   shape: Polygon,

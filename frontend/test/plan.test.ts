@@ -13,6 +13,7 @@ import {
   dropStraightCorners,
   edgeLengths,
   isAxisRectangle,
+  mapOutlineBox,
   movePolygon,
   resizeChange,
   resizeSide,
@@ -206,4 +207,21 @@ test.each<[string, PlanFrame, number | undefined]>([
 ])("resizeChange refuses %s as too small", (_name, frame, lengthM) => {
   const rectangle = boxFromCorners(frame, [0, 0], [160, 120])!;
   expect(resizeChange(frame, "kitchen", rectangle, 0, lengthM)).toEqual({ refusal: "too_small" });
+});
+// The building's corners in lattice units, then the stored outline's lower left and upper right corner.
+test.each<[string, PlanFrame, [number, number][], [LatticePoint, LatticePoint] | undefined]>([
+  ["an axis rectangle moves 150 mm in on each side", METRIC, [[0, 0], [400, 0], [400, 320], [0, 320]], [[6, 6], [394, 314]]],
+  ["a turned building gives its bounding rectangle", METRIC, [[200, 0], [400, 200], [200, 400], [0, 200]], [[6, 6], [394, 394]]],
+  ["each side rounds to the lattice", METRIC, [[0.3, 0.4], [400.2, 0.4], [400.2, 320.7], [0.3, 320.7]], [[6, 6], [394, 315]]],
+  ["150 mm is about six inches in a US customary frame", INCHES, [[0, 0], [400, 0], [400, 320], [0, 320]], [[6, 6], [394, 314]]],
+  ["a side under one grid step after the inset is refused", METRIC, [[0, 0], [15, 0], [15, 320], [0, 320]], undefined],
+  ["a side the inset turns inside out is refused", METRIC, [[0, 0], [5, 0], [5, 320], [0, 320]], undefined],
+])("mapOutlineBox: %s", (_name, frame, corners, expected) => {
+  const outline = mapOutlineBox(frame, shapeOf(frame, corners));
+  if (!expected) {
+    expect(outline).toBeUndefined();
+    return;
+  }
+  const [[left, bottom], [right, top]] = expected;
+  expect(latticeOf(frame, outline!)[0]).toEqual([[left, bottom], [right, bottom], [right, top], [left, top], [left, bottom]]);
 });

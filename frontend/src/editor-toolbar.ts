@@ -19,6 +19,8 @@ class SpatialEditorToolbar extends LitElement {
     canUndo: { attribute: false },
     canRedo: { attribute: false },
     canRemove: { attribute: false },
+    // Align is offered here until the site has a direction; after that the header menu offers it.
+    align: { type: Boolean },
     bar: { type: Boolean, reflect: true },
   };
 
@@ -57,7 +59,8 @@ class SpatialEditorToolbar extends LitElement {
       :host([bar]) {
         ${phoneBar}
         display: grid;
-        grid-template-columns: repeat(6, minmax(0, 1fr));
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(0, 1fr);
         gap: 0;
         height: calc(72px + var(--safe-area-inset-bottom, 0px));
         box-sizing: border-box;
@@ -97,6 +100,7 @@ class SpatialEditorToolbar extends LitElement {
   declare canUndo: boolean;
   declare canRedo: boolean;
   declare canRemove: boolean;
+  declare align: boolean;
   declare bar: boolean;
 
   constructor() {
@@ -106,6 +110,7 @@ class SpatialEditorToolbar extends LitElement {
     this.canUndo = false;
     this.canRedo = false;
     this.canRemove = false;
+    this.align = false;
     this.bar = false;
   }
 
@@ -116,7 +121,7 @@ class SpatialEditorToolbar extends LitElement {
   }
 
   render() {
-    const tools = TOOLS.map(
+    const tools = TOOLS.filter(({ tool }) => this.align || tool !== "align").map(
       ({ tool, label, icon }) => html`
         <button
           aria-pressed=${!this.disabled && tool === this.tool}
