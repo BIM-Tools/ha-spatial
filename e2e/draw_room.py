@@ -141,8 +141,8 @@ def wait_for_larger(websocket, name, area_m2):
 
 
 def resize_kitchen(page, panel, websocket, kitchen):
-    """In Adjust drags Kitchen's left edge 40 px left, then its top left corner 30 px out."""
-    panel.get_by_role("button", name="Adjust", exact=True).click()
+    """In Select drags Kitchen's left edge 40 px left, then its top left corner 30 px out."""
+    panel.get_by_role("button", name="Select", exact=True).click()
     panel.get_by_role("button", name="Kitchen", exact=True).click()
     left_corners = sorted(corners_on_screen(panel, kitchen["geometry"]["coordinates"][0]))[:2]
     x = (left_corners[0][0] + left_corners[1][0]) / 2

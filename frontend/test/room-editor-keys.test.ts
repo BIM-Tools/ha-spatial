@@ -46,7 +46,7 @@ test("in Draw the map pans only while Space is held, and leaving Draw restores p
   expect(dragPan.isEnabled()).toBe(true);
   key("keyup", " ");
   expect(dragPan.isEnabled()).toBe(false);
-  buttonNamed(panel, "Adjust")!.click();
+  buttonNamed(panel, "Select")!.click();
   expect(dragPan.isEnabled()).toBe(true);
 });
 
@@ -96,7 +96,7 @@ test("Draw chosen before the map attaches takes effect when it does", async () =
 // Each row leaves Draw with Space held; Escape outside Draw does not cancel a move.
 test.each<[string, (panel: Panel, connection: { sendMessagePromise: unknown }) => Promise<void>]>([
   [
-    "Adjust",
+    "Select",
     async (panel, connection) => {
       await tapRoom(panel, "kitchen");
       handlers.mousedown(mouse(25, 25));
@@ -148,7 +148,7 @@ test.each<[string, (panel: Panel) => Promise<void>]>([
       chip(panel, "Hall").click();
       await settle(panel);
       keyIn(renameField(panel)!, "z", true);
-      buttonNamed(panel, "Adjust")!.click();
+      buttonNamed(panel, "Select")!.click();
       await tapRoom(panel, "kitchen");
       sideButtons()[0].click();
       keyIn(sideField()!, "z", true);

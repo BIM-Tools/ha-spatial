@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// Checks how the panel wires an edge or corner drag in Adjust: what it saves, records, hides and shows.
+// Checks how the panel wires an edge or corner drag in Select: what it saves, records, hides and shows.
 import type { Polygon, Position } from "geojson";
 import { afterEach, expect, test, vi } from "vitest";
 import { EMPTY, buttonNamed, handlers, liveMarkers, mapCanvas, onUpdateOf, resetFakes, settle, sources } from "./panel-harness";
@@ -18,7 +18,7 @@ import {
   sideButtons,
   sideField,
   siteSaves,
-  startAdjusting,
+  startSelecting,
   tapRoom,
   typeSide,
 } from "./room-editor-fixture";
@@ -70,16 +70,16 @@ const dragThrough = (points: [number, number][]) => {
   handlers.mouseup(mouse(...points[points.length - 1]));
 };
 
-const adjustKitchen = async () => {
+const selectKitchen = async () => {
   const mounted = mountEditor();
-  await startAdjusting(mounted.panel);
+  await startSelecting(mounted.panel);
   await tapRoom(mounted.panel, "kitchen");
   return mounted;
 };
 
 // The 70 x 50 px draft is too small for its area label, which shows only from 96 x 40 px.
 test("an edge drag counts the width on its chip in place, rings the held side, hides the room label under a draft too small for its area, and saves once with one undo step", async () => {
-  const { panel, connection } = await adjustKitchen();
+  const { panel, connection } = await selectKitchen();
   expect(kitchenLabelShown()).toBe(true);
   const press = mouse(1, 25);
   handlers.mousedown(press);
@@ -104,7 +104,7 @@ test("an edge drag counts the width on its chip in place, rings the held side, h
 });
 
 test("an edge drag released where it started saves nothing and records no undo step", async () => {
-  const { panel, connection } = await adjustKitchen();
+  const { panel, connection } = await selectKitchen();
   dragThrough([
     [1, 25],
     [-10, 25],
@@ -118,7 +118,7 @@ test("an edge drag released where it started saves nothing and records no undo s
 });
 
 test("the pointer turns into a resize arrow over an edge of the active rectangle", async () => {
-  await adjustKitchen();
+  await selectKitchen();
   handlers.mousemove(mouse(1, 25));
   expect(mapCanvas.style.cursor).toBe("ew-resize");
   handlers.mousemove(mouse(25, 25));
@@ -126,7 +126,7 @@ test("the pointer turns into a resize arrow over an edge of the active rectangle
 });
 
 test("with the map turned 40 degrees off the site axis the edge drag follows the room's edges", async () => {
-  const { panel, connection } = await adjustKitchen();
+  const { panel, connection } = await selectKitchen();
   const map = (panel as unknown as { _map: { setBearing(bearing: number): void; project(at: Position): { x: number; y: number } } })
     ._map;
   map.setBearing(340);
@@ -141,7 +141,7 @@ test("with the map turned 40 degrees off the site axis the edge drag follows the
 
 test("an edge drag of the Building rectangle hides the room labels under its draft and saves the outline", async () => {
   const { panel, connection } = mountEditor();
-  await startAdjusting(panel);
+  await startSelecting(panel);
   chip(panel, "Building").click();
   await settle(panel);
   handlers.mousedown(mouse(99, 150));
@@ -154,7 +154,7 @@ test("an edge drag of the Building rectangle hides the room labels under its dra
 });
 
 test("Escape cancels an edge drag without a save", async () => {
-  const { panel, connection } = await adjustKitchen();
+  const { panel, connection } = await selectKitchen();
   handlers.mousedown(mouse(1, 25));
   handlers.mousemove(mouse(-19.2, 25));
   key("keydown", "Escape");
@@ -168,7 +168,7 @@ test("Escape cancels an edge drag without a save", async () => {
 });
 
 test("a refresh during an edge drag keeps the side controls on the draft, and the release saves", async () => {
-  const { panel, connection } = await adjustKitchen();
+  const { panel, connection } = await selectKitchen();
   handlers.mousedown(mouse(1, 25));
   handlers.mousemove(mouse(-12, 25));
   await onUpdateOf(connection)();
@@ -185,7 +185,7 @@ test.each<[string, () => void]>([
   ["Ctrl+Shift+Z", () => ctrlZ(true)],
   ["Delete", () => key("keydown", "Delete")],
 ])("%s during an edge drag changes nothing, so the release saves against the room as grabbed", async (_, press) => {
-  const { panel, connection } = await adjustKitchen();
+  const { panel, connection } = await selectKitchen();
   // A typed side and an undone one leave both an undo and a redo step.
   typeSide(0, "6");
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
@@ -228,7 +228,7 @@ const pressChip = (chip: HTMLElement, points: [number, number][]) => {
 };
 
 test("dragging a side chip stretches its own edge and saves once, without opening the field or pressing the map", async () => {
-  const { panel, connection } = await adjustKitchen();
+  const { panel, connection } = await selectKitchen();
   // The left edge's chip, pressed 15 px inside the room: beyond the edge's snap radius.
   const left = sideButtons()[3];
   const reached: string[] = [];
@@ -247,7 +247,7 @@ test("dragging a side chip stretches its own edge and saves once, without openin
 });
 
 test("a tap on a grip opens the length field filled with its side's length and saves nothing", async () => {
-  const { panel, connection } = await adjustKitchen();
+  const { panel, connection } = await selectKitchen();
   pressChip(sideButtons()[1], [[50, 25]]);
   expect(sideField()?.value).toBe("5.00 m");
   await settle(panel);
@@ -255,7 +255,7 @@ test("a tap on a grip opens the length field filled with its side's length and s
 });
 
 test("dragging a grip rings it and counts the length on the opposite side's chip", async () => {
-  const { panel, connection } = await adjustKitchen();
+  const { panel, connection } = await selectKitchen();
   const right = sideButtons()[1];
   pointer(right, "pointerdown", [50, 25]);
   pointer(right, "pointermove", [60, 25]);
@@ -269,7 +269,7 @@ test("dragging a grip rings it and counts the length on the opposite side's chip
 });
 
 test("a side shared with another room on the floor carries a grip, and its length moves to the opposite side", async () => {
-  const { panel, connection, setFeed } = await adjustKitchen();
+  const { panel, connection, setFeed } = await selectKitchen();
   setFeed([feature("kitchen", KITCHEN), feature("bath", pixelBox(0, 50, 50, 80))]);
   await onUpdateOf(connection)();
   await settle(panel);
@@ -278,7 +278,7 @@ test("a side shared with another room on the floor carries a grip, and its lengt
 });
 
 test("a press on a chip that the browser cancels ends, so the chips show what a refresh brought meanwhile", async () => {
-  const { panel, connection, setFeed } = await adjustKitchen();
+  const { panel, connection, setFeed } = await selectKitchen();
   const top = sideButtons()[0];
   pointer(top, "pointerdown", [25, 0]);
   setFeed([feature("kitchen", pixelBox(0, 0, 60, 50))]);
@@ -289,7 +289,7 @@ test("a press on a chip that the browser cancels ends, so the chips show what a 
 });
 
 test("a refresh while a chip is pressed keeps the chip, so its drag still saves", async () => {
-  const { panel, connection } = await adjustKitchen();
+  const { panel, connection } = await selectKitchen();
   const left = sideButtons()[3];
   pointer(left, "pointerdown", [0, 25]);
   await onUpdateOf(connection)();
@@ -308,7 +308,7 @@ test.each<[string, boolean, string, boolean]>([
   ["a mouse", false, "", false],
 ])("with %s the chips name their length and the grips their side; only a finger gets 44 px targets and a mark on the chips", async (_, coarse, minimum, chipMark) => {
   if (coarse) touchScreen();
-  await adjustKitchen();
+  await selectKitchen();
   const icon = (button: HTMLButtonElement) => button.querySelector<HTMLElement>("ha-svg-icon");
   expect(
     sideButtons().map((button) => [button.getAttribute("aria-label"), button.style.minWidth, button.style.minHeight, icon(button)?.style.transform ?? null, button.textContent]),

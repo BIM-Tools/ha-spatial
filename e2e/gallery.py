@@ -55,11 +55,11 @@ SETTLE_TIMEOUT_MS = 15000
 # The shots the documentation shows, all light: copied to docs/images/<name>.png when mounted.
 DOCS_IMAGES_DIR = Path(os.environ.get("DOCS_IMAGES", "/docs-images"))
 DOCS_IMAGES = {
-    "hero": "adjust-room-active-light-1440.png",
+    "hero": "select-room-active-light-1440.png",
     "align": "align-wall-hover-light-1440.png",
     "draw": "draw-active-light-1440.png",
     "all": "all-floors-light-1440.png",
-    "phone": "adjust-room-active-light-390.png",
+    "phone": "select-room-active-light-390.png",
     "card": "card-floor-light-1440.png",
 }
 # Per state id, theme and width: the file name, or why there is none.
@@ -500,7 +500,7 @@ def snap_highlight(shot: Shot) -> None:
     shot.start_drag((x + 80, y - 60), (x + 4, y + 3))
 
 
-def adjust_room_active(shot: Shot) -> None:
+def select_room_active(shot: Shot) -> None:
     floor_plan(shot)
     shot.click(*shot.room_centre("Living room"))
 
@@ -513,7 +513,7 @@ def edge_middle(corners: list[tuple[float, float]], side: str) -> tuple[float, f
 
 
 def edge_drag(shot: Shot) -> None:
-    adjust_room_active(shot)
+    select_room_active(shot)
     x, y = edge_middle(shot.room_corners("Living room"), "left")
     # Its left edge lies on the outline, so it is dragged 40 px in.
     shot.start_drag((x, y), (x + 40, y))
@@ -522,7 +522,7 @@ def edge_drag(shot: Shot) -> None:
 def touch_handles(shot: Shot) -> None:
     if not shot.page.evaluate("matchMedia('(pointer: coarse)').matches"):
         raise Skip("the browser does not report a touch screen")
-    adjust_room_active(shot)
+    select_room_active(shot)
     shot.require(shot.panel.locator("button.side-chip ha-svg-icon"), "side chip with a grip mark")
     shot.require(shot.panel.locator("button.side-grip"), "side grip")
 
@@ -546,7 +546,7 @@ def touch_handle_drag(shot: Shot) -> None:
 
 
 def corner_drag(shot: Shot) -> None:
-    adjust_room_active(shot)
+    select_room_active(shot)
     x, y = min(shot.room_corners("Living room"), key=lambda corner: corner[1] - corner[0])
     # Its top right corner, 30 px out to the right and 60 px down: the right side stops at the
     # kitchen, the top follows the pointer.
@@ -636,7 +636,7 @@ STATES = [
     State(
         "floor-plan",
         "chrome",
-        "Header, floor selector and tools on the ground floor, Adjust active",
+        "Header, floor selector and tools on the ground floor, Select active",
         floor_plan,
     ),
     State(
@@ -662,10 +662,10 @@ STATES = [
     ),
     State("draw-active", "tools", "Draw active: the area strip with Building first", draw_active),
     State(
-        "adjust-room-active",
+        "select-room-active",
         "tools",
-        "Adjust with the living room active: corner handles, width and depth chips, side grips",
-        adjust_room_active,
+        "Select with the living room active: corner handles, width and depth chips, side grips",
+        select_room_active,
     ),
     State(
         "edge-drag",

@@ -101,14 +101,14 @@ test("the panel has a header, the editing tools and the area strip; the card has
   await vi.waitFor(() => expect(panel.shadowRoot?.querySelector("spatial-panel-header")).not.toBeNull());
   await settle(panel);
   expect(panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!.querySelector("[role=heading]")?.textContent).toBe("Floor plan");
-  for (const name of ["Align", "Draw", "Adjust", "Undo", "Redo"]) expect(buttonNamed(panel, name)).toBeDefined();
+  for (const name of ["Align", "Draw", "Select", "Undo", "Redo"]) expect(buttonNamed(panel, name)).toBeDefined();
   expect(panel.shadowRoot!.querySelector("spatial-area-strip")).not.toBeNull();
   const card = mountPanel({ card: true }).panel;
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalledTimes(2));
   await settle(card);
   expect(card.shadowRoot?.querySelector("spatial-panel-header")).toBeNull();
   expect(card.shadowRoot?.querySelector("spatial-area-strip")).toBeNull();
-  for (const name of ["Align", "Draw", "Adjust", "Undo", "Redo"]) expect(buttonNamed(card, name)).toBeUndefined();
+  for (const name of ["Align", "Draw", "Select", "Undo", "Redo"]) expect(buttonNamed(card, name)).toBeUndefined();
 });
 
 const room = (floor_id: string | null, level: number | null) => ({
@@ -337,7 +337,7 @@ test("the wall is cleared when Align ends, and hovering outside Align does nothi
   await startAligning(panel);
   hover();
   expect(wallSource().geometry).toBeDefined();
-  buttonNamed(panel, "Adjust")!.click();
+  buttonNamed(panel, "Select")!.click();
   await vi.waitFor(() => expect(sources["spatial-wall"].data).toEqual(EMPTY));
 });
 
@@ -538,7 +538,7 @@ test("a unit system change uses the refetched frame", async () => {
 });
 
 const pressedTools = (panel: HTMLElement) =>
-  ["Align", "Draw", "Adjust"].filter((name) => buttonNamed(panel, name)?.getAttribute("aria-pressed") === "true");
+  ["Align", "Draw", "Select"].filter((name) => buttonNamed(panel, name)?.getAttribute("aria-pressed") === "true");
 
 const showNoFloor = async (panel: HTMLElement) => {
   await vi.waitFor(() => expect(buttonNamed(panel, "No floor")).toBeDefined());
@@ -546,11 +546,11 @@ const showNoFloor = async (panel: HTMLElement) => {
   await settle(panel);
 };
 
-test("Adjust is the default tool, and exactly one tool is active", async () => {
+test("Select is the default tool, and exactly one tool is active", async () => {
   const { panel } = mountPanel();
   await showNoFloor(panel);
-  expect(pressedTools(panel)).toEqual(["Adjust"]);
-  for (const name of ["Draw", "Draw", "Align", "Adjust"]) {
+  expect(pressedTools(panel)).toEqual(["Select"]);
+  for (const name of ["Draw", "Draw", "Align", "Select"]) {
     buttonNamed(panel, name)!.click();
     await settle(panel);
     expect(pressedTools(panel)).toEqual([name]);
@@ -561,13 +561,13 @@ test("in All floors every tool is disabled and none is pressed; Align ends there
   const { panel } = mountPanel();
   await vi.waitFor(() => expect(buttonNamed(panel, "Align")).toBeDefined());
   await settle(panel);
-  for (const name of ["Align", "Draw", "Adjust", "Undo", "Redo"]) expect(buttonNamed(panel, name)!.disabled).toBe(true);
+  for (const name of ["Align", "Draw", "Select", "Undo", "Redo"]) expect(buttonNamed(panel, name)!.disabled).toBe(true);
   expect(pressedTools(panel)).toEqual([]);
   await startAligning(panel);
   buttonNamed(panel, "All")!.click();
   buttonNamed(panel, "No floor")!.click();
   await settle(panel);
-  expect(pressedTools(panel)).toEqual(["Adjust"]);
+  expect(pressedTools(panel)).toEqual(["Select"]);
 });
 
 test("the selected floor is pressed and stays enabled", async () => {
@@ -610,7 +610,7 @@ test("Align turns the map on with the toggle disabled, and its end turns it off 
   expect(buttonNamed(panel, "Show map")!.getAttribute("aria-pressed")).toBe("true");
   await vi.waitFor(() => expect(setStyle).toHaveBeenCalledTimes(1));
   expect(groundOnly(setStyle.mock.calls[0][0])).toBe(false);
-  buttonNamed(panel, "Adjust")!.click();
+  buttonNamed(panel, "Select")!.click();
   await settle(panel);
   await vi.waitFor(() => expect(setStyle).toHaveBeenCalledTimes(2));
   expect(groundOnly(setStyle.mock.calls[1][0])).toBe(true);

@@ -560,7 +560,7 @@ class SpatialPanel extends LitElement {
       map.on("rotate", () => this._showBearing(map.getBearing()));
     }
     editor?.attach(map);
-    // After the editor, so the click that ends Align is not also a room pick in Adjust.
+    // After the editor, so the click that ends Align is not also a room pick in Select.
     map.on("click", (event) => {
       this._pick(event);
       this._pointAt(event);
@@ -741,13 +741,13 @@ class SpatialPanel extends LitElement {
     this._showWall(building && wallAt(building, [event.lngLat.lng, event.lngLat.lat]));
   }
 
-  // One tap sets the site axis from the wall of the building nearest to it, and goes back to Adjust.
+  // One tap sets the site axis from the wall of the building nearest to it, and goes back to Select.
   // The camera turns in place around the click, so the building stays in view. It turns before
   // the save, because Home Assistant sends the update event ahead of the reply.
   private _pick(event: MapMouseEvent) {
     if (!this._aligning) return;
     const building = this._buildingUnder(event);
-    this._selectTool("adjust");
+    this._selectTool("select");
     if (!building) {
       this._toast({ message: "No building here" });
       return;
@@ -794,7 +794,7 @@ class SpatialPanel extends LitElement {
   private _show(floor: Floor) {
     if (floor === this._state.floor) return;
     // All is a view only; Align would stay pressed on a disabled toolbar.
-    if (floor === "all" && this._aligning) this._selectTool("adjust");
+    if (floor === "all" && this._aligning) this._selectTool("select");
     this._state.floor = floor;
     this._editor?.setFloor(floor);
     this._showLabels();

@@ -32,7 +32,7 @@ opens on **All**, north up, centred on your home location.
 
 1. **Align.** Pick a floor, press **Align** and click your house on the map near the wall the
    rooms follow; the line at the top says "Click the wall your rooms follow" and the wall under
-   the pointer lights up. The map turns so that wall is horizontal, and Adjust is active again.
+   the pointer lights up. The map turns so that wall is horizontal, and Select is active again.
 
    ![Align on the ground floor: the guide line on top, the wall under the pointer highlighted](images/align.png)
 
@@ -78,13 +78,13 @@ shows the building's name until the floor has rooms.
 
 ### Tools
 
-Exactly one tool is active; **Adjust** is the default. The tools work on a floor, not on All.
+Exactly one tool is active; **Select** is the default. The tools work on a floor, not on All.
 
 | Tool | Does |
 | --- | --- |
 | Align | One click on a building on the map, near a wall, saves that wall's direction as the site direction. Without a building under the click a toast says "No building here"; when Spatial refuses the new direction, the toast gives its reason. On an empty plan, with no room and no outline drawn, it also puts the grid origin on the left end of that wall. The map stays on while Align is active |
 | Draw | Draws boxes along the site direction (north up before any Align) for the highlighted pill. Corners snap to nearby room corners and walls on this floor and to the outline, else land on the 10 cm (4 in) grid; with Alt held they land on the 2.5 cm (1 in) lattice without snapping. While a side is shorter than one grid step only the start dot shows, and such a box is not drawn |
-| Adjust | A tap on a room makes it active: it is filled, edged and gets round handles on its corners. Drag the active room to move it, or a side or corner of a rectangle to resize it. Type exact side lengths (below) |
+| Select | A tap on a room makes it active: it is filled, edged and gets round handles on its corners. Drag the active room to move it, or a side or corner of a rectangle to resize it. Type exact side lengths (below) |
 
 ### The area strip
 
@@ -93,7 +93,7 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
 | Building | The outline, under Home Assistant's location name; always first |
 | Filled square | The space has a shape |
 | Dashed square | No shape yet |
-| Highlighted | The active space: the next box goes to it, Adjust works on it |
+| Highlighted | The active space: the next box goes to it, Select works on it |
 | New area | Creates "Room 1" (the first free number) in Home Assistant at once, on this floor, highlights it in Draw and opens its name |
 
 - The pills list the floor's areas in Home Assistant's order.
@@ -134,9 +134,9 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
 - **Pan:** hold Space and drag. **Escape** cancels a box. **Delete** removes the active shape.
 - Draw turns the map back to the site direction and keeps it flat until another tool is picked.
 
-### Adjust and side lengths
+### Select and side lengths
 
-![Adjust on the ground floor: the living room active, with its corners and side lengths](images/hero.png)
+![Select on the ground floor: the living room active, with its corners and side lengths](images/hero.png)
 
 - Tap a room on the map, or its pill, to make it active. The **Building** pill makes the outline
   active.

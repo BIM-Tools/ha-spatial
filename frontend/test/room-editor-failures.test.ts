@@ -24,7 +24,7 @@ import {
   sent,
   saves,
   activateKitchen,
-  startAdjusting,
+  startSelecting,
   tapRoom,
   typeSide,
   ctrlZ,
@@ -63,7 +63,7 @@ test.each<[string, Step, (panel: Panel) => void, Step, boolean]>([
   [
     "move",
     async (panel) => {
-      await startAdjusting(panel);
+      await startSelecting(panel);
       await tapRoom(panel, "kitchen");
     },
     () => drag([25, 25], [45, 25]),
@@ -73,7 +73,7 @@ test.each<[string, Step, (panel: Panel) => void, Step, boolean]>([
   [
     "resize",
     async (panel) => {
-      await startAdjusting(panel);
+      await startSelecting(panel);
       await tapRoom(panel, "kitchen");
     },
     () => typeSide(0, "7"),

@@ -91,7 +91,7 @@ export const strip = (panel: HTMLElement) =>
 
 export const chips = (panel: HTMLElement) => [...(strip(panel)?.shadowRoot?.querySelectorAll<HTMLButtonElement>("button.pill") ?? [])];
 
-// The markers the editor adds while drawing or adjusting, without the room labels.
+// The markers the editor adds while drawing or selecting, without the room labels.
 export const editorMarkers = () =>
   liveMarkers().filter((marker) => !marker.element.matches(".room-label, .building-label"));
 
@@ -186,9 +186,9 @@ export const feature = (id: string, geometry: Polygon, areaM2?: number) => ({
   properties: { floor_id: "ground", level: 0, area_m2: areaM2 },
 });
 
-export const startAdjusting = async (panel: HTMLElement) => {
+export const startSelecting = async (panel: HTMLElement) => {
   await showFloor(panel);
-  buttonNamed(panel, "Adjust")!.click();
+  buttonNamed(panel, "Select")!.click();
   await settle(panel);
 };
 

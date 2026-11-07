@@ -16,7 +16,7 @@ import {
   tap,
   saves,
   expectCornersNear,
-  startAdjusting,
+  startSelecting,
   typeSide,
   siteSaves,
   buildingHighlight,
@@ -78,7 +78,7 @@ test.each<[string, (panel: HTMLElement) => Promise<void>, () => void, (outline: 
     },
     (outline) => expectCornersNear(outline, pixelBox(20, 100, 120, 200)),
   ],
-  ["typing a side in Adjust resizes it", startAdjusting, () => typeSide(0, "12"), (outline) => expect(edgeLengths(FRAME, outline)[0]).toBeCloseTo(12, 3)],
+  ["typing a side in Select resizes it", startSelecting, () => typeSide(0, "12"), (outline) => expect(edgeLengths(FRAME, outline)[0]).toBeCloseTo(12, 3)],
 ])("with the Building pill active the outline is highlighted, and %s", async (_name, start, act, expectOutline) => {
   const { panel, connection } = mountEditor();
   await start(panel);

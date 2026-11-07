@@ -164,9 +164,9 @@ test("Alt keydown and keyup are prevented while drawing", () => {
   }
 });
 
-test("in Adjust Alt is prevented through the release of a move made with it, and left alone otherwise", () => {
+test("in Select Alt is prevented through the release of a move made with it, and left alone otherwise", () => {
   const room = pixelBox(60, 0, 100, 50);
-  mountInteraction("adjust", { areaId: "1", footprint: room }, true, { neighbours: [NEIGHBOUR, room] });
+  mountInteraction("select", { areaId: "1", footprint: room }, true, { neighbours: [NEIGHBOUR, room] });
   const alt = (type: string) => {
     const event = new KeyboardEvent(type, { key: "Alt", cancelable: true });
     window.dispatchEvent(event);
@@ -183,7 +183,7 @@ test("in Adjust Alt is prevented through the release of a move made with it, and
 
 test("a moved room snaps its corner to a neighbour's corner", () => {
   const room = pixelBox(60, 0, 100, 50);
-  const { onMove } = mountInteraction("adjust", { areaId: "1", footprint: room }, true, { neighbours: [NEIGHBOUR, room] });
+  const { onMove } = mountInteraction("select", { areaId: "1", footprint: room }, true, { neighbours: [NEIGHBOUR, room] });
   handlers.mousedown(pointEvent(80, 25));
   handlers.mousemove(pointEvent(75, 25));
   expect(highlightedTypes()).toEqual(CORNER_SNAP);
@@ -323,8 +323,8 @@ test("a click without movement inside the active footprint starts drafting a box
 });
 
 
-test("in Adjust a press on an edge of the active rectangle resizes it instead of moving it, and says when it starts and ends", () => {
-  const { onMove, onResize, onResizing } = mountInteraction("adjust", { areaId: "room", footprint: ROOM });
+test("in Select a press on an edge of the active rectangle resizes it instead of moving it, and says when it starts and ends", () => {
+  const { onMove, onResize, onResizing } = mountInteraction("select", { areaId: "room", footprint: ROOM });
   const press = pointEvent(48, 25);
   handlers.mousedown(press);
   expect(press.preventDefault).toHaveBeenCalled();
@@ -341,7 +341,7 @@ test("in Adjust a press on an edge of the active rectangle resizes it instead of
   expect(corners).toContainEqual(cornerAt(0, 50));
 });
 
-test("in Draw an edge press of the active room moves it, as edges resize only in Adjust", () => {
+test("in Draw an edge press of the active room moves it, as edges resize only in Select", () => {
   const { onMove, onResize } = mountInteraction("draw", { areaId: "room", footprint: ROOM });
   handlers.mousedown(pointEvent(48, 25));
   handlers.mousemove(pointEvent(60, 25));

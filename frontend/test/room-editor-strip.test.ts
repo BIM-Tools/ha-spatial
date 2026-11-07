@@ -31,7 +31,7 @@ import {
   saves,
   pixelShape,
   feature,
-  startAdjusting,
+  startSelecting,
   renameField,
   toolPressed,
   hoverFilter,
@@ -53,7 +53,7 @@ test("the panel's floor buttons come from the floor registry in level order, wit
       : undefined,
   );
   await vi.waitFor(() => expect(floorButtonNames(panel)).toEqual(["All", "Ground floor", "Loft", "No floor"]));
-  for (const name of ["Align", "Draw", "Adjust", "Undo", "Redo"]) expect(buttonNamed(panel, name)).toBeDefined();
+  for (const name of ["Align", "Draw", "Select", "Undo", "Redo"]) expect(buttonNamed(panel, name)).toBeDefined();
 });
 test("an update that removes the active area makes the first area in the order active", async () => {
   const { panel, connection, setRegistry, setFeed } = mountEditor();
@@ -85,7 +85,7 @@ test("a failed registry read does not stop the map", async () => {
 test("on a floor each room is labelled with its area's icon, name and net m² from the feed", async () => {
   const { panel, connection, setFeed } = mountEditor();
   const living = pixelShape([0, 0], [200, 0], [200, 120], [0, 120]);
-  await startAdjusting(panel);
+  await startSelecting(panel);
   (panel as HTMLElement & { hass: object }).hass = {
     ...(panel as HTMLElement & { hass: object }).hass,
     areas: { kitchen: { name: "Kitchen", icon: "mdi:stove" } },
@@ -100,10 +100,10 @@ test("on a floor each room is labelled with its area's icon, name and net m² fr
 
 test("choosing a pill without a shape picks Draw; a pill with one keeps the tool", async () => {
   const { panel } = mountEditor();
-  await startAdjusting(panel);
+  await startSelecting(panel);
   chip(panel, "Kitchen").click();
   await settle(panel);
-  expect(toolPressed(panel, "Adjust")).toBe("true");
+  expect(toolPressed(panel, "Select")).toBe("true");
   chip(panel, "Hall").click();
   await settle(panel);
   expect(toolPressed(panel, "Draw")).toBe("true");
@@ -112,7 +112,7 @@ test("choosing a pill without a shape picks Draw; a pill with one keeps the tool
 
 test("New area creates the area on the floor at once, makes it active in Draw and opens its name", async () => {
   const { panel, connection } = mountEditor();
-  await startAdjusting(panel);
+  await startSelecting(panel);
   chip(panel, "New area").click();
   await vi.waitFor(() => expect(renameField(panel)?.value).toBe("Room 1"));
   expect(sent(connection, "config/area_registry/create")).toEqual([

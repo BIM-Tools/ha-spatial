@@ -27,8 +27,8 @@ export interface FloorEntry {
   level: number | null;
 }
 
-// Exactly one is active; Adjust is the default.
-export type Tool = "align" | "draw" | "adjust";
+// Exactly one is active; Select is the default.
+export type Tool = "align" | "draw" | "select";
 
 /** The parameters of Home Assistant's toast, the `hass-notification` event. */
 export interface Toast {
@@ -66,7 +66,7 @@ const SAVE_FAILED_ID = "spatial-save-failed";
 
 export class RoomEditor {
   floors: FloorEntry[] = [];
-  tool: Tool = "adjust";
+  tool: Tool = "select";
   private readonly _history = new History();
   private _areas: AreaEntry[] = [];
   private _footprints = new Map<string, Polygon>();
@@ -169,8 +169,8 @@ export class RoomEditor {
   }
 
   detach() {
-    // Adjust leaves the map's own panning and rotating on.
-    this.setTool("adjust");
+    // Select leaves the map's own panning and rotating on.
+    this.setTool("select");
     window.removeEventListener("keydown", this._keys);
     this._interaction?.destroy();
     this._interaction = undefined;
@@ -362,7 +362,7 @@ export class RoomEditor {
     this._whileSaving(() => this._apply({ before: { [areaId]: footprint }, after: { [areaId]: null } }));
   }
 
-  // In Adjust each side of the active room, when it is a rectangle on the site axis, gets a handle that
+  // In Select each side of the active room, when it is a rectangle on the site axis, gets a handle that
   // drags it: a chip with the length of its axis, or a grip.
   private _showSides() {
     // The controls follow the draft until the resize ends; `_resizing` rebuilds them then. A held
@@ -373,7 +373,7 @@ export class RoomEditor {
     const [map, interaction] = [this._map, this._interaction];
     const areaId = this._active;
     const footprint = this._footprints.get(areaId);
-    if (!map || !interaction || this.tool !== "adjust" || this._floor === "all" || !footprint) return;
+    if (!map || !interaction || this.tool !== "select" || this._floor === "all" || !footprint) return;
     const frame = this._host.siteFrame();
     if (!frame || !isAxisRectangle(frame, footprint)) return;
     const floorAreaIds = this._order().map((area) => area.area_id);

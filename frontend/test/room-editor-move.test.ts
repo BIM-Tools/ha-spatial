@@ -16,7 +16,7 @@ import {
   saves,
   expectCornersNear,
   activateKitchen,
-  startAdjusting,
+  startSelecting,
   tapRoom,
 } from "./room-editor-fixture";
 
@@ -59,9 +59,9 @@ test("in Draw a drag inside the active room moves it in one batch, and undo puts
   expect(saves(connection)[1].areas).toEqual({ kitchen: KITCHEN });
 });
 
-test("in Adjust a drag inside the active room moves it without panning, and a tap still selects", async () => {
+test("in Select a drag inside the active room moves it without panning, and a tap still selects", async () => {
   const { panel, connection } = mountEditor();
-  await startAdjusting(panel);
+  await startSelecting(panel);
   await tapRoom(panel, "kitchen");
   const press = mouse(25, 25);
   handlers.mousedown(press);
@@ -90,7 +90,7 @@ test("Space during a move cancels it", async () => {
 
 test("an update during a move saves the room as it was grabbed", async () => {
   const { panel, connection, setFeed } = mountEditor();
-  await startAdjusting(panel);
+  await startSelecting(panel);
   await tapRoom(panel, "kitchen");
   handlers.mousedown(mouse(25, 25));
   setFeed([{ type: "Feature", id: "kitchen", geometry: pixelBox(0, 0, 60, 60), properties: { floor_id: "ground", level: 0 } }]);

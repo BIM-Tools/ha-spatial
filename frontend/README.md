@@ -35,7 +35,7 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/panel-state.ts` | The panel's reactive controller for what Spatial sends: site, frame, rooms, the floors with rooms, the floor in view and the stored bearing |
 | `src/panel-header.ts` | The panel's header in the look of Home Assistant's subpage: Back, title, Help and its sheet in a native dialog |
 | `src/floor-selector.ts` | Floor buttons: a floating segmented control, or a chip row on a phone |
-| `src/editor-toolbar.ts` | Align, Draw, Adjust, Undo and Redo: floating, or a bottom bar on a phone |
+| `src/editor-toolbar.ts` | Align, Draw, Select, Undo and Redo: floating, or a bottom bar on a phone |
 | `src/map-stack.ts` | Map toggle, zoom and compass |
 | `src/map-paint.ts` | The map layers' colours, read from Home Assistant's theme at style load and on a theme change |
 | `src/room-labels.ts` | Room labels: area icon, name and (in the panel) net area, placed and stepped by the room's size on screen |
@@ -76,7 +76,7 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 - Plan geometry (boxes, side lengths, resizing, moving) works on lattice integers in the site frame
   that `spatial/site` publishes, rebuilt on every site load, so a unit system change reaches the
   next gesture; turf finds the wall bearing and joins a box to a footprint.
-- In Adjust a press on the active axis rectangle is hit-tested on its projected corners, then its
+- In Select a press on the active axis rectangle is hit-tested on its projected corners, then its
   edges, within the snap radius, before a move, so it follows the room on a turned map. A side's
   chip or grip drives the same edge drag with pointer events and pointer capture, for mouse and
   finger alike (`touch-action: none`); a release without a drag lets the click open the field. The
