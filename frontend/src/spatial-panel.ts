@@ -234,7 +234,7 @@ class SpatialPanel extends LitElement {
     }
     .guide.question .lines {
       display: flex;
-      flex: 1 1 200px;
+      flex: 1 1 auto;
       flex-direction: column;
       min-width: 0;
     }

@@ -484,8 +484,8 @@ def map_outline_question(shot: Shot) -> None:
     building = shot.building_near(*shot.room_centre("Living room"))
     if building is None:
         raise Skip("no OSM building near the house in the map tiles")
+    # Without the outline the Building pill is first to draw, so it is active already.
     shot.click(*building)
-    shot.activate_pill("Building")
     question = shot.panel.get_by_role("button", name="Use outline", exact=True)
     try:
         question.wait_for(timeout=SETTLE_TIMEOUT_MS)
