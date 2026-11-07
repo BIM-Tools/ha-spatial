@@ -178,6 +178,8 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
 - Saving is silent. Refusals and failures use Home Assistant's toast. "Could not save" stays with
   **Retry**. A room that already had a shape keeps showing it as saved; a first box that failed
   stays on the map until it saves or the next box replaces it.
+- Right after Home Assistant restarts, a save can come before Spatial has loaded; the toast then
+  says "Spatial is still starting, try again in a moment", also with **Retry**.
 - Spatial refuses an indoor room that would extend beyond the outline, or a shape with no net
   area left; in the panel that save ends as "Could not save".
 
