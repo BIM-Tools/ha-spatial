@@ -11,12 +11,15 @@ export type StackPoint = [number, number, number];
 
 /** From one slab to the next: more than a storey, so each floor shows between the ones above and below it. */
 export const SLAB_SPACING_M = 5;
-export const SLAB_THICKNESS_M = 0.3;
-// The rooms lie on the slab as a thin fill and their walls stand a little higher, so both clear its top face.
+/** A thin sheet, about a hand's width. */
+export const SLAB_THICKNESS_M = 0.1;
+// The rooms lie on the slab as a thin fill and the edges a little higher, so both clear its top face.
 const ROOM_FILL_M = 0.02;
-const WALL_HEIGHT_M = 0.06;
-const WALL_WIDTH_M = 0.1;
+const EDGE_HEIGHT_M = 0.04;
 const SHADOW_DEPTH_M = 0.05;
+/** On-screen widths of the slab's edge and of the rooms' edges, in pixels. */
+export const SLAB_EDGE_PX = 1.5;
+export const ROOM_EDGE_PX = 1.2;
 
 /** The default view: 45 degrees off the front facade, which runs down to the right, and 35 degrees above the horizon. */
 export const VIEW_TURN_DEG = -45;
@@ -51,14 +54,15 @@ export const stackFloors = (rooms: Feature[], levelOf: (floorId: string) => numb
 /** The base of the slab at this place in the stack, in metres; the lowest floor lies on the ground. */
 export const slabBase = (index: number): number => index * SLAB_SPACING_M;
 
-/** A floor's slab: its floor and the corners of its top face, for the floor's label. */
+/** A floor's slab: its floor, how many rooms lie on it, and the corners of its top face, for the floor's label. */
 export interface Slab {
   floorId: string;
+  rooms: number;
   top: StackPoint[];
 }
 
 export interface FloorStack {
-  /** Slabs, their shadows, rooms and walls as `kind` with `base_m` and `top_m`, for MapLibre's fill-extrusion. */
+  /** Slabs, their shadows and edges, rooms and their edges as `kind` with `base_m` and `top_m`, for MapLibre's fill-extrusion. */
   features: FeatureCollection<Polygon>;
   slabs: Slab[];
   /** Every corner of the slabs and rooms, top and bottom, for framing the stack. */
@@ -73,19 +77,23 @@ const toMetres = (frame: PlanFrame, position: Position): [number, number] => {
 const fromMetres = (frame: PlanFrame, [x, y]: [number, number]): Position =>
   frame.fromLattice([x / frame.unitM, y / frame.unitM]);
 
+/** The width in metres that shows as `pixels` at MapLibre's zoom and this latitude. */
+export const metresForPixels = (pixels: number, zoom: number, latitude: number): number =>
+  pixels / pixelsPerMetre(zoom, latitude);
+
 /**
- * Custom: one thin rectangle along every edge of the rings, a little longer than the edge, so the
- * walls of a room meet at its corners. MapLibre cannot raise a line, so walls on a raised slab are
- * drawn as low extrusions.
+ * Custom: one thin rectangle `widthM` wide along every edge of the rings, a little longer than the
+ * edge, so the edges meet at the corners. MapLibre cannot raise a line, so an edge on a raised slab
+ * is drawn as a low extrusion.
  */
-export const wallStrips = (polygon: Polygon, frame: PlanFrame): Polygon[] =>
+export const edgeStrips = (polygon: Polygon, frame: PlanFrame, widthM: number): Polygon[] =>
   polygon.coordinates.flatMap((ring) =>
     ring.slice(1).flatMap((end, index) => {
       const [ax, ay] = toMetres(frame, ring[index]);
       const [bx, by] = toMetres(frame, end);
       const length = Math.hypot(bx - ax, by - ay);
       if (!length) return [];
-      const half = WALL_WIDTH_M / 2;
+      const half = widthM / 2;
       const [dx, dy] = [((bx - ax) / length) * half, ((by - ay) / length) * half];
       const corners: [number, number][] = [
         [ax - dx - dy, ay - dy + dx],
@@ -100,14 +108,16 @@ export const wallStrips = (polygon: Polygon, frame: PlanFrame): Polygon[] =>
 
 /**
  * The stack: a slab per floor in `floors`, under the building outline or, without one, under that
- * floor's rooms; each room as a fill with its walls on every slab it occupies. Rooms on No floor
- * lie on the ground without a slab.
+ * floor's rooms, with its edge; each room as a fill with its edge on every slab it occupies. Rooms
+ * on No floor lie on the ground without a slab. `pixelM` is the size of a screen pixel in metres,
+ * which keeps the edges thin lines.
  */
 export const floorStack = (
   rooms: Feature<Polygon>[],
   outline: Polygon | undefined,
   floors: string[],
   frame: PlanFrame,
+  pixelM: number,
 ): FloorStack => {
   const features: Feature<Polygon>[] = [];
   const corners: StackPoint[] = [];
@@ -129,17 +139,21 @@ export const floorStack = (
     for (const footprint of footprints) {
       add("shadow", footprint, base - SHADOW_DEPTH_M, base);
       add("slab", footprint, base, top);
+      for (const strip of edgeStrips(footprint, frame, SLAB_EDGE_PX * pixelM)) add("slab-edge", strip, base, top);
       addCorners(footprint, [base, top]);
       for (const position of footprint.coordinates[0]) topCorners.push([...toMetres(frame, position), top]);
     }
-    return { floorId, top: topCorners };
+    const roomCount = rooms.filter((room) => floorsOf(room).includes(floorId)).length;
+    return { floorId, rooms: roomCount, top: topCorners };
   });
   for (const room of rooms) {
     for (const floorId of floorsOf(room)) {
       const index = floorId === null ? -1 : floors.indexOf(floorId);
       const floorTop = index < 0 ? 0 : slabBase(index) + SLAB_THICKNESS_M;
       add("room", room.geometry, floorTop, floorTop + ROOM_FILL_M);
-      for (const strip of wallStrips(room.geometry, frame)) add("wall", strip, floorTop, floorTop + WALL_HEIGHT_M);
+      for (const strip of edgeStrips(room.geometry, frame, ROOM_EDGE_PX * pixelM)) {
+        add("edge", strip, floorTop, floorTop + EDGE_HEIGHT_M);
+      }
       addCorners(room.geometry, [floorTop]);
     }
   }
@@ -263,18 +277,27 @@ export const labelAnchor = (
   return pixels.reduce((rightmost, pixel) => (pixel![0] > rightmost![0] ? pixel : rightmost))!;
 };
 
+/** The second line of a floor's label. */
+export const roomCount = (rooms: number): string => (rooms === 1 ? "1 room" : `${rooms} rooms`);
+
 /** The label elements; the panel adds them to its styles. */
 export const floorLabelStyles = css`
   .floor-label {
+    display: flex;
+    flex-direction: column;
     padding-left: var(--ha-space-3);
     pointer-events: none;
-    color: var(--primary-text-color);
-    font-size: var(--ha-font-size-m);
-    font-weight: var(--ha-font-weight-medium);
+    color: var(--secondary-text-color);
+    font-size: 13px;
+    line-height: 16px;
     white-space: nowrap;
     text-shadow:
       0 0 3px var(--card-background-color),
       0 0 3px var(--card-background-color);
+  }
+  .floor-label .count {
+    font-size: 11px;
+    line-height: 14px;
   }
 `;
 
@@ -314,10 +337,10 @@ export class FloorLabels {
     for (const { marker } of this._slabs) marker.remove();
     this._frame = frame;
     this._slabs = slabs.map((slab) => {
-      const element = Object.assign(document.createElement("div"), {
-        className: "floor-label",
-        textContent: floorName(slab.floorId),
-      });
+      const element = Object.assign(document.createElement("div"), { className: "floor-label" });
+      const line = (className: string, text: string) =>
+        Object.assign(document.createElement("span"), { className, textContent: text });
+      element.append(line("name", floorName(slab.floorId)), line("count", roomCount(slab.rooms)));
       return { slab, marker: new Marker({ element, anchor: "left" }).setLngLat([0, 0]).addTo(this._map) };
     });
     this.update();

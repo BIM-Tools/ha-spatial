@@ -66,7 +66,7 @@ strip at the bottom.
 
 | Button | Shows |
 | --- | --- |
-| All | Every floor as a slab with its rooms, stacked with a gap between floors and seen from the front corner of the house, each slab named on its right. Turn it with the right mouse button or two fingers; the compass returns to the view from the front corner. A view only: the tools, Undo and Redo are off, and the strip shows the Building pill with "Choose a floor to edit its rooms" |
+| All | Every floor as a slab with its rooms, stacked with a gap between floors and seen from the front corner of the house, each slab named on its right with its number of rooms. Turn it with the right mouse button or two fingers; the compass returns to the view from the front corner. A view only: the tools, Undo and Redo are off, and the strip shows the Building pill with "Choose a floor to edit its rooms" |
 | A floor | That floor as a flat plan; every floor of Home Assistant is listed, ordered by level, also an empty one |
 | No floor | Areas without a floor |
 
@@ -228,7 +228,7 @@ At 600 px wide or less:
 
 Add a card with `type: custom:spatial-map-card`, best in a view of type Panel, so the map fills
 it; elsewhere the card is 400 px high. Everyone who can see the dashboard sees the map, also
-users who are not an administrator. The card has no tools, always shows the map, and its labels
+users who are not an administrator. The card has no tools, and its labels
 show icon and name without the area.
 
 | `floor` | Shows |
@@ -236,6 +236,12 @@ show icon and name without the area.
 | not set | Floor buttons for the floors with rooms; pan and zoom |
 | `all` | All floors as a stack of slabs from the front corner, fixed |
 | a `floor_id` | That floor as a plan, fixed |
+
+| `show_map` | Shows |
+| --- | --- |
+| not set | No map under all floors (`floor: all`); the map under one floor or the floor buttons |
+| `true` | The map |
+| `false` | The plan on the card's own background |
 
 A fixed view has no buttons, frames the rooms' footprints and follows every change:
 

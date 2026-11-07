@@ -68,3 +68,12 @@ test("the card passes its floor option to the panel", () => {
 test("the card refuses a floor option that is not a string", () => {
   expect(() => mountCard().setConfig({ floor: 1 })).toThrow("floor");
 });
+
+test("the card passes its show_map option to the panel, and refuses one that is not true or false", () => {
+  const card = mountCard();
+  const panel = card.shadowRoot?.querySelector("spatial-panel") as HTMLElement & { showMap?: boolean };
+  expect(panel.showMap).toBeUndefined();
+  card.setConfig({ floor: "all", show_map: true });
+  expect(panel.showMap).toBe(true);
+  expect(() => card.setConfig({ show_map: "yes" })).toThrow("show_map");
+});

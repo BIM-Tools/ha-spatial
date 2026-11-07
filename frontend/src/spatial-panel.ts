@@ -18,6 +18,7 @@ import {
   VIEW_TURN_DEG,
   floorLabelStyles,
   floorStack,
+  metresForPixels,
   stackFloors,
   stackView,
 } from "./floor-stack";
@@ -59,10 +60,12 @@ const WALL_OFFSET_SHARE = 0.3;
 const STACK_LAYERS: [string, string, number, [number, number]][] = [
   ["stack-shadow", "shadow", 0.2, [5, 9]],
   ["stack-slabs", "slab", 1, [0, 0]],
+  ["stack-slab-edges", "slab-edge", 1, [0, 0]],
   ["stack-rooms", "room", 1, [0, 0]],
-  ["stack-walls", "wall", 1, [0, 0]],
+  ["stack-room-edges", "edge", 1, [0, 0]],
 ];
 const REGISTRY_EVENTS = ["area_registry_updated", "floor_registry_updated"];
+const START_ZOOM = 19;
 const PHONE_QUERY = "(max-width: 600px)";
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 const MAP_SHOWN_KEY = "spatial-show-map";
@@ -114,6 +117,8 @@ class SpatialPanel extends LitElement {
     card: { type: Boolean },
     // Set by the card's `floor` option: a fixed, static view of "all" or one floor_id.
     floor: { attribute: false },
+    // Set by the card's `show_map` option.
+    showMap: { attribute: false },
     panel: { attribute: false },
     _failed: { state: true },
     _hovered: { state: true },
@@ -253,6 +258,7 @@ class SpatialPanel extends LitElement {
   declare hass: Hass | undefined;
   declare card: boolean;
   declare floor: string | undefined;
+  declare showMap: boolean | undefined;
   declare panel: object | undefined;
   declare _failed: boolean;
   declare _hovered: string | undefined;
@@ -308,9 +314,10 @@ class SpatialPanel extends LitElement {
     return darkModeOf(this.hass!, window.matchMedia(DARK_QUERY).matches);
   }
 
-  // The card keeps the map until it has its own option.
+  // The card's show_map option; without it a card of all floors shows the slabs on plain ground and one of a floor keeps the map.
   private get _mapVisible() {
-    return this.card || this._mapShown || this._aligning;
+    if (this.card) return this.showMap ?? this.floor !== "all";
+    return this._mapShown || this._aligning;
   }
 
   render() {
@@ -566,7 +573,7 @@ class SpatialPanel extends LitElement {
       style,
       transformRequest: (url) => withMapTilesToken(url, location.origin, this._token),
       center: [site.lon, site.lat],
-      zoom: 19,
+      zoom: START_ZOOM,
       pitch: this._state.floor === "all" ? VIEW_PITCH_DEG : 0,
       bearing: this._mapBearingDeg,
       interactive: !this.floor,
@@ -581,6 +588,9 @@ class SpatialPanel extends LitElement {
     this._showLabels();
     this._showFloorLabels();
     map.on("style.load", () => this._addAreas());
+    map.on("zoomend", () => {
+      if (this._state.floor === "all") this._buildStack();
+    });
     map.on("mousemove", (event) => {
       this._previewWall(event);
       this._pointAt(event);
@@ -622,7 +632,8 @@ class SpatialPanel extends LitElement {
     return mapBearing(this._state.axisDeg + (this._state.floor === "all" ? VIEW_TURN_DEG : 0));
   }
 
-  private _buildStack() {
+  // The edges are drawn as strips a pixel or so wide at this zoom, so they are built again after a zoom.
+  private _buildStack(zoom = this._map?.getZoom() ?? START_ZOOM) {
     const frame = this._state.frame;
     if (!frame) return;
     const rooms = this._state.areas.features as Feature<Polygon>[];
@@ -634,7 +645,8 @@ class SpatialPanel extends LitElement {
       levels.get(floorId) ??
       null;
     const outline = this._state.outline.type === "Polygon" ? this._state.outline : undefined;
-    this._stack = floorStack(rooms, outline, stackFloors(rooms, levelOf), frame);
+    const pixelM = metresForPixels(1, zoom, frame.fromLattice([0, 0])[1]);
+    this._stack = floorStack(rooms, outline, stackFloors(rooms, levelOf), frame, pixelM);
     this._map?.getSource<GeoJSONSource>("stack")?.setData(this._stack.features);
     this._showFloorLabels();
   }
@@ -654,6 +666,7 @@ class SpatialPanel extends LitElement {
     const screen = { width: container.clientWidth, height: container.clientHeight, fovDeg: map.getVerticalFieldOfView() };
     const camera = stackView(this._stack, frame, this._state.axisDeg, screen, this._freeSpace());
     if (!camera) return;
+    this._buildStack(camera.zoom);
     if (animate) map.easeTo(camera);
     else map.jumpTo(camera);
   }
@@ -743,7 +756,8 @@ class SpatialPanel extends LitElement {
 
   private _groundColour(): string {
     return (
-      getComputedStyle(this).getPropertyValue("--primary-background-color").trim() ||
+      // A card lies on its own background, the panel on the page.
+      getComputedStyle(this).getPropertyValue(this.card ? "--card-background-color" : "--primary-background-color").trim() ||
       (this._darkMode ? "#111111" : "#fafafa")
     );
   }

@@ -273,10 +273,12 @@ export interface Mount extends Home {
   card?: boolean;
   /** The card's fixed floor option. */
   floor?: string;
+  /** The card's show_map option. */
+  showMap?: boolean;
   units?: HassUnits;
 }
 
-export const mountPanel = ({ reply, hassFloors = {}, card = false, floor, units = METRIC_UNITS, ...home }: Mount = {}) => {
+export const mountPanel = ({ reply, hassFloors = {}, card = false, floor, showMap, units = METRIC_UNITS, ...home }: Mount = {}) => {
   const fromHome = homeReply(home);
   const sendMessagePromise = vi.fn<Reply>(async (message) => {
     const answered = reply && (await reply(message));
@@ -300,8 +302,10 @@ export const mountPanel = ({ reply, hassFloors = {}, card = false, floor, units 
     updateComplete: Promise<boolean>;
     hass: object;
     floor?: string;
+    showMap?: boolean;
   };
   panel.floor = floor;
+  panel.showMap = showMap;
   panel.hass = { connection, floors: hassFloors, themes: { darkMode: false }, ...units };
   panel.toggleAttribute("card", card);
   document.body.append(panel);

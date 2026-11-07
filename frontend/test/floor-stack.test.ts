@@ -9,14 +9,18 @@ import {
   type StackScreen,
   fitStack,
   floorStack,
+  ROOM_EDGE_PX,
+  SLAB_EDGE_PX,
+  edgeStrips,
   labelAnchor,
+  metresForPixels,
   pixelsPerMetre,
   projectPoint,
+  roomCount,
   slabBase,
   stackFloors,
   stackView,
   turnFromFrame,
-  wallStrips,
 } from "../src/floor-stack";
 import { PlanFrame } from "../src/site-frame";
 import { siteFrameData } from "./site-frame-fixture";
@@ -60,9 +64,12 @@ test.each([
 
 type Heights = [kind: string, base: number, top: number][];
 
+// A screen pixel of 1 cm.
+const PIXEL_M = 0.01;
+
 const heights = (rooms: Feature<Polygon>[], outline: Polygon | undefined, floors: string[]): Heights =>
-  floorStack(rooms, outline, floors, FRAME)
-    .features.features.filter((feature) => feature.properties!.kind !== "wall")
+  floorStack(rooms, outline, floors, FRAME, PIXEL_M)
+    .features.features.filter((feature) => !feature.properties!.kind.endsWith("edge"))
     .map((feature) => [feature.properties!.kind, feature.properties!.base_m, feature.properties!.top_m]);
 
 const upper = SLAB_SPACING_M;
@@ -121,22 +128,57 @@ test.each([
   });
 });
 
-test("floorStack gives each slab its top corners and frames every slab and room corner", () => {
-  const stack = floorStack([room(rectangle(0, 0, 4, 3), "ground")], rectangle(0, 0, 8, 6), ["ground"], FRAME);
-  expect(stack.slabs.map((slab) => slab.floorId)).toEqual(["ground"]);
+test("floorStack gives each slab its room count and top corners, and frames every slab and room corner", () => {
+  const rooms = [room(rectangle(0, 0, 4, 3), "ground"), room(rectangle(4, 0, 8, 3), "ground", ["ground", "first"])];
+  const stack = floorStack(rooms, rectangle(0, 0, 8, 6), ["ground", "first"], FRAME, PIXEL_M);
+  expect(stack.slabs.map((slab) => [slab.floorId, slab.rooms])).toEqual([["ground", 2], ["first", 1]]);
   const top = stack.slabs[0].top.map(([x, y, z]) => [millimetres(x), millimetres(y), z]);
   expect(top.slice(0, 4)).toEqual([[0, 0, thick], [8, 0, thick], [8, 6, thick], [0, 6, thick]]);
-  const zs = new Set(stack.corners.map(([, , z]) => z));
-  expect([...zs]).toEqual([0, thick]);
+  const zs = new Set(stack.corners.map(([, , z]) => millimetres(z)));
+  expect([...zs]).toEqual([0, thick, upper, upper + thick].map(millimetres));
 });
 
-test("wallStrips draws each edge as a strip 10 cm wide that runs past both corners by half that", () => {
-  const strips = wallStrips(rectangle(0, 0, 4, 3), FRAME);
+// The across-edge width of a strip in metres: the narrower side of its box in the frame.
+const stripWidth = (strip: Polygon) => {
+  const metres = strip.coordinates[0].map((position) => FRAME.toLatticeUnits(position).map((unit) => unit * FRAME.unitM));
+  const xs = metres.map(([x]) => x);
+  const ys = metres.map(([, y]) => y);
+  return Math.min(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+};
+
+test.each([
+  { kind: "slab-edge", pixels: SLAB_EDGE_PX, base: 0, top: thick, count: 4 },
+  { kind: "edge", pixels: ROOM_EDGE_PX, base: thick, top: thick + 0.04, count: 4 },
+])("floorStack draws $kind as $count lines $pixels pixels wide", ({ kind, pixels, base, top, count }) => {
+  const stack = floorStack([room(rectangle(0, 0, 4, 3), "ground")], rectangle(0, 0, 8, 6), ["ground"], FRAME, PIXEL_M);
+  const edges = stack.features.features.filter((feature) => feature.properties!.kind === kind);
+  expect(edges).toHaveLength(count);
+  for (const edge of edges) {
+    expect(stripWidth(edge.geometry)).toBeCloseTo(pixels * PIXEL_M, 6);
+    expect(edge.properties!.base_m).toBeCloseTo(base, 9);
+    expect(edge.properties!.top_m).toBeCloseTo(top, 9);
+  }
+});
+
+test("edgeStrips draws each edge as a strip of the given width that runs past both corners by half that", () => {
+  const strips = edgeStrips(rectangle(0, 0, 4, 3), FRAME, 0.1);
   expect(strips).toHaveLength(4);
   const metres = strips[0].coordinates[0].map((position) => FRAME.toLatticeUnits(position).map((unit) => millimetres(unit * FRAME.unitM)));
   const xs = metres.map(([x]) => x);
   const ys = metres.map(([, y]) => y);
   expect([Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]).toEqual([-0.05, 4.05, -0.05, 0.05]);
+});
+
+test.each([
+  [0, "0 rooms"],
+  [1, "1 room"],
+  [4, "4 rooms"],
+])("a floor with %i rooms is labelled %s", (rooms, text) => {
+  expect(roomCount(rooms)).toBe(text);
+});
+
+test("metresForPixels is a number of pixels at the map's scale", () => {
+  expect(metresForPixels(3, 20, 52)).toBeCloseTo(3 / pixelsPerMetre(20, 52), 12);
 });
 
 test.each([
@@ -222,7 +264,7 @@ test("labelAnchor is the slab's rightmost top corner on screen", () => {
 });
 
 test("stackView looks from 45 degrees left of the site axis, 35 degrees above the horizon", () => {
-  const stack = floorStack([room(rectangle(0, 0, 4, 3), "ground")], undefined, ["ground"], FRAME);
+  const stack = floorStack([room(rectangle(0, 0, 4, 3), "ground")], undefined, ["ground"], FRAME, PIXEL_M);
   const view = stackView(stack, FRAME, 30, { width: 800, height: 600, fovDeg: 36.87 }, { top: 0, right: 0, bottom: 0, left: 0 })!;
   // Site axis 30 lies to the right at map bearing 300.
   expect(view).toMatchObject({ bearing: 255, pitch: 55 });
