@@ -7,8 +7,11 @@ request, or puts them in an exception message.
 from __future__ import annotations
 
 from asyncio import Lock, sleep
+from collections.abc import Mapping
+from ipaddress import ip_address
 from time import monotonic
 from typing import Any
+from urllib.parse import urlsplit
 
 from aiohttp import ClientError, ClientTimeout
 from homeassistant.core import HomeAssistant
@@ -21,12 +24,49 @@ from .const import (
     ADDRESS_SEARCH_INTERVAL_S,
     ADDRESS_SEARCH_LIMIT,
     ADDRESS_SEARCH_TIMEOUT_S,
-    ADDRESS_SEARCH_URL,
     ADDRESS_SEARCH_USER_AGENT,
+    CONF_ADDRESS_SEARCH_SERVER,
+    DEFAULT_ADDRESS_SEARCH_SERVER,
     DOMAIN,
 )
 
 DATA_ADDRESS_SEARCH: HassKey[AddressSearch] = HassKey(f"{DOMAIN}_address_search")
+
+
+def search_server(options: Mapping[str, Any]) -> str:
+    """Return the server set in a config entry's options, or the public one when none is."""
+    server: str = options.get(CONF_ADDRESS_SEARCH_SERVER, DEFAULT_ADDRESS_SEARCH_SERVER)
+    return server
+
+
+def is_allowed_search_server(url: str) -> bool:
+    """Return whether a server URL may be used: https anywhere, plain http only on the LAN.
+
+    Custom. A host counts as local when it is a private, loopback or link-local IP address,
+    ends in `.local`, or is a single label such as `nominatim`. Names are judged by their
+    form, not by what they resolve to: a public name that points into the LAN is refused for
+    http, and a single label that a search domain makes public is accepted.
+    """
+    if any(character.isspace() for character in url):
+        return False
+    try:
+        parts = urlsplit(url)
+        # Reading the port raises ValueError when it is not a number.
+        _ = parts.port
+    except ValueError:
+        return False
+    host = parts.hostname
+    if not host or parts.query or parts.fragment:
+        return False
+    if parts.scheme == "https":
+        return True
+    if parts.scheme != "http":
+        return False
+    try:
+        address = ip_address(host)
+    except ValueError:
+        return host.endswith(".local") or "." not in host
+    return address.is_private or address.is_loopback or address.is_link_local
 
 
 class AddressSearchError(HomeAssistantError):
@@ -100,9 +140,11 @@ class AddressSearch:
     async def _async_request(self, query: str) -> list[dict[str, Any]]:
         """Send one request; errors keep their reason but never the query or the URL."""
         session = async_get_clientsession(self._hass)
+        entries = self._hass.config_entries.async_entries(DOMAIN)
+        server = search_server(entries[0].options if entries else {})
         try:
             async with session.get(
-                ADDRESS_SEARCH_URL,
+                f"{server}/search",
                 params=self._params(query),
                 headers={"User-Agent": ADDRESS_SEARCH_USER_AGENT},
                 timeout=ClientTimeout(total=ADDRESS_SEARCH_TIMEOUT_S),

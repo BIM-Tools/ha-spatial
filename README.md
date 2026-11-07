@@ -40,7 +40,9 @@ search.
   Assistant's home location rounded to 0.1 degree (so nearby places come first), sent to
   [OpenStreetMap Nominatim](https://nominatim.org/) with a user agent naming this integration.
   Nominatim also sees your IP address; see the
-  [OSMF privacy policy](https://osmfoundation.org/wiki/Privacy_Policy).
+  [OSMF privacy policy](https://osmfoundation.org/wiki/Privacy_Policy). To use your own
+  Nominatim server instead, set **Address search server** under Settings > Devices & services >
+  Spatial > **Configure**.
 - Kept: nothing. The text and the results are not logged or stored by the integration. Home
   Assistant's own websocket debug logging, when you switch it on, records every message,
   searches included.

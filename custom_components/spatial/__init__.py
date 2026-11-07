@@ -76,7 +76,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: SpatialConfigEntry) -> b
         sidebar_icon="mdi:floor-plan",
         module_url=await _module_url(hass, "spatial-panel.js"),
         require_admin=True,
-        config_panel_domain=DOMAIN,
     )
     return True
 

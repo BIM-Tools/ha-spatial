@@ -10,7 +10,7 @@ from pytest_homeassistant.common import MockUser
 from pytest_homeassistant.typing import WebSocketGenerator
 
 import custom_components.spatial
-from custom_components.spatial.const import DOMAIN, PANEL_URL_PATH, STATIC_URL
+from custom_components.spatial.const import PANEL_URL_PATH, STATIC_URL
 
 from .common import call, setup_entry
 
@@ -28,14 +28,14 @@ async def panels_for_user(
 async def test_panel_for_admins_in_the_sidebar(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator
 ) -> None:
-    """The sidebar shows the panel as Floor plan, and Configure opens it too."""
+    """The sidebar shows the panel as Floor plan; Configure opens the options form instead."""
     await setup_entry(hass)
 
     panel = (await panels_for_user(hass, hass_ws_client))[PANEL_URL_PATH]
     assert panel["require_admin"]
     assert panel["title"] == "Floor plan"
     assert panel["icon"] == "mdi:floor-plan"
-    assert panel["config_panel_domain"] == DOMAIN
+    assert panel["config_panel_domain"] is None
 
 
 async def test_panel_hidden_from_non_admins(
