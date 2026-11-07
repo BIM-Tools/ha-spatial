@@ -257,14 +257,76 @@ test("without a home location, a picked place offers Use as home", async () => {
 const TOWER = { type: "Polygon", coordinates: [[[5.121, 52.0903], [5.1218, 52.0903], [5.1218, 52.0911], [5.121, 52.0911], [5.121, 52.0903]]] };
 const toolPressed = (panel: HTMLElement, name: string) => buttonNamed(panel, name)?.getAttribute("aria-pressed");
 
-test("on a first visit without a home, a pick leaves the panel on a floor with Align on and its line", async () => {
-  const { panel } = mountPanel({ homeLocation: {}, site: { bearing_deg: null }, reply: searchingAnd([DOMTOREN]) });
-  await vi.waitFor(() => expect(card(panel)).not.toBeNull());
-  await searchAndPick(panel);
+// A synthetic building east of the tower, for a second pick.
+const ANNEX = { type: "Polygon", coordinates: [[[5.1222, 52.0905], [5.1226, 52.0905], [5.1226, 52.0909], [5.1222, 52.0909], [5.1222, 52.0905]]] };
+const CLICK_HOME_LINE = "Click your home Point at your house and click it.";
+const ALIGN_LINE = "Click the front wall of your home The view turns so that wall lies flat.";
+// The map tiles' buildings under the pointer are `buildings`; no room is drawn there.
+const buildingsUnderPointer = (buildings: object[]) =>
+  queryRenderedFeatures.mockImplementation(((_where: unknown, options: { layers: string[] }) =>
+    options.layers.includes("building-3d") ? buildings : []) as never);
+const pointer = (event: "mousemove" | "click", [lng, lat]: [number, number]) => handlers[event]({ point: { x: 1, y: 2 }, lngLat: { lng, lat } });
+
+const clickingHome = async () => {
+  const mounted = mountPanel({ homeLocation: {}, site: { bearing_deg: null }, reply: searchingAnd([DOMTOREN]) });
+  await vi.waitFor(() => expect(card(mounted.panel)).not.toBeNull());
+  handlers["style.load"]();
+  await searchAndPick(mounted.panel);
+  return mounted;
+};
+
+test("on a first visit without a home, a pick leaves the panel on a floor with Click your home, Align off, asking nothing yet", async () => {
+  const { panel } = await clickingHome();
   expect(buttonNamed(panel, "No floor")!.getAttribute("aria-pressed")).toBe("true");
-  expect(toolPressed(panel, "Align")).toBe("true");
-  expect(buttonNamed(panel, "Align")!.disabled).toBe(false);
-  expect(guideText(panel)).toBe("Click the front wall of your home The view turns so that wall lies flat.");
+  expect(toolPressed(panel, "Align")).toBe("false");
+  expect(guideText(panel)).toBe(CLICK_HOME_LINE);
+  expect(toasts).toEqual([]);
+});
+
+test("while the home is to be clicked, the building under the pointer lights up", async () => {
+  await clickingHome();
+  buildingsUnderPointer([{ geometry: TOWER }]);
+  pointer("mousemove", [5.1214, 52.0907]);
+  expect(sources["spatial-wall"].data).toEqual(TOWER);
+  buildingsUnderPointer([]);
+  pointer("mousemove", [5.13, 52.0907]);
+  expect(sources["spatial-wall"].data).toEqual(EMPTY);
+});
+
+test("a click makes the building the home: it shows dashed, the home question is asked for its middle, and Align is next", async () => {
+  const { panel, connection } = await clickingHome();
+  buildingsUnderPointer([{ geometry: TOWER }]);
+  pointer("click", [5.1211, 52.0904]);
+  await settle(panel);
+  expect(sources["spatial-home"].data).toEqual(TOWER);
+  expect(toasts.map((toast) => [toast.message, toast.action?.text])).toEqual([["Use this as Home Assistant's home?", "Use as home"]]);
+  expect(guideText(panel)).toBe(ALIGN_LINE);
+  expect(toolPressed(panel, "Align")).toBe("false");
+  toasts[0].action!.action();
+  await vi.waitFor(() => expect(homeWrites(connection)).toHaveLength(1));
+  const [{ latitude, longitude }] = homeWrites(connection) as unknown as { latitude: number; longitude: number }[];
+  expect(latitude).toBeCloseTo(52.0907, 5);
+  expect(longitude).toBeCloseTo(5.1214, 5);
+});
+
+test("clicking another building before Align picks it instead and asks again", async () => {
+  const { panel } = await clickingHome();
+  buildingsUnderPointer([{ geometry: TOWER }]);
+  pointer("click", [5.1214, 52.0907]);
+  buildingsUnderPointer([{ geometry: ANNEX }]);
+  pointer("click", [5.1224, 52.0907]);
+  await settle(panel);
+  expect(sources["spatial-home"].data).toEqual(ANNEX);
+  expect(toasts).toHaveLength(2);
+  expect(guideText(panel)).toBe(ALIGN_LINE);
+});
+
+test("a click beside any building says so, and the home is still to be clicked", async () => {
+  const { panel } = await clickingHome();
+  pointer("click", [5.13, 52.0907]);
+  await settle(panel);
+  expect(toasts.map((toast) => toast.message)).toEqual(["No building here"]);
+  expect(guideText(panel)).toBe(CLICK_HOME_LINE);
 });
 
 test("the picked place's building shows dashed until the site has a direction", async () => {

@@ -33,7 +33,7 @@ unless you run your own Nominatim server or OpenStreetMap asks you to change it.
 is, north up, centred on your home location, and the line at the top says only that step; the
 one control it needs is lit with a ring. Nothing about the steps is stored: what is already
 there is skipped, so a home on a building skips the search, a site with a direction skips
-Align, a stored outline skips the outline, and leaving and coming back resumes at the first
+clicking your home and Align, a stored outline skips the outline, and leaving and coming back resumes at the first
 unfinished step. Once every area has a shape, the panel opens on **All** and says nothing.
 
 **Find your home.** When Home Assistant has no home location yet, or the map draws no building
@@ -42,17 +42,24 @@ nothing is drawn). Type your street, house number and
 town and press **Search** or Enter; Spatial asks OpenStreetMap only then, never while you type,
 and does not keep what you typed. Pick one of up to five results, street on the first line and
 town on the second (arrow keys move through them), and the map flies there; the building at
-the place shows dashed and Align is switched on for the next step. With no result,
+the place shows dashed. With no result,
 check the spelling or add the town. When the search server cannot be reached, press **Retry**,
 or close the card and pan the map to your home. The magnifier at the top of the map controls
 (**Find an address**) opens the same card at any time.
 
-**Home location.** After you pick a result, Home Assistant's toast offers to make it the home
-location Home Assistant uses for zones and presence: **Use as home** when Home Assistant has no
-home location yet, or **Move** when the place lies more than 25 m from it, with the distance.
-Only the latitude and longitude change; the toast **Home location moved** offers **Undo**. Within
-25 m nothing is asked, and once asked, a later search in the same visit asks nothing. This
-needs an administrator, like the panel.
+**Click your home.** Before the site has a direction, the line at the top says "Click your
+home": point at your house on the map, and the building under the pointer lights up; click it.
+A building cut by the map's tile edges is taken whole. The building you clicked shows dashed and
+Align is next; clicking another building before you press **Align** picks that one instead.
+Nothing goes on until you click. A click beside any building says "No building here".
+
+**Home location.** When you click your home, Home Assistant's toast offers to make the middle of
+that building the home location Home Assistant uses for zones and presence: **Use as home** when
+Home Assistant has no home location yet, or **Move** when it lies more than 25 m from it, with
+the distance. Each click on another building asks again. On a site that already has a direction,
+the toast comes when you pick a search result instead, once a visit. Only the latitude and
+longitude change; the toast **Home location moved** offers **Undo**. Within 25 m nothing is
+asked. This needs an administrator, like the panel.
 
 1. **Align.** The line at the top says "Click the front wall of your home", with **Align** lit;
    your home's building shows dashed. Press **Align** and click your house on the map near the
