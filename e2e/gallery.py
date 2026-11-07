@@ -219,6 +219,39 @@ class Shot:
         self.require(stack.get_by_role("button", name="Show map"), "map toggle").click()
         self.settle()
 
+    def answer_address_search(self, answer: dict[str, object]) -> None:
+        """Answers the panel's address searches with `answer`, never asking OpenStreetMap.
+
+        An answer with `places` is the reply, any other is the error; the next page load drops it.
+        """
+        self.panel.evaluate(
+            """(panel, answer) => {
+                const connection = panel.hass.connection;
+                const send = connection.sendMessagePromise.bind(connection);
+                connection.sendMessagePromise = (message) => {
+                    if (message.type !== "spatial/address/search") return send(message);
+                    return answer.places ? Promise.resolve(answer) : Promise.reject(answer);
+                };
+            }""",
+            answer,
+        )
+
+    def open_address_search(self) -> None:
+        stack = self.panel.locator("spatial-map-stack")
+        self.require(stack.get_by_role("button", name="Find an address"), "address search").click()
+        self.panel.get_by_role("searchbox", name="Address").wait_for()
+        self.settle()
+
+    def search_address(self, query: str, answer: dict[str, object], shows: str) -> None:
+        """Searches with a made-up answer and waits until the card shows the text `shows`."""
+        self.answer_address_search(answer)
+        self.open_address_search()
+        field = self.panel.get_by_role("searchbox", name="Address")
+        field.fill(query)
+        field.press("Enter")
+        self.panel.locator("spatial-address-search").get_by_text(shows).first.wait_for()
+        self.settle()
+
     def open_help(self) -> None:
         header = self.panel.locator("spatial-panel-header")
         help_button = self.require(header.get_by_role("button", name="Help", exact=True), "Help")
@@ -658,6 +691,41 @@ def toast_apart_box(shot: Shot) -> None:
     shot.wait_for_toast("A room is one shape: draw against it")
 
 
+# Places as the search would answer: the public landmark the example house stands next to, and
+# made-up ones; never a house number or postcode of a real street.
+SEARCH_PLACES = [
+    {
+        "label": "Domtoren, Domplein, Utrecht",
+        "lat": 52.0907,
+        "lon": 5.1214,
+        "bbox": [5.1212, 52.0905, 5.1216, 52.0909],
+    },
+    {"label": "Domkerk, Achter de Dom, Utrecht", "lat": 52.0910, "lon": 5.1224, "bbox": None},
+    {"label": "1, Voorbeeldstraat, Ergens, Voorbeeldland", "lat": 52.0, "lon": 5.0, "bbox": None},
+]
+
+
+def search_empty(shot: Shot) -> None:
+    shot.open_panel()
+    shot.open_address_search()
+
+
+def search_results(shot: Shot) -> None:
+    shot.open_panel()
+    shot.search_address("Domtoren", {"places": SEARCH_PLACES}, "Voorbeeldstraat 1")
+
+
+def search_no_results(shot: Shot) -> None:
+    shot.open_panel()
+    shot.search_address("Voorbeeldweg 99", {"places": []}, "No address found")
+
+
+def search_unavailable(shot: Shot) -> None:
+    shot.open_panel()
+    failure = {"code": "search_failed", "message": "The search server could not be reached"}
+    shot.search_address("Voorbeeldstraat 1", failure, "isn't available right now")
+
+
 def card(view: str) -> Callable[[Shot], None]:
     def setup(shot: Shot) -> None:
         shot.open_card(view)
@@ -852,6 +920,30 @@ STATES = [
         "floors",
         "No floor: Garden and Driveway in the strip, nothing drawn",
         floor_view("No floor"),
+    ),
+    State(
+        "search-empty",
+        "search",
+        "Find your home opened from the map controls: field, lit Search, OpenStreetMap footnote",
+        search_empty,
+    ),
+    State(
+        "search-results",
+        "search",
+        "Three results, street over town",
+        search_results,
+    ),
+    State(
+        "search-no-results",
+        "search",
+        "A search without results says to check the spelling or add the town",
+        search_no_results,
+    ),
+    State(
+        "search-unavailable",
+        "search",
+        "The search server failed: Retry, and the hint to pan the map",
+        search_unavailable,
     ),
     State("card-floor", "card", "Dashboard card fixed to the ground floor", card("floor")),
     State("card-all", "card", "Dashboard card with all floors", card("all")),

@@ -30,6 +30,15 @@ plan**. The Configure form also holds **Address search server**: leave it at Ope
 unless you run your own Nominatim server or OpenStreetMap asks you to change it. The panel
 opens on **All**, north up, centred on your home location.
 
+**Find your home.** When Home Assistant has no home location yet and nothing is drawn, the
+panel opens on the globe with the card **Find your home**. Type your street, house number and
+town and press **Search** or Enter; Spatial asks OpenStreetMap only then, never while you type,
+and does not keep what you typed. Pick one of up to five results, street on the first line and
+town on the second (arrow keys move through them), and the map flies there. With no result,
+check the spelling or add the town. When the search server cannot be reached, press **Retry**,
+or close the card and pan the map to your home. The magnifier at the top of the map controls
+(**Find an address**) opens the same card at any time.
+
 1. **Align.** Pick a floor, press **Align** and click your house on the map near the wall the
    rooms follow; the line at the top says "Click the wall your rooms follow" and the wall under
    the pointer lights up. The map turns so that wall is horizontal, and Select is active again.
@@ -217,6 +226,7 @@ a touch screen), and a link to this documentation.
 
 | Control | Does |
 | --- | --- |
+| Find an address | Opens the address search card; picking a result flies the map there |
 | Map | Shows or hides the map under the plan; off shows the plan on the page colour. Remembered in this browser |
 | Zoom in, zoom out | Zooms the map |
 | Compass | Turns with the map; a click turns back to the site direction ("Face the house"), or north up before any Align ("Face north") |
@@ -233,7 +243,8 @@ At 600 px wide or less:
 
 - The floors are a chip row under the header.
 - The tools, Undo and Redo are a bar at the bottom, the strip just above it.
-- Of the map controls only the round map toggle stays; pinch to zoom and turn.
+- Of the map controls only the round address search and map toggle stay; pinch to zoom and turn.
+- The address search card spans the width under the header.
 - Two taps draw a box; a long press on a pill renames it.
 
 ## Dashboard card
@@ -316,3 +327,5 @@ each one means, and the [importer](../tools/README.md) sets floor heights.
 - Undo covers this session only, and overwrites changes made elsewhere in the meantime. An undo
   for an area deleted in Home Assistant keeps failing; reload the panel to clear the history.
 - The slabs in All lie evenly apart in floor order, whatever elevation a floor has.
+- A search result shows the house number after the street, also where addresses are written the
+  other way round, and its second line may start with a neighbourhood rather than the town.

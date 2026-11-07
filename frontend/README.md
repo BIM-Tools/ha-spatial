@@ -36,7 +36,9 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/panel-header.ts` | The panel's header in the look of Home Assistant's subpage: Back, title, Help and its sheet in a native dialog |
 | `src/floor-selector.ts` | Floor buttons: a floating segmented control, or a chip row on a phone |
 | `src/editor-toolbar.ts` | Align, Draw, Select, Undo, Redo and Remove: floating, or a bottom bar on a phone |
-| `src/map-stack.ts` | Map toggle, zoom and compass |
+| `src/map-stack.ts` | Address search button, map toggle, zoom and compass |
+| `src/address-search.ts` | The Find your home card: field, Search, up to five results, the no result and unavailable states; sends one `spatial/address/search` per Enter or press, never while typing |
+| `src/address.ts` | Pure rules of the address search: when a query may be sent, the street and town lines of a result, where the map goes for it, and when Home Assistant has no home location |
 | `src/map-paint.ts` | The map layers' colours, read from Home Assistant's theme at style load and on a theme change |
 | `src/floor-stack.ts` | All floors as an exploded stack of slabs, pure and in site frame metres: floor order, slab heights, room fills and walls, the camera fit from the front corner, and the floor labels beside each slab |
 | `src/room-labels.ts` | Room labels: area icon, name and (in the panel) net area, placed and stepped by the room's size on screen |
@@ -100,5 +102,9 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
   is active without an outline, the editor shows it dashed with the guide line's question and adds
   it as the outline to the snap candidates of a Building gesture only. Use outline saves it like a
   drawn box, in one write and one undo step; nothing about the map building is stored.
+- Without a home location in Home Assistant (unset or 0, 0) and with nothing drawn, the panel
+  starts on MapLibre's globe with the search card open. A picked result fits the map to its box,
+  else flies to its point at building zoom, and closes the card. The query lives only in the
+  card: it is not logged or stored.
 - Areas are created and renamed with Home Assistant's area registry commands; renaming the
   building sends `config/core/update` with `location_name`.
