@@ -308,6 +308,16 @@ test("a picked building across a tile edge is read from the tiles under it and s
   expect(lngRange(sources["spatial-home"].data)).toEqual([5.119, 5.122]);
 });
 
+test("a coarser tile standing in under the picked place is not mixed in", async () => {
+  const { panel } = mountPanel({ homeLocation: {}, site: { bearing_deg: null }, reply: searchingAnd([DOMTOREN]) });
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
+  await searchAndPick(panel);
+  queryRenderedFeatures.mockReturnValue([{ _z: 13, _x: 4212, _y: 2702, geometry: hallPart(5.1, 5.13) }, { geometry: TOWER }]);
+  handlers.idle();
+  expect(sources["spatial-home"].data).toEqual(TOWER);
+});
+
 test("the picked place's building is read once the camera has landed, and then kept", async () => {
   const { panel } = mountPanel({ homeLocation: {}, site: { bearing_deg: null }, reply: searchingAnd([DOMTOREN]) });
   await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());

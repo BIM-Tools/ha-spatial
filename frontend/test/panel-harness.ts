@@ -76,9 +76,8 @@ const projectLngLat = ({ lng, lat }: { lng: number; lat: number }) => {
   return { x: pixels * Math.sin(turn) - panned.x, y: -pixels * Math.cos(turn) - panned.y };
 };
 
-// The map tiles' source and its finest zoom. MapLibre tells each rendered feature the tile it came from;
-// here that is the tile of the feature's first position.
-const TILES = "tiles";
+// MapLibre tells each rendered feature the tile it came from; here that is the zoom 14 tile of the
+// feature's first position, unless the test names one.
 const TILE_ZOOM = 14;
 const withTile = (feature: object) => {
   const geometry = (feature as { geometry?: { coordinates: unknown } }).geometry;
@@ -158,7 +157,6 @@ export const fakeMapLibre = {
       sources[id] = { data: source.data };
     }
     getSource(id: string) {
-      if (id === TILES) return { maxzoom: TILE_ZOOM };
       const source = sources[id];
       return source && { setData: (data: unknown) => (source.data = data) };
     }
@@ -184,7 +182,7 @@ export const fakeMapLibre = {
       return {
         layers: [
           { id: "water", type: "fill", "source-layer": "water" },
-          { id: "building-3d", type: "fill-extrusion", source: TILES, "source-layer": "buildings" },
+          { id: "building-3d", type: "fill-extrusion", "source-layer": "buildings" },
         ],
       };
     }
