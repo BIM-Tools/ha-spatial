@@ -84,6 +84,14 @@ export function formatLength(metres: number, hass: HassUnits): string {
   return `${formatNumber(value, hass, digits)} m`;
 }
 
+/** The overall size of a rectangle, width first: `9.80 × 7.60 m` with one unit, or feet and inches each. */
+export function formatSize(widthM: number, depthM: number, hass: HassUnits): string {
+  if (isUsCustomary(hass)) return `${feetAndInches(widthM)} × ${feetAndInches(depthM)}`;
+  const [width, depth] = [metricLattice(widthM), metricLattice(depthM)];
+  const digits = Math.max(width.digits, depth.digits);
+  return `${formatNumber(width.value, hass, digits)} × ${formatNumber(depth.value, hass, digits)} m`;
+}
+
 /** A length as a field starts with it: in ASCII digits with a dot, which parseLength reads in every number format. */
 export function typedLength(metres: number, hass: HassUnits): string {
   if (isUsCustomary(hass)) return feetAndInches(metres);
