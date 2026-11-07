@@ -202,6 +202,8 @@ def main():
     token = onboard()
     add_spatial(token)
     websocket = Websocket(token)
+    # A home at sea, so the empty plan opens on it and not on the globe with the address search.
+    websocket.call("config/core/update", latitude=1.0, longitude=1.0)
     floor = websocket.call("config/floor_registry/create", name="Ground", level=0)
     # Onboarding creates Kitchen and Bedroom.
     areas = {area["name"]: area for area in websocket.call("config/area_registry/list")}
