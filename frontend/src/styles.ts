@@ -5,6 +5,13 @@ import { css } from "lit";
 /** A light primary tint for what is selected or switched on; text keeps --primary-text-color for contrast. */
 export const selectedFill = css`color-mix(in srgb, var(--primary-color) 14%, transparent)`;
 
+/** The one control the guide lights as the way on: the tint and a 1.5 px primary ring, so it is not only a colour. */
+export const litControl = css`
+  background: ${selectedFill};
+  box-shadow: 0 0 0 1.5px var(--primary-color);
+  color: var(--primary-text-color);
+`;
+
 /** The fill of a space that has a shape, in its pill's square and in the help sheet. */
 export const shapeFill = css`color-mix(in srgb, var(--primary-color) 28%, transparent)`;
 

@@ -392,9 +392,11 @@ export const floorButtonNames =(panel: HTMLElement) =>
     (button) => button.textContent?.trim(),
   );
 
-/** The text of each part of the guide line, one space apart. */
+/** The guide's lines and buttons, one space apart; "" without a guide. */
 export const guideText = (panel: HTMLElement) =>
-  [...(panel.shadowRoot?.querySelector(".guide")?.children ?? [])].map((part) => part.textContent).join(" ");
+  [...(panel.shadowRoot?.querySelector(".guide")?.querySelectorAll(".text, .detail, button") ?? [])]
+    .map((part) => part.textContent?.trim())
+    .join(" ");
 
 /** The text of each part of an element's shadow root, one space apart. */
 export const partsText = (element: Element) =>
