@@ -91,6 +91,9 @@ export const fakeMapLibre = {
     getElement() {
       return this.element;
     }
+    setOffset() {
+      return this;
+    }
     addTo() {
       return this;
     }

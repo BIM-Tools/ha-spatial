@@ -22,9 +22,11 @@ boxes along one wall. Every action saves at once and can be undone.
 
 ## First run
 
-Press **Open Spaces** right after adding Spatial, or later open Settings > Devices & services >
-Spatial > **Configure** and press **Open the floor plan**; the editor has no sidebar entry and is
-for administrators. The same form holds **Address search server**: leave it at OpenStreetMap
+Press **Open floor plan** right after adding Spatial, or later choose **Floor plan** in the
+sidebar or open Settings > Devices & services > Spatial > **Configure** and press **Open the
+floor plan**. The editor is for administrators; other users do not see it. To hide it, edit the
+sidebar in Home Assistant: long-press the title at the top of the sidebar and hide **Floor
+plan**. The Configure form also holds **Address search server**: leave it at OpenStreetMap
 unless you run your own Nominatim server or OpenStreetMap asks you to change it. The panel
 opens on **All**, north up, centred on your home location.
 
@@ -105,7 +107,8 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
 ### Draw
 
 - **Draw a box:** press and drag from corner to corner, or click two corners (two taps on a
-  phone). While drawing, the box shows its side lengths and area.
+  phone). While drawing, the box shows its side lengths just outside its sides, and its area inside
+  once the box is large enough on screen to hold it.
 - **Join:** a box that touches the active space's shape joins it, so an L-shaped room is two
   boxes. A box apart from it is refused with the toast "A room is one shape: draw against it".
   After a space's first shape the next one is highlighted, so choose the space again before
@@ -149,10 +152,10 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
 - **Stretch a side:** on such a rectangle, drag an edge anywhere along it. Only that edge moves,
   straight out or in, onto the 10 cm (4 in) grid, and rests on a parallel wall or a corner of
   another room or the outline nearby, which lights up. The length that changes counts on its
-  button as it goes, and the draft shows its area. An edge stops one grid step from the opposite
-  one, at the outline (a room inside it stays inside, one outside stays outside) and where it
-  would cover another room on this floor; the wall or corner it stops at lights up. While a side
-  or corner is dragged, the room labels under it make way for the draft's area.
+  button as it goes, and the draft shows its area when it is large enough on screen. An edge stops
+  one grid step from the opposite one, at the outline (a room inside it stays inside, one outside
+  stays outside) and where it would cover another room on this floor; the wall or corner it stops
+  at lights up. While a side or corner is dragged, the room labels under it make way for the draft.
 - **Drag a corner:** drag a corner of such a rectangle; the opposite corner stays. The corner
   snaps like a drawn box corner and lights up what it snaps to or stops at, both walls in a
   corner; each side stays at least one
@@ -178,6 +181,8 @@ Exactly one tool is active; **Adjust** is the default. The tools work on a floor
 - Saving is silent. Refusals and failures use Home Assistant's toast. "Could not save" stays with
   **Retry**. A room that already had a shape keeps showing it as saved; a first box that failed
   stays on the map until it saves or the next box replaces it.
+- Right after Home Assistant restarts, a save can come before Spatial has loaded; the toast then
+  says "Spatial is still starting, try again in a moment", also with **Retry**.
 - Spatial refuses an indoor room that would extend beyond the outline, or a shape with no net
   area left; in the panel that save ends as "Could not save".
 

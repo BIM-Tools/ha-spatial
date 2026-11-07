@@ -100,7 +100,7 @@ test("the panel has a header, the editing tools and the area strip; the card has
   const { panel } = mountPanel();
   await vi.waitFor(() => expect(panel.shadowRoot?.querySelector("spatial-panel-header")).not.toBeNull());
   await settle(panel);
-  expect(panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!.querySelector("[role=heading]")?.textContent).toBe("Spaces");
+  expect(panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!.querySelector("[role=heading]")?.textContent).toBe("Floor plan");
   for (const name of ["Align", "Draw", "Adjust", "Undo", "Redo"]) expect(buttonNamed(panel, name)).toBeDefined();
   expect(panel.shadowRoot!.querySelector("spatial-area-strip")).not.toBeNull();
   const card = mountPanel({ card: true }).panel;
@@ -406,6 +406,20 @@ test("in Align a failed save turns the map back and offers Retry, which saves th
   failure.action!.action();
   await vi.waitFor(() => expect(updates(connection)).toHaveLength(2));
   expect(updates(connection)[1]).toEqual(updates(connection)[0]);
+});
+
+test("in Align a save while Spatial is still starting says so and offers Retry", async () => {
+  const { panel } = mountPanel({
+    reply: async (message) => {
+      if (message.type === "spatial/site/update") throw { code: "unknown_command", message: "Unknown command." };
+    },
+  });
+  queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
+  vi.spyOn(console, "error").mockImplementationOnce(() => {});
+  await startAligning(panel);
+  click();
+  await vi.waitFor(() => expect(toastMessages()).toEqual(["Spatial is still starting, try again in a moment"]));
+  expect(toasts[0]).toMatchObject({ action: { text: "Retry" }, duration: -1, dismissable: true });
 });
 
 test("the header's Help opens a sheet of symbols and keys that Escape closes, giving focus back to Help", async () => {

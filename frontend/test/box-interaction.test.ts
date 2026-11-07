@@ -11,7 +11,7 @@ import { METRIC_UNITS } from "./units-fixture";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
 
-import { type ActiveRoom, BoxInteraction } from "../src/box-interaction";
+import { type ActiveRoom, BoxInteraction, type BoxInteractionCallbacks } from "../src/box-interaction";
 import { layerColours, readMapPaint } from "../src/map-paint";
 import type { Tool } from "../src/room-editor";
 import { PlanFrame } from "../src/site-frame";
@@ -39,7 +39,7 @@ const mountInteraction = (
   const onMove = vi.fn();
   const onPickRoom = vi.fn();
   const onResize = vi.fn();
-  const onResizing = vi.fn();
+  const onResizing = vi.fn<BoxInteractionCallbacks["onResizing"]>(() => []);
   mounted = new BoxInteraction(map, {
     snapshot: () => ({
       tool,
@@ -332,7 +332,7 @@ test("in Adjust a press on an edge of the active rectangle resizes it instead of
   expect(onResizing).not.toHaveBeenCalled();
   handlers.mousemove(pointEvent(60, 25));
   expect(onResizing).toHaveBeenLastCalledWith({ target: { kind: "edge", index: 1 }, draft: expect.objectContaining({ type: "Polygon" }) });
-  expect(boxCorners(onResizing.mock.lastCall![0].draft)).toContainEqual(cornerAt(62, 0));
+  expect(boxCorners(onResizing.mock.lastCall![0]!.draft)).toContainEqual(cornerAt(62, 0));
   handlers.mouseup(pointEvent(70, 25));
   expect(onMove).not.toHaveBeenCalled();
   expect(onResizing).toHaveBeenLastCalledWith(undefined);
