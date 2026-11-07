@@ -51,7 +51,7 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/snap-highlight.ts` | The map layer that lights up what a point snaps to: a dot on a corner, a line on an edge; and `distinctSources`, which lights each up once |
 | `src/edge-drag.ts` | Edge and corner drag of an axis rectangle, pure and in lattice units: where the dragged edge or corner lands, stopped at the outline and the neighbours, which one a pointer grabs, and its resize cursor |
 | `src/area-strip.ts` | The strip of pills, Building first: order, next area, new area names, rename field, long press, arrow keys |
-| `src/history.ts` | Session undo and redo of footprint changes |
+| `src/history.ts` | Session undo and redo of footprint changes, and `clearChange`, the change that removes a floor's room shapes |
 | `src/spatial-card.ts` | The card: wraps the panel element, without the header and tools; loads the panel bundle when created |
 | `src/map-view.ts` | Pure helpers: map bearing, style URL, map tiles token, floor order, room bounds |
 | `src/outline.ts` | The OSM building under a click, the bearing of its nearest wall, with turf, and the fields an Align pick writes |
@@ -89,9 +89,10 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
   start at another corner, the chips counting the lengths and the held edge's handle primary. The
   room labels under the draft hide, as the draft shows the area, and undo, redo and Delete are
   ignored, as the save is made against the room as grabbed.
-- Every box, move, resize, removal, undo and redo is one save, one at a time: `spatial/site/update`
-  with `outline` for the building, else one `spatial/area/update_geometries` batch; boxes, moves,
-  resizes and removals are recorded in the session history. A refused save reloads the rooms and
+- Every box, move, resize, removal, floor clear, undo and redo is one save, one at a time:
+  `spatial/site/update` with `outline` for the building, else one `spatial/area/update_geometries`
+  batch; boxes, moves, resizes, removals and floor clears are recorded in the session history. A
+  floor clear's toast offers Undo, which is the editor's own undo. A refused save reloads the rooms and
   keeps the history position; its toast is a `hass-notification` with `duration: -1`, closed by
   the next save that succeeds. Side lengths are MapLibre Markers holding a native text field.
 - Align sends `bearing_deg`: the direction of the OSM building's outer edge nearest the click, with
