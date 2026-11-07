@@ -880,7 +880,8 @@ FIRST_RUN = [
     State(
         "first-run-click-home",
         "first-run",
-        "A fresh plan, the home on a building: ground floor open, Click your home, the building under the pointer lit",
+        "A fresh plan, the home on a building: ground floor open, Click your home, "
+        "the building under the pointer lit",
         first_run_click_home,
     ),
     State(
