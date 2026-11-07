@@ -1,6 +1,6 @@
-// Shows which editing tool is active and offers undo and redo, floating on the map or as a phone's bottom bar.
+// Shows which editing tool is active and offers undo, redo and removal, floating on the map or as a phone's bottom bar.
 
-import { mdiAngleAcute, mdiCursorDefault, mdiRedo, mdiUndo, mdiVectorRectangle } from "@mdi/js";
+import { mdiAngleAcute, mdiCursorDefault, mdiDeleteOutline, mdiRedo, mdiUndo, mdiVectorRectangle } from "@mdi/js";
 import { LitElement, css, html } from "lit";
 import type { Tool } from "./room-editor";
 import { phoneBar, pillButtons, selectedFill } from "./styles";
@@ -18,6 +18,7 @@ class SpatialEditorToolbar extends LitElement {
     disabled: { type: Boolean },
     canUndo: { attribute: false },
     canRedo: { attribute: false },
+    canRemove: { attribute: false },
     bar: { type: Boolean, reflect: true },
   };
 
@@ -56,7 +57,7 @@ class SpatialEditorToolbar extends LitElement {
       :host([bar]) {
         ${phoneBar}
         display: grid;
-        grid-template-columns: repeat(5, minmax(0, 1fr));
+        grid-template-columns: repeat(6, minmax(0, 1fr));
         gap: 0;
         height: calc(72px + var(--safe-area-inset-bottom, 0px));
         box-sizing: border-box;
@@ -95,6 +96,7 @@ class SpatialEditorToolbar extends LitElement {
   declare disabled: boolean;
   declare canUndo: boolean;
   declare canRedo: boolean;
+  declare canRemove: boolean;
   declare bar: boolean;
 
   constructor() {
@@ -103,6 +105,7 @@ class SpatialEditorToolbar extends LitElement {
     this.disabled = false;
     this.canUndo = false;
     this.canRedo = false;
+    this.canRemove = false;
     this.bar = false;
   }
 
@@ -126,7 +129,8 @@ class SpatialEditorToolbar extends LitElement {
     );
     const undo = this._action("undo", "Undo", mdiUndo, this.canUndo);
     const redo = this._action("redo", "Redo", mdiRedo, this.canRedo);
-    return this.bar ? [tools, undo, redo] : [tools, html`<span class="divider"></span>`, undo, redo];
+    const remove = this._action("remove", "Remove", mdiDeleteOutline, this.canRemove, "Remove shape");
+    return this.bar ? [tools, undo, redo, remove] : [tools, html`<span class="divider"></span>`, undo, redo, remove];
   }
 
   private _icon(path: string) {
@@ -135,11 +139,11 @@ class SpatialEditorToolbar extends LitElement {
   }
 
   // Labelled on the phone bar, icon-only with an aria-label on the floating toolbar.
-  private _action(type: "undo" | "redo", label: string, icon: string, enabled: boolean) {
+  private _action(type: "undo" | "redo" | "remove", label: string, icon: string, enabled: boolean, name = label) {
     const disabled = this.disabled || !enabled;
     return this.bar
-      ? html`<button class="action" ?disabled=${disabled} @click=${() => this._fire(type)}>${this._icon(icon)}${label}</button>`
-      : html`<button class="icon" aria-label=${label} ?disabled=${disabled} @click=${() => this._fire(type)}>
+      ? html`<button class="action" aria-label=${name} ?disabled=${disabled} @click=${() => this._fire(type)}>${this._icon(icon)}${label}</button>`
+      : html`<button class="icon" aria-label=${name} ?disabled=${disabled} @click=${() => this._fire(type)}>
           ${this._icon(icon)}
         </button>`;
   }

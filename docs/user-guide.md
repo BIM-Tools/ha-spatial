@@ -171,12 +171,15 @@ Exactly one tool is active; **Select** is the default. The tools work on a floor
 - Lengths and areas follow Home Assistant's unit system and number format. Metric lengths show
   the stored value exactly, such as 3.40 m or 3.475 m. In US customary units a length shows as
   feet and inches, such as 11′ 4″, and is typed as 12' 6", 12 6, 150" or 12.5'.
-- **Delete** removes the active shape here too.
+- **Delete** and **Remove** remove the active shape here too.
 
 ### Undo, redo and saving
 
 - **Undo** and **Redo** (Ctrl+Z, Ctrl+Shift+Z) step through every box, move, resize and removal
   of this session, each as one save.
+- **Remove** (the bin after Redo) does what the Delete key does: it removes the active shape,
+  the Building outline included, at once and as one undo step. It is off while the active space
+  has no shape.
 - Undo restores footprints only: an area created with New area stays in Home Assistant.
 - Saving is silent. Refusals and failures use Home Assistant's toast. "Could not save" stays with
   **Retry**. A room that already had a shape keeps showing it as saved; a first box that failed

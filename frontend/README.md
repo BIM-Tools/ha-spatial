@@ -35,7 +35,7 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/panel-state.ts` | The panel's reactive controller for what Spatial sends: site, frame, rooms, the floors with rooms, the floor in view and the stored bearing |
 | `src/panel-header.ts` | The panel's header in the look of Home Assistant's subpage: Back, title, Help and its sheet in a native dialog |
 | `src/floor-selector.ts` | Floor buttons: a floating segmented control, or a chip row on a phone |
-| `src/editor-toolbar.ts` | Align, Draw, Select, Undo and Redo: floating, or a bottom bar on a phone |
+| `src/editor-toolbar.ts` | Align, Draw, Select, Undo, Redo and Remove: floating, or a bottom bar on a phone |
 | `src/map-stack.ts` | Map toggle, zoom and compass |
 | `src/map-paint.ts` | The map layers' colours, read from Home Assistant's theme at style load and on a theme change |
 | `src/floor-stack.ts` | All floors as an exploded stack of slabs, pure and in site frame metres: floor order, slab heights, room fills and walls, the camera fit from the front corner, and the floor labels beside each slab |
