@@ -768,7 +768,12 @@ STATES = [
     ),
     State("map-off", "chrome", "Ground floor with the map hidden", map_off),
     State("help-open", "chrome", "The help sheet open: symbols and keys", help_open),
-    State("menu-open", "chrome", "The header's More options menu open", menu_open),
+    State(
+        "menu-open",
+        "chrome",
+        "The header's More options menu open: Change alignment, Clear Ground floor",
+        menu_open,
+    ),
     State(
         "align-active",
         "tools",

@@ -7,7 +7,7 @@ import type { GeoJSONSource, Map as MapLibreMap } from "maplibre-gl";
 import { type AreaEntry, BUILDING, firstToDraw, newAreaName, stripOrder } from "./area-strip";
 import { type ActiveRoom, BoxInteraction, type EditorSnapshot } from "./box-interaction";
 import type { ResizeTarget } from "./edge-drag";
-import { type Change, type FootprintBatch, History } from "./history";
+import { type Change, type FootprintBatch, History, clearChange } from "./history";
 import type { LayerColours } from "./map-paint";
 import { byLevel } from "./map-view";
 import { type ChangeOrRefusal, boxChange, edgeLengths, isAxisRectangle } from "./plan";
@@ -117,6 +117,11 @@ export class RoomEditor {
   /** The active area has a shape on a floor, outside Align, and nothing is saving. */
   get canRemove() {
     return !this._saving && this.tool !== "align" && this._floor !== "all" && this._footprints.has(this._active);
+  }
+
+  /** A room on the floor in view has a shape and nothing is saving; the outline is on no floor, so it does not count. */
+  get canClear() {
+    return !this._saving && this._floorClear() !== undefined;
   }
 
   /** Any room footprint on any floor, or the outline. */
@@ -461,6 +466,25 @@ export class RoomEditor {
     this._whileSaving(() => this._apply({ before: { [areaId]: footprint }, after: { [areaId]: null } }));
   };
 
+  /** Removes every room shape on the floor in view in one save and one undo step; the toast's Undo takes back only that clear. */
+  clearFloor = (floorName: string) => {
+    const change = this._floorClear();
+    if (!change || this._saving) return;
+    this._whileSaving(async () => {
+      await this._apply(change);
+      const undoClear = () => {
+        if (this._history.isLatest(change)) this.undo();
+      };
+      this._host.toast({ message: `${floorName} cleared`, action: { text: "Undo", action: undoClear } });
+    });
+  };
+
+  // All is a view, and No floor holds outdoor areas, not a floor to start over.
+  private _floorClear() {
+    if (this._floor === "all" || this._floor === null) return undefined;
+    return clearChange(this._order().map((area) => area.area_id), this._footprints);
+  }
+
   // In Select each side of the active room, when it is a rectangle on the site axis, gets a handle that
   // drags it: a chip with the length of its axis, or a grip.
   private _showSides() {
@@ -585,7 +609,7 @@ export class RoomEditor {
     this._host.toast({ id: SAVE_FAILED_ID, message: "", duration: 0 });
   }
 
-  // Every batch holds one key, so it is either the site outline or areas, never both.
+  // A batch holds either the site outline alone or areas, never both.
   private async _send(batch: FootprintBatch) {
     await this._connection.sendMessagePromise(
       BUILDING in batch

@@ -325,6 +325,17 @@ const startAligning = async (panel: HTMLElement) => {
   await settle(panel);
 };
 
+// Opens the header menu, reads its entries and closes it again.
+const menuEntries = async (panel: HTMLElement) => {
+  headerButton(panel, "More options")!.click();
+  await settle(panel);
+  const header = panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!;
+  const entries = [...header.querySelectorAll("[role=menuitem]")].map((entry) => entry.textContent?.trim());
+  headerButton(panel, "More options")!.click();
+  await settle(panel);
+  return entries;
+};
+
 const toolbarButtonNames = (panel: HTMLElement) =>
   buttonsIn(panel.shadowRoot!.querySelector("spatial-editor-toolbar")!.shadowRoot!).map(
     (button) => button.getAttribute("aria-label") ?? button.textContent?.trim(),
@@ -361,7 +372,7 @@ test("Align is a tool until the first Align; then it leaves the toolbar and the 
   queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
   await startAligning(panel);
   expect(pressedTools(panel)).toEqual(["Align"]);
-  expect(headerButton(panel, "More options")).toBeUndefined();
+  expect(await menuEntries(panel)).toEqual(["Clear floor"]);
   click();
   await settle(panel);
   expect(toolbarButtonNames(panel)).toEqual(["Draw", "Select", "Undo", "Redo", "Remove shape"]);
@@ -382,7 +393,7 @@ test("before the site is read neither the toolbar nor the menu offers Align", as
   await settle(panel);
   expect(buttonNamed(panel, "Draw")).toBeDefined();
   expect(buttonNamed(panel, "Align")).toBeUndefined();
-  expect(headerButton(panel, "More options")).toBeUndefined();
+  expect(await menuEntries(panel)).toEqual(["Clear floor"]);
   answerSite!(siteReply({ bearing_deg: null }));
   await vi.waitFor(() => expect(buttonNamed(panel, "Align")).toBeDefined());
 });
