@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // Checks Select: selecting rooms, corner handles and typing a side's length.
 import { afterEach, expect, test, vi } from "vitest";
-import { buttonNamed, toasts, onUpdateOf, settle, SITE, siteReply, resetFakes } from "./panel-harness";
+import { buttonNamed, chooseFromMenu, toasts, onUpdateOf, settle, SITE, siteReply, resetFakes } from "./panel-harness";
 import {
   FRAME,
   INCH_FRAME,
@@ -161,11 +161,12 @@ test("in Select taps and drags save nothing, and leaving leaves no side markers"
   drag([100, 0], [160, 40]);
   await settle(panel);
   expect(saves(connection)).toEqual([]);
-  const leavers = ["Draw", "Loft", "Align"];
+  const leavers = ["Draw", "Loft", "Change alignment"];
   for (const name of leavers) {
     await tapRoom(panel, "kitchen");
     expect(sideButtons()).toHaveLength(4);
-    buttonNamed(panel, name)!.click();
+    if (name === "Change alignment") await chooseFromMenu(panel, name);
+    else buttonNamed(panel, name)!.click();
     await settle(panel);
     expect(editorMarkers()).toEqual([]);
     if (buttonNamed(panel, "Select")!.getAttribute("aria-pressed") !== "true") await startSelecting(panel);

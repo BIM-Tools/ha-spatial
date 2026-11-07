@@ -260,6 +260,20 @@ class Shot:
         header.get_by_role("dialog").wait_for()
         self.settle()
 
+    def open_menu(self) -> None:
+        header = self.panel.locator("spatial-panel-header")
+        more = self.require(header.get_by_role("button", name="More options"), "More options")
+        # As with Help, its own icon takes the pointer.
+        more.click(force=True)
+        header.get_by_role("menu").wait_for()
+        self.settle()
+
+    def choose_from_menu(self, entry: str) -> None:
+        self.open_menu()
+        menu = self.panel.locator("spatial-panel-header").get_by_role("menu")
+        self.require(menu.get_by_role("menuitem", name=entry), f"menu entry {entry}").click()
+        self.settle()
+
     def wait_for_toast(self, message: str) -> None:
         """Home Assistant's toast, shown outside the panel; it fades after a few seconds."""
         # The toast also repeats its message in a live region for screen readers.
@@ -471,9 +485,15 @@ def floor_view(floor: str) -> Callable[[Shot], None]:
     return setup
 
 
-def align_active(shot: Shot) -> None:
+def menu_open(shot: Shot) -> None:
     floor_plan(shot)
-    shot.select_tool("Align")
+    shot.open_menu()
+
+
+def align_active(shot: Shot) -> None:
+    # The example house has a direction, so Align is in the header menu.
+    floor_plan(shot)
+    shot.choose_from_menu("Change alignment")
 
 
 def align_wall_hover(shot: Shot) -> None:
@@ -748,6 +768,7 @@ STATES = [
     ),
     State("map-off", "chrome", "Ground floor with the map hidden", map_off),
     State("help-open", "chrome", "The help sheet open: symbols and keys", help_open),
+    State("menu-open", "chrome", "The header's More options menu open", menu_open),
     State(
         "align-active",
         "tools",

@@ -371,7 +371,23 @@ export const buttonsIn = (root: ParentNode): HTMLButtonElement[] =>
 export const buttonNamed = (panel: HTMLElement, name: string) =>
   buttonsIn(panel.shadowRoot!).find((button) => (button.getAttribute("aria-label") ?? button.textContent?.trim()) === name);
 
-export const floorButtonNames = (panel: HTMLElement) =>
+/** The header's icon button with this label; Home Assistant's `ha-icon-button` is not defined here, so it is clicked as a plain element. */
+export const headerButton = (panel: HTMLElement, label: string) =>
+  [
+    ...panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!.querySelectorAll<HTMLElement & { label?: string }>(
+      "ha-icon-button",
+    ),
+  ].find((button) => button.label === label);
+
+/** Opens the header's More options menu and chooses an entry. */
+export const chooseFromMenu = async (panel: HTMLElement, entry: string) => {
+  headerButton(panel, "More options")!.click();
+  await settle(panel);
+  buttonNamed(panel, entry)!.click();
+  await settle(panel);
+};
+
+export const floorButtonNames =(panel: HTMLElement) =>
   [...(panel.shadowRoot?.querySelector("spatial-floor-selector")?.shadowRoot?.querySelectorAll("button") ?? [])].map(
     (button) => button.textContent?.trim(),
   );

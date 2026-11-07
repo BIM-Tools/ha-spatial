@@ -5,6 +5,8 @@ import {
   EMPTY,
   buttonNamed,
   buttonsIn,
+  chooseFromMenu,
+  headerButton,
   fitBounds,
   floorButtonNames,
   handlers,
@@ -20,6 +22,7 @@ import {
   rooms,
   setBearing,
   setStyle,
+  siteReply,
   settle,
   zoomIn,
   zoomOut,
@@ -105,7 +108,7 @@ test("the panel has a header, the editing tools and the area strip; the card has
   await vi.waitFor(() => expect(panel.shadowRoot?.querySelector("spatial-panel-header")).not.toBeNull());
   await settle(panel);
   expect(panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!.querySelector("[role=heading]")?.textContent).toBe("Floor plan");
-  for (const name of ["Align", "Draw", "Select", "Undo", "Redo", "Remove shape"]) expect(buttonNamed(panel, name)).toBeDefined();
+  for (const name of ["Draw", "Select", "Undo", "Redo", "Remove shape"]) expect(buttonNamed(panel, name)).toBeDefined();
   expect(panel.shadowRoot!.querySelector("spatial-area-strip")).not.toBeNull();
   const card = mountPanel({ card: true }).panel;
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalledTimes(2));
@@ -294,7 +297,7 @@ test("a new floor option rebuilds the map, as interactivity is fixed at creation
   expect(mapCreated.mock.calls[1][0]).not.toHaveProperty("interactive", false);
 });
 
-const alignButton = (panel: HTMLElement) => buttonNamed(panel, "Align");
+const UNALIGNED = { site: { bearing_deg: null } };
 
 // About 14 m x 11 m, counter-clockwise.
 const HOUSE = {
@@ -310,15 +313,22 @@ const EAST_WALL = { lng: 5.00019, lat: 52.00005 };
 const click = (lngLat = EAST_WALL) =>
   handlers.click({ point: { x: 1, y: 2 }, lngLat });
 
-// All floors is a view only, so Align needs a floor.
+// All floors is a view only, so Align needs a floor. Align is a tool until the site has a direction, then a menu entry.
 const startAligning = async (panel: HTMLElement) => {
   await vi.waitFor(() => expect(handlers.click).toBeDefined());
   await settle(panel);
   buttonNamed(panel, "No floor")!.click();
   await settle(panel);
-  alignButton(panel)!.click();
+  const tool = buttonNamed(panel, "Align");
+  if (tool) tool.click();
+  else await chooseFromMenu(panel, "Change alignment");
   await settle(panel);
 };
+
+const toolbarButtonNames = (panel: HTMLElement) =>
+  buttonsIn(panel.shadowRoot!.querySelector("spatial-editor-toolbar")!.shadowRoot!).map(
+    (button) => button.getAttribute("aria-label") ?? button.textContent?.trim(),
+  );
 
 const updates = (connection: { sendMessagePromise: { mock: { calls: [{ type: string }][] } } }) =>
   connection.sendMessagePromise.mock.calls
@@ -327,7 +337,7 @@ const updates = (connection: { sendMessagePromise: { mock: { calls: [{ type: str
 
 
 test("Align on an empty plan sends the bearing and the wall's left end as origin, and ends the mode", async () => {
-  const { panel, connection } = mountPanel();
+  const { panel, connection } = mountPanel(UNALIGNED);
   // The buildings layer is one MultiPolygon per tile.
   const tile = { type: "MultiPolygon", coordinates: [SHED.coordinates, HOUSE.coordinates] };
   queryRenderedFeatures.mockReturnValue([{ geometry: tile, properties: {} }]);
@@ -344,6 +354,63 @@ test("Align on an empty plan sends the bearing and the wall's left end as origin
   click();
   expect(updates(connection)).toHaveLength(1);
   await vi.waitFor(() => expect(guideText(panel)).not.toContain("Click the wall"));
+});
+
+test("Align is a tool until the first Align; then it leaves the toolbar and the header menu's Change alignment starts it", async () => {
+  const { panel } = mountPanel(UNALIGNED);
+  queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
+  await startAligning(panel);
+  expect(pressedTools(panel)).toEqual(["Align"]);
+  expect(headerButton(panel, "More options")).toBeUndefined();
+  click();
+  await settle(panel);
+  expect(toolbarButtonNames(panel)).toEqual(["Draw", "Select", "Undo", "Redo", "Remove shape"]);
+  await chooseFromMenu(panel, "Change alignment");
+  expect(guideText(panel)).toBe("Click the wall your rooms follow");
+  expect(buttonNamed(panel, "Show map")!.disabled).toBe(true);
+});
+
+test("before the site is read neither the toolbar nor the menu offers Align", async () => {
+  let answerSite: ((site: object) => void) | undefined;
+  const { panel } = mountPanel({
+    reply: async (message) =>
+      message.type === "spatial/site" ? new Promise((resolve) => (answerSite = resolve)) : undefined,
+  });
+  await vi.waitFor(() => expect(answerSite).toBeDefined());
+  // Any render while the site is pending, such as one from a changed hass.
+  (panel as unknown as { requestUpdate(): void }).requestUpdate();
+  await settle(panel);
+  expect(buttonNamed(panel, "Draw")).toBeDefined();
+  expect(buttonNamed(panel, "Align")).toBeUndefined();
+  expect(headerButton(panel, "More options")).toBeUndefined();
+  answerSite!(siteReply({ bearing_deg: null }));
+  await vi.waitFor(() => expect(buttonNamed(panel, "Align")).toBeDefined());
+});
+
+test("the header menu is disabled in All, closes on Escape giving focus back, and on a press outside", async () => {
+  const { panel } = mountPanel();
+  await vi.waitFor(() => expect(headerButton(panel, "More options")).toBeDefined());
+  await settle(panel);
+  const more = headerButton(panel, "More options")!;
+  const menu = () => panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!.querySelector("[role=menu]");
+  more.click();
+  await settle(panel);
+  expect(more.getAttribute("aria-expanded")).toBe("true");
+  expect(buttonNamed(panel, "Change alignment")!.disabled).toBe(true);
+  const focus = vi.spyOn(more, "focus");
+  const editorKeys = vi.fn();
+  window.addEventListener("keydown", editorKeys);
+  menu()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true }));
+  window.removeEventListener("keydown", editorKeys);
+  await settle(panel);
+  expect(menu()).toBeNull();
+  expect(editorKeys).not.toHaveBeenCalled();
+  expect(focus).toHaveBeenCalled();
+  more.click();
+  await settle(panel);
+  document.body.dispatchEvent(new Event("pointerdown", { bubbles: true, composed: true }));
+  await settle(panel);
+  expect(menu()).toBeNull();
 });
 
 const ROOM_FEED = rooms({ type: "Feature", id: "kitchen", geometry: SHED, properties: { floor_id: null, level: null } });
@@ -491,7 +558,7 @@ test("the header's Help opens a sheet of symbols and keys that Escape closes, gi
   await settle(panel);
   const header = panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!;
   const dialog = header.querySelector("dialog")!;
-  const help = headerButton(panel, "Help");
+  const help = headerButton(panel, "Help")!;
   const focus = vi.spyOn(help, "focus");
   expect(dialog.open).toBe(false);
   help.click();
@@ -508,7 +575,7 @@ test("the header's Help opens a sheet of symbols and keys that Escape closes, gi
   expect(editorKeys).not.toHaveBeenCalled();
   expect(focus).toHaveBeenCalled();
   help.click();
-  headerButton(panel, "Close").click();
+  headerButton(panel, "Close")!.click();
   expect(dialog.open).toBe(false);
   expect(focus).toHaveBeenCalledTimes(2);
 });
@@ -610,7 +677,7 @@ const showNoFloor = async (panel: HTMLElement) => {
 };
 
 test("Select is the default tool, and exactly one tool is active", async () => {
-  const { panel } = mountPanel();
+  const { panel } = mountPanel(UNALIGNED);
   await showNoFloor(panel);
   expect(pressedTools(panel)).toEqual(["Select"]);
   for (const name of ["Draw", "Draw", "Align", "Select"]) {
@@ -621,7 +688,7 @@ test("Select is the default tool, and exactly one tool is active", async () => {
 });
 
 test("in All floors every tool is disabled and none is pressed; Align ends there", async () => {
-  const { panel } = mountPanel();
+  const { panel } = mountPanel(UNALIGNED);
   await vi.waitFor(() => expect(buttonNamed(panel, "Align")).toBeDefined());
   await settle(panel);
   for (const name of ["Align", "Draw", "Select", "Undo", "Redo", "Remove shape"]) expect(buttonNamed(panel, name)!.disabled).toBe(true);
@@ -707,8 +774,6 @@ test("the compass turns with the map", async () => {
   expect(needle()).toContain("rotate(-315deg)");
 });
 
-const UNALIGNED = { site: { bearing_deg: null } };
-
 test("before any Align the map opens north up and the compass faces north, also in Draw", async () => {
   const { panel } = mountPanel(UNALIGNED);
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
@@ -768,19 +833,13 @@ test("a style that fails to load is asked for again on the next update", async (
   errors.mockRestore();
 });
 
-type HeaderButton = HTMLElement & { href?: string; target?: string; label?: string };
-const headerButton = (panel: HTMLElement, label: string) =>
-  [...panel.shadowRoot!.querySelector("spatial-panel-header")!.shadowRoot!.querySelectorAll<HeaderButton>("ha-icon-button")].find(
-    (button) => button.label === label,
-  )!;
-
 test("Back opens Spatial's integration page in Home Assistant, and is a link for a new tab", async () => {
   history.replaceState(null, "", "/spatial");
   const changed = vi.fn();
   window.addEventListener("location-changed", changed);
   const { panel } = mountPanel();
   await settle(panel);
-  const back = headerButton(panel, "Back to Spatial");
+  const back = headerButton(panel, "Back to Spatial") as HTMLElement & { href?: string };
   expect(back.href).toBe("/config/integrations/integration/spatial");
   back.click();
   expect(location.pathname).toBe("/config/integrations/integration/spatial");
@@ -792,9 +851,10 @@ test("on a phone the floors are chips under the header, the tools a bottom bar, 
   const phone = { matches: true, addEventListener: () => {}, removeEventListener: () => {} };
   const query = vi.spyOn(window, "matchMedia").mockReturnValue(phone as unknown as MediaQueryList);
   const { panel } = mountPanel();
-  await vi.waitFor(() => expect(buttonNamed(panel, "Align")).toBeDefined());
+  await vi.waitFor(() => expect(buttonNamed(panel, "Draw")).toBeDefined());
   await settle(panel);
   const root = panel.shadowRoot!;
+  expect(toolbarButtonNames(panel)).toEqual(["Draw", "Select", "Undo", "Redo", "Remove shape"]);
   expect(root.querySelector("spatial-floor-selector")?.hasAttribute("chips")).toBe(true);
   expect(root.querySelector(".stage spatial-floor-selector")).toBeNull();
   expect(root.querySelector("spatial-editor-toolbar")?.hasAttribute("bar")).toBe(true);

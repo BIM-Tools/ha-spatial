@@ -32,10 +32,10 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | File | Purpose |
 | --- | --- |
 | `src/spatial-panel.ts` | The panel element: layout, the MapLibre map and its style, Align, websocket calls |
-| `src/panel-state.ts` | The panel's reactive controller for what Spatial sends: site, frame, rooms, the floors with rooms, the floor in view and the stored bearing |
-| `src/panel-header.ts` | The panel's header in the look of Home Assistant's subpage: Back, title, Help and its sheet in a native dialog |
+| `src/panel-state.ts` | The panel's reactive controller for what Spatial sends: site, frame, rooms, the floors with rooms, the floor in view and the stored bearing; `alignPlace` says whether Align sits in the toolbar or the header menu |
+| `src/panel-header.ts` | The panel's header in the look of Home Assistant's subpage: Back, title, Help and its sheet in a native dialog, and the More options menu the panel fills |
 | `src/floor-selector.ts` | Floor buttons: a floating segmented control, or a chip row on a phone |
-| `src/editor-toolbar.ts` | Align, Draw, Select, Undo, Redo and Remove: floating, or a bottom bar on a phone |
+| `src/editor-toolbar.ts` | Align (until the site has a direction), Draw, Select, Undo, Redo and Remove: floating, or a bottom bar on a phone |
 | `src/map-stack.ts` | Address search button, map toggle, zoom and compass |
 | `src/address-search.ts` | The Find your home card: field, Search, up to five results, the no result and unavailable states; sends one `spatial/address/search` per Enter or press, never while typing |
 | `src/address.ts` | Pure rules of the address search: when a query may be sent, the street and town lines of a result, where the map goes for it, and when Home Assistant has no home location |
@@ -74,7 +74,8 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 - The header, floor buttons, toolbar and map stack are own Lit elements styled with Home Assistant's theme
   variables; they use only the Home Assistant elements that are always loaded (`ha-icon-button`,
   `ha-svg-icon`, `ha-icon`), as `hass-subpage`, its toggle groups and Home Assistant's dialog are
-  undefined on a deep link; the help sheet is a native `<dialog>`. Icons are `@mdi/js` named
+  undefined on a deep link; the help sheet is a native `<dialog>` and the More options menu a
+  plain list of buttons with `role="menu"`, as `ha-button-menu` is lazy too. Icons are `@mdi/js` named
   imports. The phone layout applies at a width of 600 px or less.
 - Plan geometry (boxes, side lengths, resizing, moving) works on lattice integers in the site frame
   that `spatial/site` publishes, rebuilt on every site load, so a unit system change reaches the
@@ -95,7 +96,8 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
   the next save that succeeds. Side lengths are MapLibre Markers holding a native text field.
 - Align sends `bearing_deg`: the direction of the OSM building's outer edge nearest the click, with
   the building on its left. On an empty plan (no footprint and no outline) it also sends `origin`,
-  that edge's left end in the aligned view.
+  that edge's left end in the aligned view. Once the site has a bearing, Align leaves the toolbar
+  and the header menu's Change alignment starts the same tool.
 - The map's outline: the panel keeps the building Align picked, or finds the building a grid step
   inside the site origin once the map is idle, and `mapOutlineBox` in `plan.ts` turns it into the
   bounding rectangle along the site axes, 150 mm inward, on the lattice. While the Building pill
