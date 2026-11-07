@@ -2,8 +2,8 @@
 
 Run with `docker compose run --rm gallery; docker compose rm -sf homeassistant-e2e`; the
 PNGs, contact sheets and index.md land in ./gallery-out, and the DOCS_IMAGES shots in
-./docs/images. Add a state by appending a `State` to STATES with a setup function built from
-the helpers on `Shot`.
+./docs/images. Add a state by appending a `State` to STATES, or to FIRST_RUN for the empty plan
+shot before the example house is imported, with a setup function built from the helpers on `Shot`.
 
 Coupling to watch: the panel offers no public way to reach its map or to tell whether a style
 reload is pending, so these private fields of `spatial-panel` are read and break on a rename:
@@ -128,9 +128,11 @@ class House:
 class Shot:
     """One page in one theme and size, with the helpers state setups are built from."""
 
-    def __init__(self, page: Page, house: House, theme: str, width: str) -> None:
+    def __init__(self, page: Page, house: House | None, theme: str, width: str, token: str) -> None:
         self.page = page
+        # The first run is shot before the example house is imported, without it.
         self.house = house
+        self.token = token
         self.theme = theme
         self.width = width
         self.panel = page.locator("spatial-panel")
@@ -187,7 +189,10 @@ class Shot:
         return self.require(strip.get_by_role("button", name=name, exact=True), f"pill {name}")
 
     def activate_pill(self, area: str) -> None:
-        self.pill(area).click()
+        """Makes the pill active; a click on the active pill would rename it instead."""
+        pill = self.pill(area)
+        if pill.get_attribute("aria-pressed") != "true":
+            pill.click()
         self.settle()
 
     def hover_pill(self, area: str) -> None:
@@ -197,7 +202,7 @@ class Shot:
     def start_rename(self, area: str) -> None:
         """Clicking the active pill again turns it into a name field; `release` cancels it."""
         self.activate_pill(area)
-        self.activate_pill(area)
+        self.pill(area).click()
         self.panel.get_by_role("textbox", name="Area name").wait_for()
 
     def new_area(self) -> None:
@@ -462,8 +467,9 @@ def floor_plan(shot: Shot) -> None:
 
 
 def all_floors(shot: Shot) -> None:
-    # All is the default floor, in its own computed view.
+    # The example house has areas left to draw, so the panel opens on a floor.
     shot.open_panel()
+    shot.select_floor("All")
 
 
 def map_off(shot: Shot) -> None:
@@ -756,6 +762,134 @@ def search_unavailable(shot: Shot) -> None:
     shot.search_address("Voorbeeldstraat 1", failure, "isn't available right now")
 
 
+# The first run: Home Assistant's onboarding areas on two floors, the home at the Domtoren, and the
+# plan emptied before each state. Shot before the example house is imported.
+FIRST_RUN_HOME = {"latitude": 52.0907, "longitude": 5.1214}
+FIRST_RUN_FLOORS = {
+    "Ground floor": (0, ["Living Room", "Kitchen", "Bedroom"]),
+    "First floor": (1, ["Study"]),
+}
+
+
+def prepare_first_run(token: str) -> None:
+    websocket = Websocket(token)
+    websocket.call("config/core/update", **FIRST_RUN_HOME)
+    areas = {
+        normalize_name(area["name"]): area for area in websocket.call("config/area_registry/list")
+    }
+    for name, (level, area_names) in FIRST_RUN_FLOORS.items():
+        floor_id = websocket.call("config/floor_registry/create", name=name, level=level)[
+            "floor_id"
+        ]
+        for area_name in area_names:
+            if (area := areas.get(normalize_name(area_name))) is not None:
+                websocket.call(
+                    "config/area_registry/update", area_id=area["area_id"], floor_id=floor_id
+                )
+            else:
+                websocket.call("config/area_registry/create", name=area_name, floor_id=floor_id)
+
+
+def empty_plan(token: str) -> None:
+    """Removes every shape and the site's direction, origin and outline."""
+    websocket = Websocket(token)
+    shapes = {feature["id"]: None for feature in websocket.call("spatial/geojson")["features"]}
+    if shapes:
+        websocket.call("spatial/area/update_geometries", areas=shapes)
+    websocket.call("spatial/site/update", bearing_deg=None, origin=None, outline=None)
+
+
+def first_run_align(shot: Shot) -> None:
+    empty_plan(shot.token)
+    shot.open_panel()
+    shot.panel.get_by_text("Click the front wall of your home").wait_for()
+    shot.settle()
+
+
+def first_run_outline(shot: Shot) -> None:
+    first_run_align(shot)
+    shot.select_tool("Align")
+    home = shot.screen_point(FIRST_RUN_HOME["longitude"], FIRST_RUN_HOME["latitude"])
+    building = shot.building_near(*home)
+    if building is None:
+        raise Skip("no OSM building at the home in the map tiles")
+    shot.click(*building)
+    try:
+        shot.panel.get_by_role("button", name="Use outline", exact=True).wait_for(
+            timeout=SETTLE_TIMEOUT_MS
+        )
+    except PlaywrightTimeoutError as error:
+        raise Skip("the map's outline was not offered") from error
+    shot.settle()
+
+
+def first_run_room(shot: Shot) -> None:
+    first_run_outline(shot)
+    shot.panel.get_by_role("button", name="Use outline", exact=True).click()
+    shot.panel.get_by_role("button", name="Looks right", exact=True).click()
+    shot.panel.get_by_text(re.compile("^Draw ")).first.wait_for()
+    shot.settle()
+
+
+def first_run_floor_done(shot: Shot) -> None:
+    first_run_room(shot)
+    websocket = Websocket(shot.token)
+    outline = websocket.call("spatial/site")["outline"]["coordinates"][0][:-1]
+    corners = [shot.screen_point(*point) for point in outline]
+    left, right = min(x for x, _ in corners), max(x for x, _ in corners)
+    top, bottom = min(y for _, y in corners), max(y for _, y in corners)
+    shot.select_tool("Draw")
+    # The ground floor's three areas as strips side by side inside the outline.
+    width = (right - left) / 3
+    for index in range(3):
+        start = (left + index * width + 8, top + 8)
+        end = (left + (index + 1) * width - 8, bottom - 8)
+        shot.page.mouse.move(*start)
+        shot.page.mouse.down()
+        shot.page.mouse.move(*end, steps=10)
+        shot.page.mouse.up()
+        for _ in range(20):
+            if len(websocket.call("spatial/geojson")["features"]) > index:
+                break
+            shot.page.wait_for_timeout(500)
+        shot.settle()
+    try:
+        shot.panel.get_by_role("button", name="Next floor", exact=True).wait_for(
+            timeout=SETTLE_TIMEOUT_MS
+        )
+    except PlaywrightTimeoutError as error:
+        raise Skip("the ground floor was not done") from error
+    shot.settle()
+
+
+FIRST_RUN = [
+    State(
+        "first-run-align",
+        "first-run",
+        "A fresh plan, the home on a building: ground floor open, the home dashed, Align lit",
+        first_run_align,
+    ),
+    State(
+        "first-run-outline",
+        "first-run",
+        "After Align: the map's outline offered with its size, Use outline lit",
+        first_run_outline,
+    ),
+    State(
+        "first-run-room",
+        "first-run",
+        "After Use outline and Looks right: Draw the first area, 1 of 3, Draw lit",
+        first_run_room,
+    ),
+    State(
+        "first-run-floor-done",
+        "first-run",
+        "Every ground floor area drawn: Ground floor done with Next floor lit",
+        first_run_floor_done,
+    ),
+]
+
+
 def card(view: str) -> Callable[[Shot], None]:
     def setup(shot: Shot) -> None:
         shot.open_card(view)
@@ -773,7 +907,7 @@ STATES = [
     State(
         "all-floors",
         "chrome",
-        "All floors stacked in 3D, tools disabled, the strip's hint to choose a floor",
+        "All floors stacked in 3D, tools disabled, the guide line says to choose a floor",
         all_floors,
     ),
     State("map-off", "chrome", "Ground floor with the map hidden", map_off),
@@ -867,7 +1001,7 @@ STATES = [
     State(
         "strip-active-unshaped",
         "strip",
-        "Utility active without a shape: Draw selected, the guide line says Draw Utility 5 of 5",
+        "Utility active without a shape: Draw lit, the guide line says Draw Utility, 5 of 5",
         strip_active_unshaped,
     ),
     State(
@@ -990,10 +1124,10 @@ STATES = [
     State("card-floor", "card", "Dashboard card fixed to the ground floor", card("floor")),
     State("card-all", "card", "Dashboard card with all floors", card("all")),
 ]
+ALL_STATES = FIRST_RUN + STATES
 
 
 def load_house(token: str) -> House:
-    add_spatial(token)
     asyncio.run(import_file(str(EXAMPLE_HOUSE), BASE_URL, token))
     websocket = Websocket(token)
     house = House(websocket, token)
@@ -1052,13 +1186,15 @@ def file_name(state: State, theme: str, width: str) -> str:
     return f"{state.id}-{theme}-{width}.png"
 
 
-def render_states(browser: Browser, house: House) -> tuple[Results, Warnings]:
-    """Shoots every state; returns per state, theme and width the file name or why it is missing."""
+def render_states(
+    browser: Browser, house: House | None, token: str, states: list[State]
+) -> tuple[Results, Warnings]:
+    """Shoots the states; returns per state, theme and width the file name or why it is missing."""
     results: Results = {}
     warnings: Warnings = {}
     for theme, width in COLUMNS:
         pages = {False: log_in(browser, theme, width)}
-        for state in STATES:
+        for state in states:
             key = (state.id, theme, width)
             if width == "390" and not state.phone:
                 results[key] = "Not on phone"
@@ -1066,7 +1202,7 @@ def render_states(browser: Browser, house: House) -> tuple[Results, Warnings]:
             if state.touch not in pages:
                 pages[state.touch] = log_in(browser, theme, width, touch=state.touch)
             page = pages[state.touch]
-            shot = Shot(page, house, theme, width)
+            shot = Shot(page, house, theme, width, token)
             try:
                 state.setup(shot)
                 page.screenshot(
@@ -1135,10 +1271,10 @@ def render_sheets(browser: Browser, results: Results, warnings: Warnings) -> lis
     """One or more labelled contact sheets per group; returns their file names and titles."""
     sheets = []
     page = browser.new_page(viewport={"width": 800, "height": 600})
-    groups = list(dict.fromkeys(state.group for state in STATES))
+    groups = list(dict.fromkeys(state.group for state in ALL_STATES))
     with tempfile.TemporaryDirectory() as scratch:
         for group in groups:
-            states = [state for state in STATES if state.group == group]
+            states = [state for state in ALL_STATES if state.group == group]
             parts = math.ceil(len(states) / ROWS_PER_SHEET)
             for part in range(parts):
                 rows = states[part * ROWS_PER_SHEET : (part + 1) * ROWS_PER_SHEET]
@@ -1168,9 +1304,9 @@ def render_sheets(browser: Browser, results: Results, warnings: Warnings) -> lis
 def write_index(results: Results, warnings: Warnings, sheets: list[tuple[str, str]]) -> None:
     lines = ["# State gallery", "", "## Contact sheets", ""]
     lines += [f"- `{name}`: {title}" for name, title in sheets]
-    for group in dict.fromkeys(state.group for state in STATES):
+    for group in dict.fromkeys(state.group for state in ALL_STATES):
         lines += ["", f"## {group.capitalize()}", ""]
-        for state in (state for state in STATES if state.group == group):
+        for state in (state for state in ALL_STATES if state.group == group):
             lines.append(f"- `{state.id}`: {state.caption}")
             for theme, width in COLUMNS:
                 result = results[(state.id, theme, width)]
@@ -1190,10 +1326,24 @@ def main() -> None:
         else:
             shutil.rmtree(old)
     wait_for_home_assistant()
-    house = load_house(onboard())
+    # Onboarding's access token expires after 30 minutes, well within a full run.
+    token = Websocket(onboard()).call(
+        "auth/long_lived_access_token", client_name="gallery", lifespan=1
+    )
+    add_spatial(token)
+    prepare_first_run(token)
+    # The import runs its own event loop, which Playwright's would block.
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        results, warnings = render_states(browser, house)
+        results, warnings = render_states(browser, None, token, FIRST_RUN)
+        browser.close()
+    empty_plan(token)
+    house = load_house(token)
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        house_results, house_warnings = render_states(browser, house, token, STATES)
+        results.update(house_results)
+        warnings.update(house_warnings)
         sheets = render_sheets(browser, results, warnings)
         browser.close()
     write_index(results, warnings, sheets)

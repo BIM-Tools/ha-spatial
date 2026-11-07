@@ -27,14 +27,22 @@ sidebar or open Settings > Devices & services > Spatial > **Configure** and pres
 floor plan**. The editor is for administrators; other users do not see it. To hide it, edit the
 sidebar in Home Assistant: long-press the title at the top of the sidebar and hide **Floor
 plan**. The Configure form also holds **Address search server**: leave it at OpenStreetMap
-unless you run your own Nominatim server or OpenStreetMap asks you to change it. The panel
-opens on **All**, north up, centred on your home location.
+unless you run your own Nominatim server or OpenStreetMap asks you to change it.
 
-**Find your home.** When Home Assistant has no home location yet and nothing is drawn, the
-panel opens on the globe with the card **Find your home**. Type your street, house number and
+**One step at a time.** Until the plan is done, the panel opens on the floor where the next step
+is, north up, centred on your home location, and the line at the top says only that step; the
+one control it needs is lit with a ring. Nothing about the steps is stored: what is already
+there is skipped, so a home on a building skips the search, a site with a direction skips
+Align, a stored outline skips the outline, and leaving and coming back resumes at the first
+unfinished step. Once every area has a shape, the panel opens on **All** and says nothing.
+
+**Find your home.** When Home Assistant has no home location yet, or the map draws no building
+there, the card **Find your home** opens (on the globe when there is no home location and
+nothing is drawn). Type your street, house number and
 town and press **Search** or Enter; Spatial asks OpenStreetMap only then, never while you type,
 and does not keep what you typed. Pick one of up to five results, street on the first line and
-town on the second (arrow keys move through them), and the map flies there. With no result,
+town on the second (arrow keys move through them), and the map flies there; the building at
+the place shows dashed and Align is switched on for the next step. With no result,
 check the spelling or add the town. When the search server cannot be reached, press **Retry**,
 or close the card and pan the map to your home. The magnifier at the top of the map controls
 (**Find an address**) opens the same card at any time.
@@ -46,16 +54,18 @@ Only the latitude and longitude change; the toast **Home location moved** offers
 25 m nothing is asked, and once asked, a later search in the same visit asks nothing. This
 needs an administrator, like the panel.
 
-1. **Align.** Pick a floor, press **Align** and click your house on the map near the wall the
-   rooms follow; the line at the top says "Click the wall your rooms follow" and the wall under
-   the pointer lights up. The map turns so that wall is horizontal, and Select is active again.
+1. **Align.** The line at the top says "Click the front wall of your home", with **Align** lit;
+   your home's building shows dashed. Press **Align** and click your house on the map near the
+   wall the rooms follow; the wall under the pointer lights up. The map turns so that wall is
+   horizontal, and Select is active again.
    From then on Align is no longer in the toolbar: to pick another wall, open the header's
    **More options** menu and choose **Change alignment**.
 
    ![Align on the ground floor: the guide line on top, the wall under the pointer highlighted](images/align.png)
 
-2. **Draw the building.** Press **Draw**. The strip at the bottom starts with the building,
-   under Home Assistant's location name and highlighted while there is no outline. When the map
+2. **Draw the building.** The strip at the bottom starts with the building, under Home
+   Assistant's location name and highlighted while there is no outline. Without a building on
+   the map, the line says "Draw the outline of your home" with **Draw** lit. When the map
    has a building where you aligned, its rectangle along the site direction shows dashed, 150 mm
    inside the map's line (the map shows the outer face of the walls, the outline is their axis),
    and the line at the top asks "Use the map's outline?" with its size, for example
@@ -63,7 +73,7 @@ needs an administrator, like the panel.
    - **Use outline** saves that rectangle as the outline (Undo takes it back) and makes it
      active in Select with its width and depth. The line then says "Check one length you know":
      click the width or depth and type a length you have measured, for example the front of the
-     house; **Looks right** closes the line.
+     house; **Looks right** moves on to the first room.
    - **Draw it myself** keeps Draw on, and the dashed rectangle becomes something the outline's
      corners snap to.
 
@@ -73,17 +83,20 @@ needs an administrator, like the panel.
    building again and add boxes against the outline.
 3. **Draw the rooms.** After an area's first shape, the next area of the floor without one is
    highlighted, and the line at the top says "Draw Kitchen" with how far the floor is, for
-   example "3 of 5". Draw each room on the wall axes, so neighbours share their edges and the
-   outer rooms end on the outline. Use **New area** for a room that is not in Home Assistant
-   yet.
+   example "3 of 5 on the Ground floor", and **Draw** lit while another tool is on. Draw each
+   room on the wall axes, so neighbours share their edges and the outer rooms end on the
+   outline. Use **New area** for a room that is not in Home Assistant yet. While you pick a room
+   that has a shape to change it, the line stays empty.
 
    ![Draw on the ground floor: the guide line "Draw Utility" and the dashed Utility pill highlighted](images/draw.png)
 
-4. **Next floor.** Press the next floor button and draw its rooms; the outline shows on every
-   floor as a guide.
-5. **All.** Press **All** to see the floors as a stack of slabs, seen from the front corner of the house.
+4. **Next floor.** When every area of the floor has a shape, the line says "Ground floor done"
+   with **Next floor** lit, which opens the next floor with an area to draw; the outline shows
+   on every floor as a guide.
+5. **All.** Press **All** to see the floors as a stack of slabs, seen from the front corner of
+   the house; the line says "Choose a floor to edit its rooms".
 
-   ![All floors stacked in 3D; the strip shows only Building and a hint](images/all.png)
+   ![All floors stacked in 3D; the strip shows only Building](images/all.png)
 
 ## The panel
 
@@ -104,7 +117,7 @@ The menu closes with Escape or a click elsewhere.
 
 | Button | Shows |
 | --- | --- |
-| All | Every floor as a slab with its rooms, stacked with a gap between floors and seen from the front corner of the house, each slab named on its right with its number of rooms. Turn it with the right mouse button or two fingers; the compass returns to the view from the front corner. A view only: the tools, Undo and Redo are off, and the strip shows the Building pill with "Choose a floor to edit its rooms" |
+| All | Every floor as a slab with its rooms, stacked with a gap between floors and seen from the front corner of the house, each slab named on its right with its number of rooms. Turn it with the right mouse button or two fingers; the compass returns to the view from the front corner. A view only: the tools, Undo and Redo are off, the strip shows only the Building pill, and the line at the top says "Choose a floor to edit its rooms" |
 | A floor | That floor as a flat plan; every floor of Home Assistant is listed, ordered by level, also an empty one |
 | No floor | Areas without a floor |
 

@@ -33,13 +33,14 @@ import { type ThemeState, bounds, darkModeOf, mapBearing, styleUrl, withMapTiles
 import { type AlignFields, alignFields, buildingAt, wallAt } from "./outline";
 import "./panel-header";
 import type { MenuItem } from "./panel-header";
+import { type Control, type Step, nextStep } from "./onboarding";
 import { EMPTY, PanelState, alignPlace } from "./panel-state";
 import { mapOutlineBox } from "./plan";
 import type { PlanFrame } from "./site-frame";
 import { BUILDING } from "./area-strip";
-import { type Guide, RoomEditor, type Toast, type Tool } from "./room-editor";
+import { RoomEditor, type Toast, type Tool } from "./room-editor";
 import { type AreaInfo, RoomLabels, roomLabelStyles } from "./room-labels";
-import { floatingSurface, phoneBar, selectedFill } from "./styles";
+import { floatingSurface, litControl, phoneBar } from "./styles";
 import { type HassUnits, formatDistance, isStillStarting, saveFailureMessage } from "./units";
 
 // The parts of Home Assistant's `hass` object this panel uses.
@@ -138,6 +139,8 @@ class SpatialPanel extends LitElement {
     _mapShown: { state: true },
     _phone: { state: true },
     _searchOpen: { state: true },
+    _searched: { state: true },
+    _buildingAtHome: { state: true },
   };
 
   static styles = [
@@ -227,29 +230,25 @@ class SpatialPanel extends LitElement {
     .top.phone .guide {
       gap: var(--ha-space-2);
     }
-    .guide .text {
-      overflow: hidden;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-    }
-    .guide .step {
-      flex: none;
-      color: var(--secondary-text-color);
-    }
-    /* A question: two lines of text and its answers, which wrap below the text when narrow. */
-    .guide.question {
-      flex-wrap: wrap;
-      max-width: 560px;
-      border-radius: 24px;
-      padding: var(--ha-space-2) var(--ha-space-2) var(--ha-space-2) var(--ha-space-4);
-    }
-    .guide.question .lines {
+    .guide .lines {
       display: flex;
       flex: 1 1 auto;
       flex-direction: column;
       min-width: 0;
     }
-    .guide.question .text {
+    .guide .text {
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    /* Two lines of text and any answers, which wrap below the text when narrow. */
+    .guide.two-lines {
+      flex-wrap: wrap;
+      max-width: 560px;
+      border-radius: 24px;
+      padding: var(--ha-space-2) var(--ha-space-2) var(--ha-space-2) var(--ha-space-4);
+    }
+    .guide.two-lines .text {
       font-weight: 500;
       white-space: normal;
     }
@@ -275,8 +274,7 @@ class SpatialPanel extends LitElement {
       cursor: pointer;
     }
     .guide button.lit {
-      background: ${selectedFill};
-      box-shadow: 0 0 0 1.5px var(--primary-color);
+      ${litControl}
     }
     @media (pointer: coarse) {
       .guide button {
@@ -337,6 +335,10 @@ class SpatialPanel extends LitElement {
   declare _mapShown: boolean;
   declare _phone: boolean;
   declare _searchOpen: boolean;
+  // The address search was used or closed in this visit, which ends the step that offers it.
+  declare _searched: boolean;
+  // Whether the map draws a building at Home Assistant's home, once it has shown the home before any Align.
+  declare _buildingAtHome: boolean | undefined;
 
   // The site, its frame, the rooms and the floor in view.
   private readonly _state = new PanelState(this);
@@ -365,6 +367,8 @@ class SpatialPanel extends LitElement {
   private _globe = false;
   // Set once the panel has offered to move the home to a picked place, so a second search in this visit stays quiet.
   private _homeAsked = false;
+  // The place last picked from the address search in this visit, where the home is.
+  private _picked?: [number, number];
 
   constructor() {
     super();
@@ -373,6 +377,8 @@ class SpatialPanel extends LitElement {
     this._mapShown = readMapShown();
     this._phone = false;
     this._searchOpen = false;
+    this._searched = false;
+    this._buildingAtHome = undefined;
   }
 
   connectedCallback() {
@@ -403,6 +409,9 @@ class SpatialPanel extends LitElement {
   render() {
     const editor = this._editor;
     const phone = this._phone && !this.card;
+    const step = this._step();
+    const searching = this._searchOpen || step?.kind === "find";
+    const lit = step?.lit === "align" || step?.lit === "draw" ? step.lit : undefined;
     return html`
       <link rel="stylesheet" href="/static/map/maplibre-gl.css" />
       ${this.card ? nothing : html`<spatial-panel-header ?narrow=${phone} .menu=${this._menu()}></spatial-panel-header>`}
@@ -411,8 +420,8 @@ class SpatialPanel extends LitElement {
         <div id="map"></div>
         <div class="top ${phone ? "phone" : ""}">
           ${phone ? nothing : this._floorSelector(false)}
-          ${editor && !phone ? this._toolbar(editor, false) : nothing}
-          ${this._searchOpen && !phone ? html`<div class="guide-row">${this._searchCard(false)}</div>` : this._guide()}
+          ${editor && !phone ? this._toolbar(editor, false, lit) : nothing}
+          ${searching && !phone ? html`<div class="guide-row">${this._searchCard(false)}</div>` : this._guide(step)}
         </div>
         ${editor
           ? html`<spatial-map-stack
@@ -430,10 +439,10 @@ class SpatialPanel extends LitElement {
             ></spatial-map-stack>`
           : nothing}
         ${editor && !phone ? html`<div class="strip" @area-hover=${this._hoverFromStrip}>${editor.render(this._hovered)}</div>` : nothing}
-        ${this._searchOpen && phone ? this._searchCard(true) : nothing}
+        ${searching && phone ? this._searchCard(true) : nothing}
       </div>
       ${editor && phone ? html`<div class="strip-bar" @area-hover=${this._hoverFromStrip}>${editor.render(this._hovered)}</div>` : nothing}
-      ${editor && phone ? this._toolbar(editor, true) : nothing}
+      ${editor && phone ? this._toolbar(editor, true, lit) : nothing}
     `;
   }
 
@@ -448,12 +457,13 @@ class SpatialPanel extends LitElement {
     ></spatial-floor-selector>`;
   }
 
-  private _toolbar(editor: RoomEditor, bar: boolean) {
+  private _toolbar(editor: RoomEditor, bar: boolean, lit: Tool | undefined) {
     return html`<spatial-editor-toolbar
       class=${bar ? "" : "toolbar"}
       ?bar=${bar}
       ?disabled=${this._state.floor === "all"}
       ?align=${alignPlace(this._state.bearing) === "toolbar"}
+      .lit=${lit}
       .tool=${editor.tool}
       .canUndo=${editor.canUndo}
       .canRedo=${editor.canRedo}
@@ -483,30 +493,56 @@ class SpatialPanel extends LitElement {
     return [{ label: "Change alignment", disabled: onAll, action: () => this._selectTool("align") }, clear];
   }
 
-  // One line at a time, and only when there is something to say; what went wrong first.
-  private _guide() {
-    const noRooms = this._state.hasNoRooms(this.floor);
-    const guide: Guide | undefined = this._failed
-      ? { text: "Map could not load" }
-      : (this._editor?.guide ?? (noRooms ? { text: "No rooms yet" } : undefined));
-    if (!guide) return nothing;
-    if (guide.actions) {
-      return html`<div class="guide-row">
-        <div class="guide question" role="status">
-          <span class="lines"><span class="text">${guide.text}</span><span class="detail">${guide.detail}</span></span>
-          <span class="actions">
-            ${guide.actions.map(
-              (action) => html`<button class=${action.lit ? "lit" : ""} @click=${action.run}>${action.label}</button>`,
-            )}
-          </span>
-        </div>
-      </div>`;
-    }
+  // The plan's one next step, from what the panel and the editor know now; the card has none, and none
+  // is known before the site is read.
+  private _step(): Step | undefined {
+    const editor = this._editor;
+    const bearing = this._state.bearing;
+    if (!editor || bearing === undefined || !this.hass) return undefined;
+    return nextStep({
+      homeKnown: !homeUnknown(this.hass.config),
+      buildingAtHome: this._buildingAtHome,
+      searched: this._searched,
+      aligned: bearing !== null,
+      floor: this._state.floor,
+      ...editor.plan((floor) => this._floorName(floor)),
+    });
+  }
+
+  // One line at a time, and only when there is something to say; what went wrong first. The panel
+  // says its step; the card only that it has no rooms.
+  private _guide(step: Step | undefined) {
+    const noRooms = this.card && this._state.hasNoRooms(this.floor);
+    const line: Step | undefined = this._failed
+      ? { kind: "done", text: "Map could not load" }
+      : noRooms
+        ? { kind: "done", text: "No rooms yet" }
+        : step;
+    if (!line?.text) return nothing;
+    const buttons = line.buttons ?? [];
     return html`<div class="guide-row">
-      <div class="guide" role="status">
-        <span class="text">${guide.text}</span>${guide.step ? html`<span class="step">${guide.step}</span>` : nothing}
+      <div class="guide ${line.detail || buttons.length ? "two-lines" : ""}" role="status">
+        <span class="lines"
+          ><span class="text">${line.text}</span>${line.detail ? html`<span class="detail">${line.detail}</span>` : nothing}</span
+        >
+        ${buttons.length
+          ? html`<span class="actions">
+              ${buttons.map(
+                ({ control, label }) =>
+                  html`<button class=${control === line.lit ? "lit" : ""} @click=${() => this._press(control, line)}>${label}</button>`,
+              )}
+            </span>`
+          : nothing}
       </div>
     </div>`;
+  }
+
+  private _press(control: Control, step: Step) {
+    const editor = this._editor;
+    if (control === "use-outline") editor?.useMapOutline();
+    else if (control === "draw-myself") editor?.drawOutlineMyself();
+    else if (control === "looks-right") editor?.lengthChecked();
+    else if (control === "next-floor" && step.floor !== undefined) this._show(step.floor);
   }
 
   private _searchCard(sheet: boolean) {
@@ -514,15 +550,24 @@ class SpatialPanel extends LitElement {
       class=${sheet ? "sheet" : ""}
       .search=${this._searchAddress}
       @place-pick=${this._flyToPlace}
-      @search-close=${() => (this._searchOpen = false)}
+      @search-close=${this._closeSearch}
     ></spatial-address-search>`;
   }
+
+  private _closeSearch = () => {
+    this._searchOpen = false;
+    this._searched = true;
+  };
 
   private _searchAddress = async (query: string): Promise<Place[]> =>
     (await this.hass!.connection.sendMessagePromise<{ places: Place[] }>({ type: "spatial/address/search", query })).places;
 
+  // The map goes to the picked place, whose building then shows dashed; before any Align, Align is
+  // switched on there, so the next click on the home's front wall sets the direction.
   private _flyToPlace = (event: CustomEvent<{ place: Place }>) => {
-    this._searchOpen = false;
+    this._closeSearch();
+    this._picked = [event.detail.place.lon, event.detail.place.lat];
+    if (this._step()?.kind === "align") this._selectTool("align");
     const map = this._map;
     if (!map) return;
     const camera = cameraFor(event.detail.place);
@@ -738,9 +783,11 @@ class SpatialPanel extends LitElement {
     this._unsubscribe = unsubscribe;
 
     this._state.bearing = site.bearing_deg;
+    // A plan still being drawn opens on the floor of its next step, as the tools are off on All.
+    const opening = this._step();
+    if (opening?.floor !== undefined) this._show(opening.floor);
     const planDrawn = this._state.areas.features.length > 0 || this._state.outline.type === "Polygon";
     this._globe = Boolean(editor) && !planDrawn && homeUnknown(hass.config);
-    if (this._globe) this._searchOpen = true;
     const style = await this._loadStyle();
     if (stopped() || !style) return;
     setWorkerUrl(workerUrl(import.meta.url));
@@ -777,7 +824,11 @@ class SpatialPanel extends LitElement {
       this._showBearing(this._mapBearingDeg);
       map.on("rotate", () => this._showBearing(map.getBearing()));
       // The map's buildings can be read once their tiles are drawn.
-      map.on("idle", () => this._offerMapOutline());
+      map.on("idle", () => {
+        this._offerMapOutline();
+        this._lookForHome();
+        this._showHome();
+      });
     }
     editor?.attach(map);
     // After the editor, so the click that ends Align is not also a room pick in Select.
@@ -922,6 +973,15 @@ class SpatialPanel extends LitElement {
         paint: { ...colours["spatial-hover-building"], "line-width": 2 },
       });
     }
+    if (this._editor) {
+      map.addSource("spatial-home", { type: "geojson", data: EMPTY });
+      map.addLayer({
+        id: "spatial-home",
+        type: "line",
+        source: "spatial-home",
+        paint: { ...colours["spatial-home"], "line-width": 2, "line-dasharray": [2, 1] },
+      });
+    }
     map.addSource("spatial-wall", { type: "geojson", data: EMPTY });
     map.addLayer({
       id: "spatial-wall",
@@ -1020,19 +1080,48 @@ class SpatialPanel extends LitElement {
     return this._buildingAt([event.lngLat.lng, event.lngLat.lat], event.point);
   }
 
+  // The ids of the style's layers that draw the map tiles' buildings; none while the map is hidden.
+  private _buildingLayers(): string[] {
+    return (this._map?.getStyle().layers ?? [])
+      .filter((layer) => "source-layer" in layer && layer["source-layer"] === "buildings")
+      .map((layer) => layer.id);
+  }
+
   // The part of the map tiles' buildings at `at`, on screen at `point`, when the map shows them there.
   private _buildingAt(at: [number, number], point?: PointLike): Polygon | undefined {
     const map = this._map;
-    if (!map) return undefined;
-    const layers = map
-      .getStyle()
-      .layers.filter((layer) => "source-layer" in layer && layer["source-layer"] === "buildings")
-      .map((layer) => layer.id);
-    if (!layers.length) return undefined;
+    const layers = this._buildingLayers();
+    if (!map || !layers.length) return undefined;
     return map
       .queryRenderedFeatures(point ?? map.project(at), { layers })
       .map((feature) => buildingAt(feature.geometry as Polygon | MultiPolygon, at))
       .find(Boolean);
+  }
+
+  // Before any Align, the first time the map has drawn its buildings around Home Assistant's home, it
+  // tells whether one stands there; without one the address search is the next step. Not stored.
+  private _lookForHome() {
+    const map = this._map;
+    const config = this.hass?.config;
+    if (!map || !config || this._buildingAtHome !== undefined || this._state.bearing !== null || homeUnknown(config)) return;
+    const home: [number, number] = [config.longitude!, config.latitude!];
+    const { x, y } = map.project(home);
+    const container = map.getContainer();
+    const inView = x >= 0 && y >= 0 && x <= container.clientWidth && y <= container.clientHeight;
+    if (!inView || !this._buildingLayers().length) return;
+    this._buildingAtHome = Boolean(this._buildingAt(home));
+  }
+
+  // Until the site has a direction, the map's building where the home is shows dashed: at the picked
+  // place, else at Home Assistant's home. Read again on every idle map, never stored.
+  private _showHome() {
+    const source = this._map?.getSource<GeoJSONSource>("spatial-home");
+    const config = this.hass?.config;
+    if (!source || !config) return;
+    const home: [number, number] | undefined =
+      this._picked ?? (homeUnknown(config) ? undefined : [config.longitude!, config.latitude!]);
+    const building = this._state.bearing === null && home ? this._buildingAt(home) : undefined;
+    source.setData(building ?? EMPTY);
   }
 
   // Align on an empty plan puts the origin at the left end of the picked wall, with the building

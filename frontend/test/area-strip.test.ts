@@ -222,9 +222,9 @@ test("a new active area, or a name field, scrolls into view", async () => {
   scroll.mockRestore();
 });
 
-test("on All the strip shows only the Building and a hint to choose a floor", async () => {
+test("on All the strip shows only the Building", async () => {
   const strip = await mountStrip(BUILDING, { allFloors: true, linked: new Set([BUILDING]) });
   const parts = [...strip.shadowRoot!.children].map((part) => part.textContent?.trim());
-  expect(parts).toEqual(["Building", "Choose a floor to edit its rooms"]);
+  expect(parts).toEqual(["Building"]);
   expect(pills(strip)).toEqual([]);
 });

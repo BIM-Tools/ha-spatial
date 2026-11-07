@@ -3,6 +3,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import {
   buttonNamed,
+  buttonsIn,
   handlers,
   floorButtonNames,
   liveMarkers,
@@ -119,7 +120,7 @@ test("New area creates the area on the floor at once, makes it active in Draw an
     { type: "config/area_registry/create", name: "Room 1", floor_id: "ground" },
   ]);
   expect(toolPressed(panel, "Draw")).toBe("true");
-  expect(guideText(panel)).toBe("Draw Room 1 2 of 4");
+  expect(guideText(panel)).toBe("Draw Room 1 2 of 4 on the Ground floor");
   const field = renameField(panel)!;
   field.value = "Study";
   field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
@@ -134,22 +135,47 @@ test("New area creates the area on the floor at once, makes it active in Draw an
   expect(Object.keys(saves(connection)[0].areas)).toEqual(["room_1"]);
 });
 
-test("the guide says which area to draw and how far the floor is, and nothing for a drawn one", async () => {
+const litControls = (panel: HTMLElement) =>
+  buttonsIn(panel.shadowRoot!)
+    .filter((button) => button.classList.contains("lit"))
+    .map((button) => button.textContent?.trim());
+
+test("the panel opens on the floor with work left and shows only its step, one line with one lit control", async () => {
   const { panel, connection } = mountEditor();
   await showFloor(panel);
-  expect(guideText(panel)).toBe("Draw Bath 2 of 3");
+  expect(buttonNamed(panel, "Ground floor")!.getAttribute("aria-pressed")).toBe("true");
+  expect(panel.shadowRoot!.querySelectorAll(".guide")).toHaveLength(1);
+  expect(guideText(panel)).toBe("Draw Bath 2 of 3 on the Ground floor");
+  expect(litControls(panel)).toEqual(["Draw"]);
   buttonNamed(panel, "Draw")!.click();
+  await settle(panel);
+  expect(litControls(panel)).toEqual([]);
   tap(100, 0);
   tap(140, 30);
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
   await settle(panel);
-  expect(guideText(panel)).toBe("Draw Hall 3 of 3");
-  chip(panel, "Kitchen").click();
-  await settle(panel);
-  expect(guideText(panel)).toBe("");
+  expect(guideText(panel)).toBe("Draw Hall 3 of 3 on the Ground floor");
   buttonNamed(panel, "All")!.click();
   await settle(panel);
-  expect(guideText(panel)).toBe("");
+  expect(guideText(panel)).toBe("Choose a floor to edit its rooms");
+});
+
+test("a floor done offers Next floor, lit, which opens the next floor with an area to draw", async () => {
+  const { panel, connection } = mountEditor();
+  await startDrawing(panel);
+  tap(100, 0);
+  tap(140, 30);
+  await vi.waitFor(() => expect(guideText(panel)).toBe("Draw Hall 3 of 3 on the Ground floor"));
+  tap(100, 60);
+  tap(140, 90);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
+  await settle(panel);
+  expect(guideText(panel)).toBe("Ground floor done Next floor");
+  expect(litControls(panel)).toEqual(["Next floor"]);
+  buttonNamed(panel, "Next floor")!.click();
+  await settle(panel);
+  expect(buttonNamed(panel, "Loft")!.getAttribute("aria-pressed")).toBe("true");
+  expect(guideText(panel)).toBe("Draw Attic 1 of 1 on the Loft");
 });
 
 test("pointing at a pill outlines its room, and pointing at a room marks its pill", async () => {

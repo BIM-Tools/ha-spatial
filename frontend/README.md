@@ -35,7 +35,7 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/panel-state.ts` | The panel's reactive controller for what Spatial sends: site, frame, rooms, the floors with rooms, the floor in view and the stored bearing; `alignPlace` says whether Align sits in the toolbar or the header menu |
 | `src/panel-header.ts` | The panel's header in the look of Home Assistant's subpage: Back, title, Help and its sheet in a native dialog, and the More options menu the panel fills |
 | `src/floor-selector.ts` | Floor buttons: a floating segmented control, or a chip row on a phone |
-| `src/editor-toolbar.ts` | Align (until the site has a direction), Draw, Select, Undo, Redo and Remove: floating, or a bottom bar on a phone |
+| `src/editor-toolbar.ts` | Align (until the site has a direction), Draw, Select, Undo, Redo and Remove, with the tool the guide lights: floating, or a bottom bar on a phone |
 | `src/map-stack.ts` | Address search button, map toggle, zoom and compass |
 | `src/address-search.ts` | The Find your home card: field, Search, up to five results, the no result and unavailable states; sends one `spatial/address/search` per Enter or press, never while typing |
 | `src/address.ts` | Pure rules of the address search: when a query may be sent, the street and town lines of a result, where the map goes for it, when Home Assistant has no home location, and whether to offer the home for a picked place (turf's distance, 25 m) |
@@ -43,7 +43,8 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/floor-stack.ts` | All floors as an exploded stack of slabs, pure and in site frame metres: floor order, slab heights, room fills and walls, the camera fit from the front corner, and the floor labels beside each slab |
 | `src/room-labels.ts` | Room labels: area icon, name and (in the panel) net area, placed and stepped by the room's size on screen |
 | `src/styles.ts` | The floating card, pill buttons and phone bar shared by the controls, from Home Assistant's theme tokens |
-| `src/room-editor.ts` | The space editor controller: the area strip, the guide line, the map's outline offered to the Building, undo and redo, saving each action, area creation and rename |
+| `src/onboarding.ts` | `nextStep`: the guide line's one step and its lit control, derived from the plan every time |
+| `src/room-editor.ts` | The space editor controller: the area strip, what the guide reads of the plan, the map's outline offered to the Building, undo and redo, saving each action, area creation and rename |
 | `src/side-controls.ts` | A handle on each side of the active axis rectangle, a length chip on one side per axis (`sideHandles` in `plan.ts` picks it) and a grip on the other: dragged, it stretches the side through the edge drag; tapped, it opens the length field |
 | `src/box-interaction.ts` | Pointer and keyboard drafting input on the map, snapped corners, moves, edge and corner drags, Alt to place freely, Space pan, draft preview |
 | `src/snap.ts` | The snap engine, pure and in lattice units: room corners, then room axis edges, then the outline, else the grid |
@@ -113,5 +114,15 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
   (none within 25 m of the home); its action writes latitude and longitude with
   `config/core/update`, and the next toast's Undo writes the old ones back. A flag in the panel
   keeps it to one question per visit; nothing is stored.
+- The guide line: `nextStep` in `onboarding.ts` takes the plan as plain data (home location and
+  whether the map draws a building there, search used, bearing, outline, the map outline's
+  question or length check, every floor with its areas and which have a shape, the floor in view,
+  tool and active pill) and returns the one step: find the home, choose a floor (on All), align,
+  the outline question or drawing it, the length check, the next area to draw, the floor done
+  with Next floor, or done. Its line is the only instruction on screen, and its one lit control
+  gets the tinted fill and 1.5 px ring (`litControl` in `styles.ts`). Nothing is stored: at start
+  a plan with work left opens on the step's floor, and a skipped or finished step follows from
+  the data. Before any Align the building where the home is (a picked place, else Home
+  Assistant's home) shows dashed, and a pick switches Align on.
 - Areas are created and renamed with Home Assistant's area registry commands; renaming the
   building sends `config/core/update` with `location_name`.
