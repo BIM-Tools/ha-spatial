@@ -40,6 +40,11 @@ export class History {
     return change;
   }
 
+  /** Whether this change is the one the next undo takes back. */
+  isLatest(change: Change) {
+    return this._done[this._done.length - 1] === change;
+  }
+
   get canUndo() {
     return this._done.length > 0;
   }

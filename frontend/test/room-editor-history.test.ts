@@ -3,6 +3,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import {
   EMPTY,
+  areaEntry,
   buttonNamed,
   chooseFromMenu,
   handlers,
@@ -16,6 +17,7 @@ import {
 import {
   KITCHEN,
   pixelBox,
+  showFloor,
   siteSaves,
   mountEditor,
   chipNames,
@@ -177,6 +179,34 @@ test("Clear <floor> removes the floor's room shapes in one save, leaves the outl
   toasts[0].action!.action();
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
   expect(saves(connection)[1].areas).toEqual({ kitchen: KITCHEN, hall: HALL });
+});
+
+test("the clear toast's Undo does nothing once another change came after the clear", async () => {
+  const { panel, connection } = mountTwoFloors();
+  await startSelecting(panel);
+  await chooseFromMenu(panel, "Clear Ground floor");
+  await vi.waitFor(() => expect(toastMessages()).toEqual(["Ground floor cleared"]));
+  const [cleared] = toasts;
+  buttonNamed(panel, "Draw")!.click();
+  await activateKitchen(panel);
+  tap(100, 0);
+  tap(140, 30);
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
+  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
+  cleared.action!.action();
+  await settle(panel);
+  expect(saves(connection)).toHaveLength(2);
+});
+
+test("No floor offers no clear, even with shaped outdoor areas", async () => {
+  const { panel, setRegistry, setFeed } = mountTwoFloors();
+  setRegistry([areaEntry("kitchen", "Kitchen", "ground"), areaEntry("garden", "Garden", null)]);
+  // The editor reads an area's floor from the registry; the feature's properties do not count here.
+  setFeed([{ type: "Feature", id: "garden", geometry: HALL, properties: { floor_id: "", level: 0 } }]);
+  await showFloor(panel, "No floor");
+  await toggleMenu(panel);
+  expect(buttonNamed(panel, "Clear floor")!.disabled).toBe(true);
+  expect(buttonNamed(panel, "Clear No floor")).toBeUndefined();
 });
 
 test("Clear is one undo step, and off on All and on a floor without room shapes", async () => {

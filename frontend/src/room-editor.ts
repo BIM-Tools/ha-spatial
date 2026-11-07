@@ -466,18 +466,23 @@ export class RoomEditor {
     this._whileSaving(() => this._apply({ before: { [areaId]: footprint }, after: { [areaId]: null } }));
   };
 
-  /** Removes every room shape on the floor in view in one save and one undo step; the toast's Undo takes it back. */
+  /** Removes every room shape on the floor in view in one save and one undo step; the toast's Undo takes back only that clear. */
   clearFloor = (floorName: string) => {
     const change = this._floorClear();
     if (!change || this._saving) return;
     this._whileSaving(async () => {
       await this._apply(change);
-      this._host.toast({ message: `${floorName} cleared`, action: { text: "Undo", action: this.undo } });
+      const undoClear = () => {
+        if (this._history.isLatest(change)) this.undo();
+      };
+      this._host.toast({ message: `${floorName} cleared`, action: { text: "Undo", action: undoClear } });
     });
   };
 
+  // All is a view, and No floor holds outdoor areas, not a floor to start over.
   private _floorClear() {
-    return this._floor === "all" ? undefined : clearChange(this._order().map((area) => area.area_id), this._footprints);
+    if (this._floor === "all" || this._floor === null) return undefined;
+    return clearChange(this._order().map((area) => area.area_id), this._footprints);
   }
 
   // In Select each side of the active room, when it is a rectangle on the site axis, gets a handle that

@@ -372,7 +372,7 @@ test("Align is a tool until the first Align; then it leaves the toolbar and the 
   queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
   await startAligning(panel);
   expect(pressedTools(panel)).toEqual(["Align"]);
-  expect(await menuEntries(panel)).toEqual(["Clear No floor"]);
+  expect(await menuEntries(panel)).toEqual(["Clear floor"]);
   click();
   await settle(panel);
   expect(toolbarButtonNames(panel)).toEqual(["Draw", "Select", "Undo", "Redo", "Remove shape"]);

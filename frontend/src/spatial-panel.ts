@@ -460,7 +460,8 @@ class SpatialPanel extends LitElement {
   }
 
   // Once the site has a direction, Align moves out of the toolbar into the header menu. Like the
-  // tools both entries need a floor; on All, a view only, they are off.
+  // tools both entries need a floor; on All, a view only, they are off. No floor is not a floor to
+  // clear, so it keeps the plain, disabled entry.
   private _menu(): MenuItem[] {
     const editor = this._editor;
     if (!editor) return [];
@@ -468,7 +469,7 @@ class SpatialPanel extends LitElement {
     const onAll = floor === "all";
     const floorName = this._floorName(floor);
     const clear = {
-      label: onAll ? "Clear floor" : `Clear ${floorName}`,
+      label: onAll || floor === null ? "Clear floor" : `Clear ${floorName}`,
       disabled: !editor.canClear,
       action: () => editor.clearFloor(floorName),
     };

@@ -28,6 +28,18 @@ test("recording after an undo clears redo", () => {
   expect(history.redo()).toBeUndefined();
 });
 
+test("only the change the next undo takes back is the latest", () => {
+  const history = new History();
+  const [first, second] = [change("a"), change("b")];
+  expect(history.isLatest(first)).toBe(false);
+  history.record(first);
+  expect(history.isLatest(first)).toBe(true);
+  history.record(second);
+  expect(history.isLatest(first)).toBe(false);
+  history.undo();
+  expect(history.isLatest(first)).toBe(true);
+});
+
 test("undo and redo on an empty history return nothing", () => {
   const history = new History();
   expect(history.undo()).toBeUndefined();
