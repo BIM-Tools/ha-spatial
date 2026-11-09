@@ -41,31 +41,38 @@ there, the card **Find your home** opens (on the globe when there is no home loc
 nothing is drawn). Type your street, house number and
 town and press **Search** or Enter; Spatial asks OpenStreetMap only then, never while you type,
 and does not keep what you typed. Pick one of up to five results, street on the first line and
-town on the second (arrow keys move through them), and the map flies there; the building at
-the place shows dashed. With no result,
+town on the second (arrow keys move through them), and the map flies there; then click your
+house. A new search before Align drops a building you picked. With no result,
 check the spelling or add the town. When the search server cannot be reached, press **Retry**,
 or close the card and pan the map to your home. The magnifier at the top of the map controls
 (**Find an address**) opens the same card at any time.
 
 **Click your home.** Before the site has a direction, the line at the top says "Click your
-home": point at your house on the map, and the building under the pointer lights up; click it.
-A building cut by the map's tile edges is taken whole. The building you clicked shows dashed and
-Align is next; clicking another building before you press **Align** picks that one instead.
-Nothing goes on until you click. A click beside any building says "No building here".
+home": point at a building on the map, and the one under the pointer lights up; click it. A
+click just beside a building, within a few pixels of its wall (a little more with a finger),
+picks it too; a click inside a building always picks that one, so on a terrace the side of the
+shared wall you click decides. A building cut by the map's tile edges is taken whole. Farther
+away a click says "No building here". When the map is zoomed out too far to tell buildings
+apart, the line says "Zoom in to your house." and a click zooms in on it. Nothing goes on until
+you click, and nothing about the building is stored.
+
+The building you picked shows dashed and the line says "Press Align, then click the front wall",
+with **Align** lit. Wrong building? Click the right one first; it replaces the pick.
 
 **Home location.** When you click your home, Home Assistant's toast offers to make the middle of
 that building the home location Home Assistant uses for zones and presence: **Use as home** when
 Home Assistant has no home location yet, or **Move** when it lies more than 25 m from it, with
 the distance. The question stays until you answer it or close it (not now), and you can go on
-to Align meanwhile. Each click on another building asks again. On a site that already has a direction,
+to Align meanwhile. Each click on another building before Align asks again. On a site that already has a direction,
 the toast comes when you pick a search result instead, once a visit. Only the latitude and
 longitude change; the toast **Home location moved** offers **Undo**. Within 25 m nothing is
 asked. This needs an administrator, like the panel.
 
-1. **Align.** The line at the top says "Click the front wall of your home", with **Align** lit;
-   your home's building shows dashed. Press **Align** and click your house on the map near the
-   wall the rooms follow; the wall under the pointer lights up. The map turns so that wall is
-   horizontal, and Select is active again.
+1. **Align.** Press **Align**; the line says "Click the front wall of your home". Click your
+   house on the map near the wall the rooms follow; the wall under the pointer lights up. The
+   map turns so that wall is horizontal, and Select is active again. The building you click
+   here becomes the picked one, so clicking a wall of another building also corrects a wrong
+   pick.
    From then on Align is no longer in the toolbar: to pick another wall, open the header's
    **More options** menu and choose **Change alignment**.
 
@@ -73,12 +80,15 @@ asked. This needs an administrator, like the panel.
 
 2. **Draw the building.** The strip at the bottom starts with the building, under Home
    Assistant's location name and highlighted while there is no outline. Without a building on
-   the map, the line says "Draw the outline of your home" with **Draw** lit. When the map
-   has a building where you aligned, its rectangle along the site direction shows dashed, 150 mm
-   inside the map's line (the map shows the outer face of the walls, the outline is their axis),
-   and the line at the top asks "Use the map's outline?" with its size, for example
-   "9.80 × 7.60 m":
-   - **Use outline** saves that rectangle as the outline (Undo takes it back) and makes it
+   the map, the line says "Draw the outline of your home" with **Draw** lit. When a building
+   is picked, its rectangle along the site direction shows dashed, 150 mm inside the map's line
+   (the map shows the outer face of the walls, the outline is their axis), and the line at the
+   top asks "Use the map's outline?" with its size, for example "9.80 × 7.60 m Or click
+   another building.". In Select, buildings light up under the pointer again, and a click picks
+   another one, whose rectangle and size are then offered. The site direction stays; for a house
+   at another angle use **Change alignment**.
+   - **Use outline** saves that rectangle as the outline (Undo takes it back and asks again, with
+     the same building picked) and makes it
      active in Select with its width and depth. The line then says "Check one length you know":
      click the width or depth and type a length you have measured, for example the front of the
      house; **Looks right** moves on to the first room.
@@ -361,9 +371,9 @@ each one means, and the [importer](../tools/README.md) sets floor heights.
 - Align needs a building in the map tiles. A building cut by a tile border gives only the part
   in that tile.
 - The map's outline is offered as a rectangle only: an L-shaped house gets a box drawn onto it.
-  It is offered when the map shows a building at the grid origin, which Align on an empty plan
-  puts on the clicked wall, or after an Align in the same visit; with the map hidden it is not
-  offered. The map's buildings are about 0.4 m accurate, so check one length.
+  It is offered for the building picked in this visit, else, after leaving and coming back, for
+  the building the map shows at the grid origin, which Align on an empty plan puts on the
+  clicked wall; with the map hidden it is not offered. The map's buildings are about 0.4 m accurate, so check one length.
 - Undo covers this session only, and overwrites changes made elsewhere in the meantime. An undo
   for an area deleted in Home Assistant keeps failing; reload the panel to clear the history.
 - The slabs in All lie evenly apart in floor order, whatever elevation a floor has.
