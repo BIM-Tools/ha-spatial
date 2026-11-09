@@ -11,9 +11,9 @@ import { type Change, type FootprintBatch, History, clearChange } from "./histor
 import type { LayerColours } from "./map-paint";
 import { byLevel } from "./map-view";
 import type { Plan } from "./onboarding";
-import { type ChangeOrRefusal, boxChange, edgeLengths, isAxisRectangle } from "./plan";
+import { type ChangeOrRefusal, boxChange, isAxisRectangle, overallSize } from "./plan";
 import type { ScreenBox } from "./draft-labels";
-import { type SideControls, showSideControls } from "./side-controls";
+import { type SideControls, showSideControls, showSideLengths } from "./side-controls";
 import type { PlanFrame } from "./site-frame";
 import { snapCandidatesFor } from "./snap";
 import { type HassUnits, formatSize, refusalMessage, saveFailureMessage } from "./units";
@@ -75,6 +75,8 @@ export class RoomEditor {
   private _saving = false;
   private _saveFailedShown = false;
   private _sides?: SideControls;
+  // While a copied outline that is no rectangle is checked, its side lengths only show.
+  private _sideLengths?: Pick<SideControls, "remove">;
   private _resizeLive = false;
 
   private _editingSide?: number;
@@ -121,11 +123,14 @@ export class RoomEditor {
    */
   plan(floorName: (floor: string | null) => string): Pick<
     Plan,
-    "outlineStored" | "outlineOffer" | "checkingLength" | "floors" | "tool" | "active"
+    "outlineStored" | "outlineOffer" | "checkingLength" | "outlineIsBox" | "floors" | "tool" | "active"
   > {
     const offered = this._mapOutlineDeclined ? undefined : this._offeredOutline();
     const frame = this._host.siteFrame();
-    const [width, depth] = offered && frame ? edgeLengths(frame, offered) : [];
+    const outline = this._footprints.get(BUILDING);
+    // Along the site axes; for any shape but a rectangle that is its overall extent.
+    const size = offered && frame ? formatSize(...overallSize(frame, offered), this._host.units()) : undefined;
+    const overall = offered && frame && !isAxisRectangle(frame, offered) ? " overall" : "";
     const floors = [...this.floors.map((entry) => entry.floor_id), null].map((floor) => ({
       floor,
       name: floorName(floor),
@@ -133,8 +138,9 @@ export class RoomEditor {
     }));
     return {
       outlineStored: this._footprints.has(BUILDING),
-      outlineOffer: width === undefined ? undefined : formatSize(width, depth, this._host.units()),
+      outlineOffer: size && `${size}${overall}`,
       checkingLength: this._checkingLength && this._active === BUILDING && this._footprints.has(BUILDING),
+      outlineIsBox: Boolean(outline && frame && isAxisRectangle(frame, outline)),
       floors,
       tool: this.tool,
       active: this._active,
@@ -467,19 +473,26 @@ export class RoomEditor {
   }
 
   // In Select each side of the active room, when it is a rectangle on the site axis, gets a handle that
-  // drags it: a chip with the length of its axis, or a grip.
+  // drags it: a chip with the length of its axis, or a grip. A copied outline of another shape that is
+  // being checked shows its side lengths only.
   private _showSides() {
     // The controls follow the draft until the resize ends; `_resizing` rebuilds them then. A held
     // control would lose its pointer capture, so nothing is rebuilt from its press on.
     if (this._resizeLive || this._interaction?.resizing) return;
     this._sides?.remove();
     this._sides = undefined;
+    this._sideLengths?.remove();
+    this._sideLengths = undefined;
     const [map, interaction] = [this._map, this._interaction];
     const areaId = this._active;
     const footprint = this._footprints.get(areaId);
     if (!map || !interaction || this.tool !== "select" || this._floor === "all" || !footprint) return;
     const frame = this._host.siteFrame();
-    if (!frame || !isAxisRectangle(frame, footprint)) return;
+    if (!frame) return;
+    if (!isAxisRectangle(frame, footprint)) {
+      if (this._checkingLength && areaId === BUILDING) this._sideLengths = showSideLengths(map, frame, footprint, this._host.units());
+      return;
+    }
     const floorAreaIds = this._order().map((area) => area.area_id);
     const roomEdges = snapCandidatesFor(frame, floorAreaIds, this._footprints, BUILDING, areaId).roomEdges;
     const room = { areaId, footprint, frame, units: this._host.units(), roomEdges };

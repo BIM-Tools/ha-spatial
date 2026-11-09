@@ -28,10 +28,12 @@ const plus = (point: Point, offset: Point): LatticePoint => [point[0] + offset[0
 const orientation = (from: Point, to: Point, point: Point) =>
   Math.sign((to[0] - from[0]) * (point[1] - from[1]) - (to[1] - from[1]) * (point[0] - from[0]));
 
-const properlyCross = ([a, b]: LatticeEdge, [c, d]: LatticeEdge) =>
+/** Whether two edges cross at a point inside both. */
+export const properlyCross = ([a, b]: LatticeEdge, [c, d]: LatticeEdge) =>
   orientation(a, b, c) * orientation(a, b, d) < 0 && orientation(c, d, a) * orientation(c, d, b) < 0;
 
-const onSegment = (point: Point, [from, to]: LatticeEdge) =>
+/** Whether a point lies on an edge, its ends included. */
+export const onSegment = (point: Point, [from, to]: LatticeEdge) =>
   orientation(from, to, point) === 0 &&
   point[0] >= Math.min(from[0], to[0]) &&
   point[0] <= Math.max(from[0], to[0]) &&

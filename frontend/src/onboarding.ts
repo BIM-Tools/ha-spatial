@@ -35,6 +35,8 @@ export interface Plan {
   outlineOffer: string | undefined;
   // After Use outline, until Looks right.
   checkingLength: boolean;
+  // The stored outline is a rectangle along the site axes, whose sides take a typed length.
+  outlineIsBox: boolean;
   // In the floor selector's order.
   floors: PlanFloor[];
   floor: Floor;
@@ -121,7 +123,7 @@ export function nextStep(plan: Plan): Step {
     return {
       kind: "check-length",
       text: "Check one length you know",
-      detail: "For example the front of the house. Tap it to type the real size.",
+      detail: plan.outlineIsBox ? "For example the front of the house. Tap it to type the real size." : "For example the front of the house.",
       buttons: [{ control: "looks-right", label: "Looks right" }],
       lit: "looks-right",
       floor,

@@ -37,7 +37,7 @@ import "./panel-header";
 import type { MenuItem } from "./panel-header";
 import { type Control, type Step, nextStep } from "./onboarding";
 import { EMPTY, PanelState, alignPlace } from "./panel-state";
-import { mapOutlineBox } from "./plan";
+import { mapOutline } from "./plan";
 import type { PlanFrame } from "./site-frame";
 import { BUILDING } from "./area-strip";
 import { RoomEditor, type Toast, type Tool } from "./room-editor";
@@ -1274,7 +1274,7 @@ class SpatialPanel extends LitElement {
     if (aligned && this._state.outline.type !== "Polygon" && !this._pickedBuilding) {
       this._pickedBuilding = this._buildingAtOrigin(frame);
     }
-    editor.setMapOutline(aligned && this._pickedBuilding ? mapOutlineBox(frame, this._pickedBuilding) : undefined);
+    editor.setMapOutline(aligned && this._pickedBuilding ? mapOutline(frame, this._pickedBuilding) : undefined);
   }
 
   private _previewWall(event: MapMouseEvent) {

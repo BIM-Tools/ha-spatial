@@ -81,18 +81,23 @@ asked. This needs an administrator, like the panel.
 2. **Draw the building.** The strip at the bottom starts with the building, under Home
    Assistant's location name and highlighted while there is no outline. Without a building on
    the map, the line says "Draw the outline of your home" with **Draw** lit. When a building
-   is picked, its rectangle along the site direction shows dashed, 150 mm inside the map's line
-   (the map shows the outer face of the walls, the outline is their axis), and the line at the
-   top asks "Use the map's outline?" with its size, for example "9.80 × 7.60 m Or click
-   another building.". In Select, buildings light up under the pointer again, and a click picks
-   another one, whose rectangle and size are then offered. The site direction stays; for a house
+   is picked, its own shape shows dashed, 150 mm inside the map's line (the map shows the outer
+   face of the walls, the outline is their axis), with walls within 3 degrees of the site
+   direction straightened onto it and diagonal walls kept. The line at the top asks "Use the
+   map's outline?" with its size along the site direction, for example "9.80 × 7.60 m Or click
+   another building.", or "9.80 × 7.60 m overall" for any shape but a rectangle. When the shape
+   cannot move inward cleanly (a part narrower than about 30 cm, or walls that would cross),
+   nothing is offered and the line says "Draw the outline of your home". In Select, buildings
+   light up under the pointer again, and a click picks another one, whose shape and size are then
+   offered. The site direction stays; for a house
    at another angle use **Change alignment**.
-   - **Use outline** saves that rectangle as the outline (Undo takes it back and asks again, with
+   - **Use outline** saves that shape as the outline (Undo takes it back and asks again, with
      the same building picked) and makes it
-     active in Select with its width and depth. The line then says "Check one length you know":
-     click the width or depth and type a length you have measured, for example the front of the
-     house; **Looks right** moves on to the first room.
-   - **Draw it myself** keeps Draw on, and the dashed rectangle becomes something the outline's
+     active in Select with its side lengths. The line then says "Check one length you know": on a
+     rectangle, click the width or depth and type a length you have measured, for example the
+     front of the house; any other shape shows the length of every side to compare with.
+     **Looks right** moves on to the first room.
+   - **Draw it myself** keeps Draw on, and the dashed shape becomes something the outline's
      corners snap to.
 
    To draw it, put it on the middle of the exterior walls, with the building on the map as a
@@ -364,14 +369,16 @@ each one means, and the [importer](../tools/README.md) sets floor heights.
   first. A moved room travels in a straight line from where it was picked up, so a drag around a
   corner of the outline or of a room stops at that corner.
 - Snapping uses the rooms on this floor and the outline: not the floor below, diagonal walls or
-  buildings on the map, except the map's dashed rectangle while the building has no outline. A moved room lines up its corners with others, not its walls with their
+  buildings on the map, except the map's dashed outline while the building has no outline. A moved room lines up its corners with others, not its walls with their
   corners.
 - After the first room or the outline, a new Align keeps the grid origin, so the grid turns
   around the old origin.
 - Align needs a building in the map tiles. A building cut by a tile border gives only the part
   in that tile.
-- The map's outline is offered as a rectangle only: an L-shaped house gets a box drawn onto it.
-  It is offered for the building picked in this visit, else, after leaving and coming back, for
+- The map's outline follows the map's shape: a wall more than 3 degrees off the site direction
+  stays slanted, a step in a wall under one grid step (10 cm, 4 in) is straightened away, and a
+  house the map joins to its neighbours is offered with them. On any shape
+  but a rectangle its side lengths only show, they cannot be typed. It is offered for the building picked in this visit, else, after leaving and coming back, for
   the building the map shows at the grid origin, which Align on an empty plan puts on the
   clicked wall; with the map hidden it is not offered. The map's buildings are about 0.4 m accurate, so check one length.
 - Undo covers this session only, and overwrites changes made elsewhere in the meantime. An undo
