@@ -517,7 +517,8 @@ class SpatialPanel extends LitElement {
 
   // Once the site has a direction, Align moves out of the toolbar into the header menu. Like the
   // tools both entries need a floor; on All, a view only, they are off. No floor is not a floor to
-  // clear, so it keeps the plain, disabled entry.
+  // clear, so it keeps the plain, disabled entry. Start over is for the whole plan, so it works on
+  // any floor once there is a shape or a direction.
   private _menu(): MenuItem[] {
     const editor = this._editor;
     if (!editor) return [];
@@ -529,8 +530,13 @@ class SpatialPanel extends LitElement {
       disabled: !editor.canClear,
       action: () => editor.clearFloor(floorName),
     };
-    if (alignPlace(this._state.bearing) !== "menu") return [clear];
-    return [{ label: "Change alignment", disabled: onAll, action: () => this._selectTool("align") }, clear];
+    const startOver = {
+      label: "Start over",
+      disabled: !editor.hasShapes && typeof this._state.bearing !== "number",
+      action: editor.startOver,
+    };
+    if (alignPlace(this._state.bearing) !== "menu") return [clear, startOver];
+    return [{ label: "Change alignment", disabled: onAll, action: () => this._selectTool("align") }, clear, startOver];
   }
 
   // The plan's one next step, from what the panel and the editor know now; the card has none, and none
@@ -698,6 +704,19 @@ class SpatialPanel extends LitElement {
     // building whose outline is still to be stored, so the home is asked about again.
     if (this._state.bearing !== null) this._offerHome(building);
     else if (this._state.floor !== "all") this._selectTool("align");
+  }
+
+  // A new start forgets this visit's pick, search pin, search and home check, and faces north as before
+  // any Align; the update that follows the save finds the bearing already null, so it turns nothing.
+  private _startedOver() {
+    this._state.bearing = null;
+    this._map?.easeTo({ bearing: mapBearing(this._state.axisDeg) });
+    this._place = undefined;
+    this._searched = false;
+    this._searchOpen = false;
+    this._buildingAtHome = undefined;
+    this._setPick(undefined);
+    this._selectTool("select");
   }
 
   // The offered outline follows a new pick at once.
@@ -883,6 +902,7 @@ class SpatialPanel extends LitElement {
           // Renaming writes Home Assistant's core config, which only an admin may change.
           canRenameBuilding: () => this.hass?.user?.is_admin === true,
           hideLabels: (areaIds) => this._labels?.hide(areaIds),
+          startedOver: () => this._startedOver(),
         });
     this._editor = editor;
     const site = await loadAreas();

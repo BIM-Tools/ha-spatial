@@ -148,6 +148,7 @@ bottom right and the area strip at the bottom.
 | --- | --- |
 | Change alignment | Once the site has a direction: starts Align again, to turn the view to another wall. Off on All, like the tools |
 | Clear *floor* | Removes every room shape on the floor in view at once, as one undo step, without asking; the building outline stays. The toast "*Floor* cleared" offers **Undo**, which takes back the clear only while nothing has changed since. Off on All, on No floor and on a floor without room shapes |
+| Start over | Removes every room shape on every floor, the building outline, and the site's direction and grid origin at once, as one undo step, without asking, so the plan is back at picking your home's building. Home Assistant's areas, floors and home location stay. The toast "Started over" offers **Undo**, which brings everything back only while nothing has changed since. Off while there is no shape and no direction |
 
 The menu closes with Escape or a click elsewhere.
 

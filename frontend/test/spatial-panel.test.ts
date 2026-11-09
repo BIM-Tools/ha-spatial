@@ -397,7 +397,7 @@ test("Align is a tool until the first Align; then it leaves the toolbar and the 
   queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
   await startAligning(panel);
   expect(pressedTools(panel)).toEqual(["Align"]);
-  expect(await menuEntries(panel)).toEqual(["Clear floor"]);
+  expect(await menuEntries(panel)).toEqual(["Clear floor", "Start over"]);
   click();
   await settle(panel);
   expect(toolbarButtonNames(panel)).toEqual(["Draw", "Select", "Undo", "Redo", "Remove shape"]);
@@ -418,7 +418,7 @@ test("before the site is read neither the toolbar nor the menu offers Align", as
   await settle(panel);
   expect(buttonNamed(panel, "Draw")).toBeDefined();
   expect(buttonNamed(panel, "Align")).toBeUndefined();
-  expect(await menuEntries(panel)).toEqual(["Clear floor"]);
+  expect(await menuEntries(panel)).toEqual(["Clear floor", "Start over"]);
   answerSite!(siteReply({ bearing_deg: null }));
   await vi.waitFor(() => expect(buttonNamed(panel, "Align")).toBeDefined());
 });

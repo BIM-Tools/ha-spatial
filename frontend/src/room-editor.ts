@@ -7,7 +7,7 @@ import type { GeoJSONSource, Map as MapLibreMap } from "maplibre-gl";
 import { type AreaEntry, BUILDING, firstToDraw, newAreaName, stripOrder } from "./area-strip";
 import { type ActiveRoom, BoxInteraction, type EditorSnapshot } from "./box-interaction";
 import type { ResizeTarget } from "./edge-drag";
-import { type Change, type FootprintBatch, History, clearChange } from "./history";
+import { type Change, History, type SiteFields, clearChange, startOverChange } from "./history";
 import type { LayerColours } from "./map-paint";
 import { byLevel } from "./map-view";
 import type { Plan } from "./onboarding";
@@ -54,6 +54,8 @@ export interface EditorHost {
   canRenameBuilding(): boolean;
   // The rooms whose labels hide while a resize draft over them shows its lengths and area.
   hideLabels(areaIds: string[]): void;
+  // The plan was emptied, back to picking the home's building.
+  startedOver(): void;
 }
 
 // A later save that succeeds closes the failure toast through this id.
@@ -339,7 +341,7 @@ export class RoomEditor {
     this._whileSaving(async () => {
       const change = this._history.undo();
       if (!change) return;
-      await this._send(change.before).catch((err) => {
+      await this._send(change, "before").catch((err) => {
         this._history.redo();
         throw err;
       });
@@ -350,7 +352,7 @@ export class RoomEditor {
     this._whileSaving(async () => {
       const change = this._history.redo();
       if (!change) return;
-      await this._send(change.after).catch((err) => {
+      await this._send(change, "after").catch((err) => {
         this._history.undo();
         throw err;
       });
@@ -493,6 +495,30 @@ export class RoomEditor {
     });
   };
 
+  /**
+   * Removes every footprint, the outline included, and the site's direction and origin in one save and
+   * one undo step, back to picking the home's building; the toast's Undo takes back only that. Reads the
+   * plan first, as the editor holds no room properties and no origin.
+   */
+  startOver = () =>
+    this._whileSaving(async () => {
+      const [feed, site] = await Promise.all([
+        this._connection.sendMessagePromise<FeatureCollection>({ type: "spatial/geojson" }),
+        this._connection.sendMessagePromise<SiteFields>({ type: "spatial/site" }),
+      ]);
+      const change = startOverChange(feed, site);
+      if (!change) return;
+      await this._apply(change);
+      this._mapOutlineDeclined = false;
+      this._checkingLength = false;
+      this._host.startedOver();
+      this._select(BUILDING);
+      const undoStartOver = () => {
+        if (this._history.isLatest(change)) this.undo();
+      };
+      this._host.toast({ message: "Started over", action: { text: "Undo", action: undoStartOver } });
+    });
+
   // All is a view, and No floor holds outdoor areas, not a floor to start over.
   private _floorClear() {
     if (this._floor === "all" || this._floor === null) return undefined;
@@ -578,7 +604,7 @@ export class RoomEditor {
   }
 
   private async _apply(change: Change) {
-    await this._send(change.after);
+    await this._send(change, "after");
     this._history.record(change);
   }
 
@@ -630,15 +656,22 @@ export class RoomEditor {
     this._host.toast({ id: SAVE_FAILED_ID, message: "", duration: 0 });
   }
 
-  // A batch holds either the site outline alone or areas, never both.
-  private async _send(batch: FootprintBatch) {
+  // A batch holds either the site outline alone or areas, never both; a change with site fields carries
+  // the outline in them, with the areas and their properties in the same write.
+  private async _send(change: Change, side: "before" | "after") {
+    const batch = change[side];
+    const site = change.site?.[side];
+    const properties = Object.fromEntries(Object.entries(change.properties ?? {}).filter(([areaId]) => batch[areaId]));
     await this._connection.sendMessagePromise(
-      BUILDING in batch
-        ? { type: "spatial/site/update", outline: batch[BUILDING] }
-        : { type: "spatial/area/update_geometries", areas: batch },
+      site
+        ? { type: "spatial/area/update_geometries", areas: batch, properties, site }
+        : BUILDING in batch
+          ? { type: "spatial/site/update", outline: batch[BUILDING] }
+          : { type: "spatial/area/update_geometries", areas: batch },
     );
     this._changes++;
-    for (const [areaId, footprint] of Object.entries(batch)) {
+    const footprints = site ? { ...batch, [BUILDING]: site.outline } : batch;
+    for (const [areaId, footprint] of Object.entries(footprints)) {
       if (footprint) this._footprints.set(areaId, footprint);
       else this._footprints.delete(areaId);
     }
