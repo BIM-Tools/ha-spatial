@@ -41,8 +41,9 @@ there, the card **Find your home** opens (on the globe when there is no home loc
 nothing is drawn). Type your street, house number and
 town and press **Search** or Enter; Spatial asks OpenStreetMap only then, never while you type,
 and does not keep what you typed. Pick one of up to five results, street on the first line and
-town on the second (arrow keys move through them), and the map flies there; then click your
-house. A new search before Align drops a building you picked. With no result,
+town on the second (arrow keys move through them), and the map flies there and marks the place
+with a pin until you click your house. A new search before Align drops a building you picked.
+With no result,
 check the spelling or add the town. When the search server cannot be reached, press **Retry**,
 or close the card and pan the map to your home. The magnifier at the top of the map controls
 (**Find an address**) opens the same card at any time.
@@ -56,8 +57,13 @@ away a click says "No building here". When the map is zoomed out too far to tell
 apart, the line says "Zoom in to your house." and a click zooms in on it. Nothing goes on until
 you click, and nothing about the building is stored.
 
-The building you picked shows dashed and the line says "Press Align, then click the front wall",
-with **Align** lit. Wrong building? Click the right one first; it replaces the pick.
+The building you picked shows dashed, and Align turns on at once (step 1 below). Wrong building?
+Press **Pick another building** on the line at the top: Select is back on, the pick stays dashed
+and **Align** is lit, and the next building you click replaces the pick.
+
+The pointer shows what a click does: a hand over a building a click would pick, a crosshair in
+Draw and Align, a move arrow over the selected shape in Select, a resize arrow on its sides, and
+the map's open hand elsewhere, to pan.
 
 **Home location.** Once you have aligned on your house (step 1 below), Home Assistant's toast
 offers to make the middle of that building the home location Home Assistant uses for zones and
@@ -69,7 +75,8 @@ before Align asks nothing, as either often lands on the street or the house next
 latitude and longitude change; the toast **Home location moved** offers **Undo**. Within 25 m
 nothing is asked. This needs an administrator, like the panel.
 
-1. **Align.** Press **Align**; the line says "Click the front wall of your home". Click your
+1. **Align.** Align is on after a pick, or press **Align**; the line says "Click the front wall
+   of your home", with **Pick another building** after a pick. Click your
    house on the map near the wall the rooms follow; the wall under the pointer lights up. The
    map turns so that wall is horizontal, and Select is active again. The building you click
    here becomes the picked one, so clicking a wall of another building also corrects a wrong
@@ -90,9 +97,11 @@ nothing is asked. This needs an administrator, like the panel.
    narrower than about 30 cm disappears when the shape moves inward; when that splits the
    building, the largest piece is offered. Only when nothing usable is left (a building under
    about 40 cm across, or a side shorter than 10 cm), nothing is offered and the line says
-   "Draw the outline of your home". In Select, buildings
-   light up under the pointer again, and a click picks another one, whose shape and size are then
-   offered. The site direction stays; for a house
+   "Draw the outline of your home ... Or click another building.". Until an outline is saved,
+   the picked building stays as a thin line, buildings light up under the pointer, and a click
+   picks another one, whose shape and size are then offered. In Draw that holds for a click
+   inside another building, away from the picked one and while no box is being drawn; any
+   other click starts a box. The site direction stays; for a house
    at another angle use **Change alignment**.
    - **Use outline** saves that shape as the outline (Undo takes it back and asks again, with
      the same building picked) and makes it

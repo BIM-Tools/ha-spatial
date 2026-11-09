@@ -102,8 +102,10 @@ export class BoxInteraction {
   // Alt was held during a move or a resize, so its release must not reach the browser either.
   private _altInMove = false;
   private _resize?: Resize;
-  // The resize cursor this set on the map's canvas, or "".
+  // The resize cursor of the edge or corner under the pointer or held, or "".
   private _cursor = "";
+  // The pointer is on the active shape in Select, where a press grabs it.
+  private _onShape = false;
 
   constructor(
     private readonly _map: MapLibreMap,
@@ -158,7 +160,8 @@ export class BoxInteraction {
     this._grab = undefined;
     this._preview(undefined);
     this._highlight.clear();
-    this._setCursor("");
+    this._cursor = "";
+    this._onShape = false;
     const resize = this._resize;
     this._resize = undefined;
     if (resize?.moved) this._callbacks.onResizing(undefined);
@@ -289,7 +292,9 @@ export class BoxInteraction {
     const grab = this._grab;
     if (!this._canDraw() && !grab) {
       const target = this._press ? undefined : this._resizeTarget(event.point);
-      this._setCursor(target ? this._cursorOf(target) : "");
+      this._cursor = target ? this._cursorOf(target) : "";
+      const room = this._toolOnFloor() === "select" ? this._callbacks.snapshot().activeRoom : undefined;
+      this._onShape = Boolean(room && booleanPointInPolygon(lngLatOf(event), room.footprint));
       return;
     }
     const press = this._press;
@@ -329,12 +334,23 @@ export class BoxInteraction {
   private _out = () => {
     if (this._press || this._corner || this._resize) return;
     this._highlight.clear();
-    this._setCursor("");
+    this._cursor = "";
+    this._onShape = false;
   };
 
   /** Whether an edge or a corner is held, from its press to its release. */
   get resizing() {
     return Boolean(this._resize);
+  }
+
+  /** Whether a box is being drawn, or a shape pressed, moved or resized, from its press or first click on. */
+  get gesture() {
+    return Boolean(this._corner || this._press || this._resize);
+  }
+
+  /** What the pointer is on, for the map's cursor: the resize cursor of an edge or corner, and the active shape in Select. */
+  get hover(): { resize: string | undefined; onShape: boolean } {
+    return { resize: this._cursor || undefined, onShape: this._onShape || Boolean(this._grab) };
   }
 
   /** Grabs an edge or a corner of the active axis rectangle at a pixel; false when there is none to grab. */
@@ -352,7 +368,7 @@ export class BoxInteraction {
       press: pixel,
       moved: false,
     };
-    this._setCursor(this._cursorOf(target));
+    this._cursor = this._cursorOf(target);
     if (free) this._altInMove = true;
     return true;
   }
@@ -417,12 +433,6 @@ export class BoxInteraction {
     return resizeCursor(target, corners);
   }
 
-  private _setCursor(cursor: string) {
-    if (cursor === this._cursor) return;
-    this._cursor = cursor;
-    this._map.getCanvas().style.cursor = cursor;
-  }
-
   // Before the first corner the highlight shows where a press would land.
   private _hover(event: MapMouseEvent) {
     const frame = this._callbacks.snapshot().siteFrame;
@@ -466,8 +476,10 @@ export class BoxInteraction {
     this._highlight.show(frame, snapMarks(sources, points, pointer, (radius * SNAP_MARK_HALF_PX) / radiusPx, own));
   }
 
-  // MapLibre fires `click` for a tap too, so two taps draw a box on a phone.
+  // MapLibre fires `click` for a tap too, so two taps draw a box on a phone. A click the panel used to
+  // pick a map building, which it marks with preventDefault, neither starts a box nor picks a room.
   private _click = (event: MapMouseEvent) => {
+    if (event.defaultPrevented) return;
     if (this._toolOnFloor() === "select") {
       const [room] = this._map.queryRenderedFeatures(event.point, { layers: ["areas-2d"] });
       if (room) this._callbacks.onPickRoom(String(room.properties.area_id));

@@ -40,20 +40,19 @@ test.each<[string, Partial<Plan>, object]>([
   ["a home not looked at yet skips the search", { buildingAtHome: undefined, aligned: false, picked: false }, { kind: "pick" }],
   ["a search used or closed skips it", { homeKnown: false, searched: true, aligned: false, picked: false }, { kind: "pick" }],
   ["on All the home is picked on the floor to open", { aligned: false, picked: false, floor: "all" }, { kind: "pick", floor: "ground" }],
-  ["Align switched on by hand goes ahead of the pick", { aligned: false, picked: false, tool: "align" }, { kind: "align" }],
+  [
+    "Align switched on by hand goes ahead of the pick, with nothing to pick again",
+    { aligned: false, picked: false, tool: "align" },
+    { kind: "align", text: "Click the front wall of your home", detail: "The view turns so that wall lies flat.", buttons: undefined, lit: undefined },
+  ],
   ["an aligned site skips the search and the pick", { homeKnown: false, picked: false }, { kind: "room" }],
   [
-    "the home picked: Align lit, another building can be picked",
-    { aligned: false },
-    { kind: "align", text: "Press Align, then click the front wall", detail: "Wrong building? Click the right one first.", lit: "align", floor: "ground" },
-  ],
-  ["the home picked, from too far out: zoom in", { aligned: false, zoomedOut: true }, { kind: "align", detail: "Zoom in to your house." }],
-  [
-    "Align on: the wall to click, nothing lit",
+    "the home picked: Align on, the wall to click, Pick another building",
     { aligned: false, tool: "align" },
-    { kind: "align", text: "Click the front wall of your home", detail: "The view turns so that wall lies flat.", lit: undefined },
+    { kind: "align", text: "Click the front wall of your home", buttons: [{ control: "pick-again", label: "Pick another building" }], lit: undefined, floor: "ground" },
   ],
-  ["Change alignment says what to click", { tool: "align" }, { kind: "align" }],
+  ["the home picked, back in Select: pick again with Align lit", { aligned: false }, { kind: "pick", text: "Click your home", lit: "align" }],
+  ["Change alignment says what to click, with nothing to pick again", { tool: "align" }, { kind: "align", buttons: undefined }],
   ["All with work left opens the first floor with an area to draw", { floor: "all" }, { kind: "choose-floor", text: "Choose a floor to edit its rooms", floor: "ground" }],
   ["All on a done plan opens nothing", { floor: "all", floors: DONE }, { kind: "done", text: "Choose a floor to edit its rooms", floor: undefined }],
   ["All without areas opens No floor", { floor: "all", floors: [NONE], outlineStored: false }, { kind: "choose-floor", floor: null }],
@@ -74,7 +73,7 @@ test.each<[string, Partial<Plan>, object]>([
   [
     "no map building: draw the outline, Draw lit",
     { outlineStored: false, active: BUILDING },
-    { kind: "draw-outline", text: "Draw the outline of your home", detail: "Click and drag a box; boxes join.", lit: "draw" },
+    { kind: "draw-outline", text: "Draw the outline of your home", detail: "Click and drag a box; boxes join. Or click another building.", lit: "draw" },
   ],
   ["drawing the outline: Draw on, nothing lit", { outlineStored: false, active: BUILDING, tool: "draw" }, { kind: "draw-outline", lit: undefined }],
   [

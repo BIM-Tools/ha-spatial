@@ -72,7 +72,7 @@ test("the panel refreshes the map tiles token when the connection is ready again
 
 test("an empty plan opens on No floor with its step, not a separate no-rooms message", async () => {
   const { panel } = mountPanel();
-  await vi.waitFor(() => expect(guideText(panel)).toBe("Draw the outline of your home Click and drag a box; boxes join."));
+  await vi.waitFor(() => expect(guideText(panel)).toBe("Draw the outline of your home Click and drag a box; boxes join. Or click another building."));
   expect(buttonNamed(panel, "No floor")!.getAttribute("aria-pressed")).toBe("true");
   expect(panel.shadowRoot!.textContent).not.toContain("No rooms yet");
 });
@@ -361,7 +361,7 @@ test("Align on an empty plan sends the bearing and the wall's left end as origin
   click();
   expect(updates(connection)).toEqual([]);
   await startAligning(panel);
-  await vi.waitFor(() => expect(guideText(panel)).toBe(ALIGN_LINE));
+  await vi.waitFor(() => expect(guideText(panel)).toMatch(ALIGN_LINE));
   click();
   expect(queryRenderedFeatures).toHaveBeenLastCalledWith({ x: 1, y: 2 }, { layers: ["building-3d"] });
   // Which fields and their values are alignFields' rule; here only that the empty plan reaches it.
@@ -384,9 +384,7 @@ test("a pick then Align offers the outline of the building Align was clicked on,
   await settle(panel);
   click();
   await settle(panel);
-  expect(guideText(panel)).toBe("Press Align, then click the front wall Wrong building? Click the right one first.");
-  buttonNamed(panel, "Align")!.click();
-  await settle(panel);
+  expect(guideText(panel)).toBe(`${ALIGN_LINE} Pick another building`);
   click();
   queryRenderedFeatures.mockReturnValue([]);
   bearing = (updates(connection)[0] as unknown as { bearing_deg: number }).bearing_deg;
@@ -510,7 +508,8 @@ test("the wall is cleared when Align ends, and hovering outside Align does nothi
 });
 
 test("in Align a click without a building saves nothing", async () => {
-  const { panel, connection } = mountPanel();
+  // With an outline stored, Select picks no building, so the next click reads none.
+  const { panel, connection } = mountPanel({ site: DONE_SITE });
   await startAligning(panel);
   click();
   await vi.waitFor(() => expect(toasts).toEqual([{ message: "No building here" }]));

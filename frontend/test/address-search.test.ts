@@ -9,6 +9,7 @@ import {
   flyTo,
   guideText,
   handlers,
+  layers,
   mapCreated,
   type Mount,
   mountPanel,
@@ -235,7 +236,7 @@ const toolPressed = (panel: HTMLElement, name: string) => buttonNamed(panel, nam
 // A synthetic building east of the tower, for a second pick.
 const ANNEX = { type: "Polygon", coordinates: [[[5.1222, 52.0905], [5.1226, 52.0905], [5.1226, 52.0909], [5.1222, 52.0909], [5.1222, 52.0905]]] };
 const PICK_LINE = "Click your home Point at a building to light it up, then click it.";
-const PICKED_LINE = "Press Align, then click the front wall Wrong building? Click the right one first.";
+const PICKED_LINE = "Click the front wall of your home The view turns so that wall lies flat. Pick another building";
 // The map tiles' buildings under the pointer are `buildings`; no room is drawn there.
 const buildingsUnderPointer = (buildings: object[]) =>
   queryRenderedFeatures.mockImplementation(((_where: unknown, options: { layers: string[] }) =>
@@ -268,20 +269,28 @@ test("while the home is to be picked, the building under the pointer lights up",
   await vi.waitFor(() => expect(sources["spatial-pick-hover"].data).toEqual(EMPTY));
 });
 
-test("a click makes the building the home: it shows dashed, and Align is next", async () => {
+test("a click makes the building the home in place of the found place's pin: it shows dashed, and Align is on", async () => {
   const { panel } = await clickingHome();
+  expect(sources["spatial-place"].data).toMatchObject({ geometry: { type: "Point" } });
   buildingsUnderPointer([{ geometry: TOWER }]);
   pointer("click", [5.1211, 52.0904]);
   await settle(panel);
   expect(sources["spatial-pick"].data).toEqual(TOWER);
+  expect(sources["spatial-place"].data).toEqual(EMPTY);
   expect(guideText(panel)).toBe(PICKED_LINE);
-  expect(toolPressed(panel, "Align")).toBe("false");
+  expect(toolPressed(panel, "Align")).toBe("true");
 });
 
-test("clicking another building before Align picks it instead", async () => {
+test("Pick another building goes back to picking with the pick kept, and the next click picks again", async () => {
   const { panel } = await clickingHome();
   buildingsUnderPointer([{ geometry: TOWER }]);
   pointer("click", [5.1214, 52.0907]);
+  await settle(panel);
+  buttonNamed(panel, "Pick another building")!.click();
+  await settle(panel);
+  expect(toolPressed(panel, "Select")).toBe("true");
+  expect(sources["spatial-pick"].data).toEqual(TOWER);
+  expect(guideText(panel)).toBe(PICK_LINE);
   buildingsUnderPointer([{ geometry: ANNEX }]);
   pointer("click", [5.1224, 52.0907]);
   await settle(panel);
@@ -323,18 +332,24 @@ test("a new search before Align drops the pick", async () => {
   expect(guideText(panel)).toBe(PICK_LINE);
 });
 
-test("the picked building shows dashed until the site has a direction", async () => {
-  let bearing: number | null = null;
-  const { panel, connection } = mountPanel({ homeLocation: {}, site: () => ({ bearing_deg: bearing }), reply: searchingAnd([DOMTOREN]) });
+test("the picked building shows dashed before Align, thin and solid after it, until an outline is stored", async () => {
+  const shownAs = () => layers.filter((layer) => layer.source === "spatial-pick" && layer.layout?.visibility !== "none").map((layer) => layer.id);
+  let site: { bearing_deg: number | null; outline?: object } = { bearing_deg: null };
+  const { panel, connection } = mountPanel({ homeLocation: {}, site: () => site, reply: searchingAnd([DOMTOREN]) });
   await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
   handlers["style.load"]();
   await searchAndPick(panel);
   buildingsUnderPointer([{ geometry: TOWER }]);
   pointer("click", [5.1214, 52.0907]);
   expect(sources["spatial-pick"].data).toEqual(TOWER);
-  bearing = 0;
+  expect(shownAs()).toEqual(["spatial-pick"]);
+  site = { bearing_deg: 0 };
   await onUpdateOf(connection)();
   handlers.idle();
+  expect(sources["spatial-pick"].data).toEqual(TOWER);
+  expect(shownAs()).toEqual(["spatial-pick-aligned"]);
+  site = { bearing_deg: 0, outline: TOWER };
+  await onUpdateOf(connection)();
   expect(sources["spatial-pick"].data).toEqual(EMPTY);
 });
 

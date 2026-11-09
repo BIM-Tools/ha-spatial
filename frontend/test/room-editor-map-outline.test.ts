@@ -86,6 +86,15 @@ test("in Select a click on another building picks it, and the offered outline fo
   expect(latticeCorners(preview() as Polygon)).toEqual([[806, 6], [1034, 6], [1034, 314], [806, 314], [806, 6]]);
 });
 
+test("in Draw a click on another building picks it instead of starting a box", async () => {
+  const { panel } = await offer(TERRACE);
+  handlers.click(mouse(230, -40));
+  await settle(panel);
+  expect(guidePart(panel, ".detail")).toBe("5.70 × 7.70 m Or click another building.");
+  expect(sources["spatial-draft"].data).toEqual({ type: "FeatureCollection", features: [] });
+  expect(toolPressed(panel, "Draw")).toBe("true");
+});
+
 test("Undo of Use outline brings the question back with the pick kept", async () => {
   const { panel, connection } = await offer(TERRACE);
   await repick(panel);

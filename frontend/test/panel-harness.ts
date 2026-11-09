@@ -89,6 +89,22 @@ const withTile = (feature: object) => {
   return { ...feature, _z: TILE_ZOOM, _x: x, _y: y };
 };
 
+// MapLibre hands every listener the same event, whose preventDefault the later listeners read; a
+// test's own preventDefault spy is still called.
+const mapEvent = (event?: object) => {
+  if (!event) return event;
+  const own = (event as { preventDefault?: () => void }).preventDefault;
+  const shared = {
+    ...event,
+    defaultPrevented: false,
+    preventDefault: () => {
+      shared.defaultPrevented = true;
+      own?.();
+    },
+  };
+  return shared;
+};
+
 // MapLibre needs WebGL; the panel's own behaviour does not.
 export const fakeMapLibre = {
   setWorkerUrl: vi.fn(),
@@ -134,7 +150,10 @@ export const fakeMapLibre = {
     listeners: Record<string, ((event?: object) => void)[]> = {};
     on(event: string, handler: (event?: object) => void) {
       (this.listeners[event] ??= []).push(handler);
-      handlers[event] = (e) => this.listeners[event].forEach((listener) => listener(e));
+      handlers[event] = (e) => {
+        const shared = mapEvent(e);
+        this.listeners[event].forEach((listener) => listener(shared));
+      };
     }
     once(event: string, handler: (event?: object) => void) {
       const once = (e?: object) => {

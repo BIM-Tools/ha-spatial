@@ -112,6 +112,16 @@ export class RoomEditor {
     return !this._saving && this._floorClear() !== undefined;
   }
 
+  /** A box is being drawn, or a shape pressed, moved or resized. */
+  get gesture() {
+    return this._interaction?.gesture ?? false;
+  }
+
+  /** What the pointer is on, for the map's cursor. */
+  get hover() {
+    return this._interaction?.hover ?? { resize: undefined, onShape: false };
+  }
+
   /** Any room footprint on any floor, or the outline. */
   get hasShapes() {
     return this._footprints.size > 0;
