@@ -119,10 +119,11 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
   starts on MapLibre's globe with the search card open. A picked result fits the map to its box,
   else flies to its point at building zoom, and closes the card. The query lives only in the
   card: it is not logged or stored.
-- After a pick the panel offers the place as Home Assistant's home in a `hass-notification` toast
-  (none within 25 m of the home); its action writes latitude and longitude with
-  `config/core/update`, and the next toast's Undo writes the old ones back. A flag in the panel
-  keeps it to one question per visit; nothing is stored.
+- After a saved Align, and after a click on another building while the map's outline is offered,
+  the panel offers the building's middle (polylabel) as Home Assistant's home in a
+  `hass-notification` toast (none within 25 m of the home); its action writes latitude and
+  longitude with `config/core/update`, and the next toast's Undo writes the old ones back. A
+  search pick and a click before Align ask nothing; nothing is stored.
 - The guide line: `nextStep` in `onboarding.ts` takes the plan as plain data (home location and
   whether the map draws a building there, search used, bearing, outline, the map outline's
   question or length check, every floor with its areas and which have a shape, the floor in view,

@@ -398,8 +398,6 @@ class SpatialPanel extends LitElement {
   private readonly _phoneQuery = window.matchMedia(PHONE_QUERY);
   // Set at start when there is no home and no plan: the map opens on the globe with the address search.
   private _globe = false;
-  // Set once the panel has offered to move the home to a picked place, so a second search in this visit stays quiet.
-  private _homeAsked = false;
   // The latest pointer move while a building can be picked, read at the next animation frame.
   private _pointerToRead?: MapMouseEvent;
   // The building lit under the pointer, if any.
@@ -601,8 +599,8 @@ class SpatialPanel extends LitElement {
   private _searchAddress = async (query: string): Promise<Place[]> =>
     (await this.hass!.connection.sendMessagePromise<{ places: Place[] }>({ type: "spatial/address/search", query })).places;
 
-  // The map goes near the picked place. Before any Align the user then picks the home's building anew,
-  // which asks about the home; on an aligned site the search pick asks at once.
+  // The map goes near the picked place, and nothing more: a search often lands on the street, so the
+  // home is asked about only once the home's building is picked.
   private _flyToPlace = (event: CustomEvent<{ place: Place }>) => {
     this._closeSearch();
     if (this._state.bearing === null) this._setPick(undefined);
@@ -611,10 +609,6 @@ class SpatialPanel extends LitElement {
     const camera = cameraFor(event.detail.place);
     if ("bounds" in camera) map.fitBounds(camera.bounds, { maxZoom: camera.maxZoom, bearing: map.getBearing(), padding: 48 });
     else map.flyTo({ center: camera.center, zoom: camera.zoom });
-    if (this._state.bearing !== null && !this._homeAsked) {
-      this._homeAsked = true;
-      this._offerHome(event.detail.place);
-    }
   };
 
   // With Select on, while the home is to be picked, before Align, and while the map's outline is offered,
@@ -656,9 +650,9 @@ class SpatialPanel extends LitElement {
       return;
     }
     this._setPick(building);
-    if (this._state.bearing !== null) return;
-    const [lon, lat] = polylabel(building.coordinates as [number, number][][], HOME_MIDDLE_PRECISION_DEG);
-    this._offerHome({ lat, lon });
+    // Before Align the first click is often the neighbour; once aligned, a click here re-picks the
+    // building whose outline is still to be stored, so the home is asked about again.
+    if (this._state.bearing !== null) this._offerHome(building);
   }
 
   // The offered outline follows a new pick at once.
@@ -668,8 +662,10 @@ class SpatialPanel extends LitElement {
     this._offerMapOutline();
   }
 
-  // Nothing is stored, so a later visit may ask again.
-  private _offerHome(place: Pick<Place, "lat" | "lon">) {
+  // Offers the building's middle as the home. Nothing is stored, so a later visit may ask again.
+  private _offerHome(building: Polygon) {
+    const [lon, lat] = polylabel(building.coordinates as [number, number][][], HOME_MIDDLE_PRECISION_DEG);
+    const place = { lat, lon };
     const config = this.hass!.config;
     const question = homeQuestion(config, place);
     if (!question) return;
@@ -1301,15 +1297,16 @@ class SpatialPanel extends LitElement {
     // The picked wall lies low in the view with the building above it, its outside facing the viewer.
     const wallBelowCentre = (this._map?.getContainer().clientHeight ?? 0) * WALL_OFFSET_SHARE;
     this._map?.easeTo({ bearing: mapBearing(fields.bearing_deg), center: event.lngLat, offset: [0, wallBelowCentre] });
-    this._saveBearing(fields, this._state.bearing ?? null);
+    // Once aligned, the home's building is certain enough to ask about the home.
+    this._saveBearing(fields, this._state.bearing ?? null, () => this._offerHome(building));
   }
 
   // A failed save turns the view back. A refusal shows Spatial's reason, as trying again would not
   // help; otherwise Retry turns the view to the picked wall again and saves the same fields once more.
-  private _saveBearing(fields: AlignFields, previousBearing: number | null) {
+  private _saveBearing(fields: AlignFields, previousBearing: number | null, saved: () => void) {
     const newBearing = fields.bearing_deg;
     this._state.bearing = newBearing;
-    this.hass!.connection.sendMessagePromise({ type: "spatial/site/update", ...fields }).catch((err) => {
+    this.hass!.connection.sendMessagePromise({ type: "spatial/site/update", ...fields }).then(saved, (err) => {
       console.error(err);
       this._state.bearing = previousBearing;
       this._map?.easeTo({ bearing: mapBearing(this._state.axisDeg) });
@@ -1319,7 +1316,7 @@ class SpatialPanel extends LitElement {
       }
       const retry = () => {
         this._map?.easeTo({ bearing: mapBearing(newBearing) });
-        this._saveBearing(fields, previousBearing);
+        this._saveBearing(fields, previousBearing, saved);
       };
       this._toast({ message: saveFailureMessage(err), action: { text: "Retry", action: retry }, duration: -1, dismissable: true });
     });
