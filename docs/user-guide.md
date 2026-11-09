@@ -97,8 +97,11 @@ asked. This needs an administrator, like the panel.
      rectangle, click the width or depth and type a length you have measured, for example the
      front of the house; any other shape shows the length of every side to compare with.
      **Looks right** moves on to the first room.
-   - **Draw it myself** keeps Draw on, and the dashed shape becomes something the outline's
-     corners snap to.
+   - **Draw it myself** keeps Draw on, and the shape stays as a thin dotted line.
+
+   Until an outline is saved, that dotted line shows whenever Draw is on, and the outline and
+   the rooms snap to it after other rooms, lighting it up like any other wall. It never stops a
+   move, as the map is only roughly right; once the outline is saved, the outline is the guide.
 
    To draw it, put it on the middle of the exterior walls, with the building on the map as a
    guide: press and drag from one corner to the opposite one, or click one corner and then the

@@ -8,12 +8,18 @@ import { type Rings, stopMoveAtWalls } from "./wall-stop";
 /** An edge in lattice units. */
 export type LatticeEdge = readonly [LatticePoint, LatticePoint];
 
-/** Room edges run along a site axis; outline edges are all of them. `roomRings` are the rooms that stop a move, each whole; snapping does not read them. */
+/**
+ * Room and guide edges run along a site axis; outline edges are all of them. `roomRings` are the rooms
+ * that stop a move, each whole; snapping does not read them. The guide, the map's building while no
+ * outline is stored, only snaps and never stops a move, as the map is only about 0.4 m accurate.
+ */
 export interface SnapCandidates {
   roomCorners: LatticePoint[];
   roomEdges: LatticeEdge[];
   outlineCorners: LatticePoint[];
   outlineEdges: LatticeEdge[];
+  guideCorners: LatticePoint[];
+  guideEdges: LatticeEdge[];
   roomRings: Rings[];
 }
 
@@ -52,9 +58,9 @@ const gapBetween = (a: readonly [number, number], b: readonly [number, number]) 
 /**
  * Every corner of every ring, outer and inner; of rooms only the edges that run along a site axis,
  * of the outline every edge, since every outline edge stops a moved or resized room; and each room's
- * rings, since a room stops one too.
+ * rings, since a room stops one too. Of the `guide` every corner and the edges along a site axis.
  */
-export function candidatesOf(frame: PlanFrame, rooms: Polygon[], outline: Polygon | undefined): SnapCandidates {
+export function candidatesOf(frame: PlanFrame, rooms: Polygon[], outline: Polygon | undefined, guide?: Polygon): SnapCandidates {
   const ringsOf = (shape: Polygon): Rings => shape.coordinates.map((ring) => ring.slice(0, -1).map((corner) => frame.toLattice(corner)));
   const of = (shapes: Polygon[]) => {
     const corners: LatticePoint[] = [];
@@ -67,11 +73,14 @@ export function candidatesOf(frame: PlanFrame, rooms: Polygon[], outline: Polygo
   };
   const room = of(rooms);
   const building = of(outline ? [outline] : []);
+  const map = of(guide ? [guide] : []);
   return {
     roomCorners: room.corners,
     roomEdges: room.edges.filter(isAxisEdge),
     outlineCorners: building.corners,
     outlineEdges: building.edges,
+    guideCorners: map.corners,
+    guideEdges: map.edges.filter(isAxisEdge),
     roomRings: rooms.map(ringsOf),
   };
 }
@@ -79,7 +88,8 @@ export function candidatesOf(frame: PlanFrame, rooms: Polygon[], outline: Polygo
 /**
  * The candidates of a gesture: the footprints of the floor's areas and the outline, stored under
  * `outlineId`, without the shape `exclude` names, so a moved or resized shape does not snap to itself.
- * The outline snaps to rooms but no room stops it, since it is the limit and not a room.
+ * The outline snaps to rooms but no room stops it, since it is the limit and not a room. `guide` is
+ * the map's building, which snaps after the outline and stops nothing.
  */
 export function snapCandidatesFor(
   frame: PlanFrame,
@@ -87,14 +97,15 @@ export function snapCandidatesFor(
   footprints: ReadonlyMap<string, Polygon>,
   outlineId: string,
   exclude?: string,
+  guide?: Polygon,
 ): SnapCandidates {
   const rooms = floorAreaIds.filter((areaId) => areaId !== exclude).flatMap((areaId) => footprints.get(areaId) ?? []);
-  if (exclude === outlineId) return { ...candidatesOf(frame, rooms, undefined), roomRings: [] };
-  return candidatesOf(frame, rooms, footprints.get(outlineId));
+  if (exclude === outlineId) return { ...candidatesOf(frame, rooms, undefined, guide), roomRings: [] };
+  return candidatesOf(frame, rooms, footprints.get(outlineId), guide);
 }
 
 /**
- * The guides across `axis` in tiers, rooms before the outline: each wall that runs across `axis` and
+ * The guides across `axis` in tiers, rooms, then the outline, then the map's building: each wall that runs across `axis` and
  * each corner. Walls list first, so on a tie with their own end corner the wall lights up.
  */
 function guidesAcross(axis: 0 | 1, candidates: SnapCandidates): Guide[][] {
@@ -111,6 +122,7 @@ function guidesAcross(axis: 0 | 1, candidates: SnapCandidates): Guide[][] {
   return [
     [...walls(candidates.roomEdges), ...corners(candidates.roomCorners)],
     [...walls(candidates.outlineEdges), ...corners(candidates.outlineCorners)],
+    [...walls(candidates.guideEdges), ...corners(candidates.guideCorners)],
   ];
 }
 
@@ -193,8 +205,8 @@ function alignMove(
 
 /**
  * Custom. Where a line across `axis` at `value`, spanning `along` on the other axis, lands: on the
- * nearest guide within `radius` (`guidesAcross`), a room's before the outline's; a wall or corner
- * counts only where it comes within `radius` of `along`. Else on a grid line; with `free` on the
+ * nearest guide within `radius` (`guidesAcross`), a room's before the outline's before the map
+ * building's; a wall or corner counts only where it comes within `radius` of `along`. Else on a grid line; with `free` on the
  * lattice. Walls at other angles never count, their corners do. Known limit: a corner further along
  * the line does not align it; that waits for a drawn guide line.
  */

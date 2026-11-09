@@ -125,7 +125,7 @@ export class RoomEditor {
     Plan,
     "outlineStored" | "outlineOffer" | "checkingLength" | "outlineIsBox" | "floors" | "tool" | "active"
   > {
-    const offered = this._mapOutlineDeclined ? undefined : this._offeredOutline();
+    const offered = this._offeredOutline();
     const frame = this._host.siteFrame();
     const outline = this._footprints.get(BUILDING);
     // Along the site axes; for any shape but a rectangle that is its overall extent.
@@ -198,6 +198,13 @@ export class RoomEditor {
       source: "spatial-map-outline",
       paint: { ...colours["spatial-map-outline"], "line-width": 2, "line-dasharray": [2, 1] },
     });
+    map.addSource("spatial-map-guide", { type: "geojson", data: this._shownGuide() ?? NOTHING });
+    map.addLayer({
+      id: "spatial-map-guide",
+      type: "line",
+      source: "spatial-map-guide",
+      paint: { ...colours["spatial-map-guide"], "line-width": 1, "line-dasharray": [1, 2] },
+    });
     map.addSource("spatial-handles", { type: "geojson", data: this._handles() });
     map.addLayer({
       id: "spatial-handles",
@@ -268,17 +275,27 @@ export class RoomEditor {
     this._host.requestUpdate();
   }
 
-  // While the Building on a floor has no outline, the map's offers itself: dashed, as the guide's
-  // question, and as what drawing the Building snaps to. Rooms never see it.
+  // While the Building on a floor has no outline and the offer is open, the map's outline offers
+  // itself, dashed, as the guide's question.
   private _offeredOutline(): Polygon | undefined {
-    if (this.tool === "align" || this._floor === "all" || this._active !== BUILDING || this._footprints.has(BUILDING)) {
-      return undefined;
-    }
-    return this._mapOutline;
+    if (this._mapOutlineDeclined || this.tool === "align" || this._floor === "all" || this._active !== BUILDING) return undefined;
+    return this._mapGuide();
+  }
+
+  // Until an outline is stored, the map's outline is what the Building and the rooms snap to after
+  // the rooms; it never stops a move, as the map is only roughly right. Once stored, the outline guides.
+  private _mapGuide(): Polygon | undefined {
+    return this.tool === "align" || this._footprints.has(BUILDING) ? undefined : this._mapOutline;
+  }
+
+  // Dotted in Draw, unless the dashed offer shows the same line.
+  private _shownGuide(): Polygon | undefined {
+    return this.tool === "draw" && !this._offeredOutline() ? this._mapGuide() : undefined;
   }
 
   private _showMapOutline() {
     this._map?.getSource<GeoJSONSource>("spatial-map-outline")?.setData(this._offeredOutline() ?? NOTHING);
+    this._map?.getSource<GeoJSONSource>("spatial-map-guide")?.setData(this._shownGuide() ?? NOTHING);
   }
 
   /** One write and one undo step; then the outline is active in Select, where its side chips take a typed length. */
@@ -292,9 +309,10 @@ export class RoomEditor {
     });
   };
 
-  /** Answers the map's offer for this visit: Draw on, with the offered outline as a snap target. */
+  /** Answers the map's offer for this visit: Draw on, with the map's outline as a dotted snap guide. */
   drawOutlineMyself = () => {
     this._mapOutlineDeclined = true;
+    this._showMapOutline();
     this._host.selectTool("draw");
     this._host.requestUpdate();
   };
@@ -353,8 +371,6 @@ export class RoomEditor {
 
   private _snapshot(): EditorSnapshot {
     const footprint = this._footprints.get(this._active);
-    // The offered outline snaps as the outline would, while the Building is drawn.
-    const offered = this._offeredOutline();
     return {
       tool: this.tool,
       floorPicked: this._floor !== "all",
@@ -364,7 +380,8 @@ export class RoomEditor {
       siteFrame: this._host.siteFrame(),
       units: this._host.units(),
       floorAreaIds: this._order().map((area) => area.area_id),
-      footprints: offered ? new Map(this._footprints).set(BUILDING, offered) : this._footprints,
+      footprints: this._footprints,
+      mapGuide: this._mapGuide(),
     };
   }
 

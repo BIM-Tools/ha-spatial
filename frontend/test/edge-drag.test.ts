@@ -10,7 +10,7 @@ import { siteFrameData } from "./site-frame-fixture";
 const FRAME = PlanFrame.fromSite(siteFrameData([5, 52], 20));
 const OPTIONS = { radius: 3, gridUnits: 4, free: false };
 const FREE = { ...OPTIONS, free: true };
-const NONE: SnapCandidates = { roomCorners: [], roomEdges: [], outlineCorners: [], outlineEdges: [], roomRings: [] };
+const NONE: SnapCandidates = { roomCorners: [], roomEdges: [], outlineCorners: [], outlineEdges: [], guideCorners: [], guideEdges: [], roomRings: [] };
 
 const shapeOf = (...corners: LatticePoint[]): Polygon => ({
   type: "Polygon",

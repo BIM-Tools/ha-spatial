@@ -166,6 +166,7 @@ export const layerColours = (paint: MapPaint): LayerColours => ({
   "spatial-hover": { "line-color": paint.primary },
   "spatial-hover-building": { "line-color": paint.primary },
   "spatial-map-outline": { "line-color": paint.primary },
+  "spatial-map-guide": { "line-color": paint.primary },
   "spatial-pick": { "line-color": paint.primary },
   "spatial-pick-hover": { "line-color": paint.primary },
   "spatial-pick-hover-fill": { "fill-color": paint.pickHoverFill },
