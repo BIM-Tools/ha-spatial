@@ -51,6 +51,7 @@ const mountInteraction = (
       units: METRIC_UNITS,
       floorAreaIds: neighbours.map((_, index) => String(index)),
       footprints: new Map(neighbours.map((neighbour, index) => [String(index), neighbour])),
+      mapGuide: undefined,
     }),
     onBox,
     onMove,

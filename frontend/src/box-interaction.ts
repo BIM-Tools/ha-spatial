@@ -35,6 +35,8 @@ export interface EditorSnapshot {
   // The current floor's areas, and every footprint with the outline under BUILDING: what a gesture snaps to.
   readonly floorAreaIds: readonly string[];
   readonly footprints: ReadonlyMap<string, Polygon>;
+  // The map's building while no outline is stored: it snaps after the rooms and the outline, and stops nothing.
+  readonly mapGuide: Polygon | undefined;
 }
 
 export interface BoxInteractionCallbacks {
@@ -428,8 +430,8 @@ export class BoxInteraction {
   }
 
   private _snapping(frame: PlanFrame, exclude?: string): Snapping {
-    const { floorAreaIds, footprints } = this._callbacks.snapshot();
-    return { frame, candidates: snapCandidatesFor(frame, floorAreaIds, footprints, BUILDING, exclude), radiusPx: snapRadiusPx() };
+    const { floorAreaIds, footprints, mapGuide } = this._callbacks.snapshot();
+    return { frame, candidates: snapCandidatesFor(frame, floorAreaIds, footprints, BUILDING, exclude, mapGuide), radiusPx: snapRadiusPx() };
   }
 
   // The pixel radius in lattice units at the pointer, which differ with zoom; Alt places freely.

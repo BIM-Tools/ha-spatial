@@ -59,6 +59,17 @@ test.each<[string, number, [number, number], number, SnapSource[]]>([
   expect(snapLine(value, 0, PLAN, OPTIONS, along)).toEqual({ value: expected, sources });
 });
 
+// A room, the outline wall left of it at -6 and the map's building, its walls at -3 and 102.
+const GUIDED = candidatesOf(FRAME, [shapeOf(boxRing(0, 0, 40, 40))], shapeOf(boxRing(-6, -40, 200, 200)), shapeOf(boxRing(-3, -40, 102, 100)));
+
+test.each<[string, number, number, SnapSource[]]>([
+  ["a room wall beats a nearer map building wall", -2.5, 0, [wall([[0, 40], [0, 0]])]],
+  ["the outline beats a nearer map building wall", -4, -6, [wall([[-6, 200], [-6, -40]])]],
+  ["a map building wall beats the grid", 101, 102, [wall([[102, -40], [102, 100]])]],
+])("snapLine tiers with the map's building: %s", (_name, value, expected, sources) => {
+  expect(snapLine(value, 0, GUIDED, OPTIONS, [17, 17])).toEqual({ value: expected, sources });
+});
+
 test.each<[string, number, 0 | 1, number]>([
   ["across", 9.1, 0, 8],
   ["across, below zero", -6.1, 0, -8],

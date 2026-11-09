@@ -17,6 +17,7 @@ const MAP_HOUSE = pixelBox(0, 0, 100, -80);
 const guidePart = (panel: HTMLElement, part: string) => panel.shadowRoot!.querySelector(`.guide ${part}`)?.textContent?.trim();
 const question = (panel: HTMLElement) => panel.shadowRoot!.querySelector(".guide.question");
 const preview = () => sources["spatial-map-outline"].data as Polygon | { features: unknown[] };
+const guideLine = () => sources["spatial-map-guide"].data as Polygon | { features: unknown[] };
 const latticeCorners = (outline: Polygon) => outline.coordinates[0].map((corner) => FRAME.toLattice(corner));
 
 // A narrower neighbour 10 m further along the axis, in the same tile: 6 m wide and 8 m deep.
@@ -61,6 +62,10 @@ test("Use outline saves it as the outline in one undoable write, then asks to ch
   buttonNamed(panel, "Looks right")!.click();
   await settle(panel);
   expect(question(panel)).toBeNull();
+  // The stored outline is the guide from now on, so the map's building no longer shows in Draw.
+  buttonNamed(panel, "Draw")!.click();
+  await settle(panel);
+  expect(guideLine()).toEqual({ type: "FeatureCollection", features: [] });
   buttonNamed(panel, "Undo")!.click();
   await vi.waitFor(() => expect(siteSaves(connection)).toHaveLength(2));
   expect(siteSaves(connection)[1].outline).toBeNull();
@@ -93,17 +98,19 @@ test("Undo of Use outline brings the question back with the pick kept", async ()
   await vi.waitFor(() => expect(guidePart(panel, ".detail")).toBe("5.70 × 7.70 m Or click another building."));
 });
 
-test("Draw it myself keeps Draw on and the outline as a snap target for the Building only", async () => {
+test("Draw it myself keeps Draw on and the outline as a dotted snap guide for the Building and the rooms", async () => {
   const { panel } = await offer(MAP_HOUSE);
   buttonNamed(panel, "Draw it myself")!.click();
   await settle(panel);
   expect(question(panel)).toBeNull();
   expect(toolPressed(panel, "Draw")).toBe("true");
-  // 1.5 px right of the offered outline's left side, which lies 6 lattice units, 1.5 px, in.
+  expect(preview()).toEqual({ type: "FeatureCollection", features: [] });
+  expect(latticeCorners(guideLine() as Polygon)).toEqual([[6, 6], [394, 6], [394, 314], [6, 314], [6, 6]]);
+  // 1.5 px right of the guide's left side, which lies 6 lattice units, 1.5 px, in.
   handlers.mousemove(mouse(3, -40));
   expect(snapHighlights()).toEqual(["LineString"]);
   chip(panel, "Bath").click();
   await settle(panel);
   handlers.mousemove(mouse(3, -40));
-  expect(snapHighlights()).toEqual([]);
+  expect(snapHighlights()).toEqual(["LineString"]);
 });
