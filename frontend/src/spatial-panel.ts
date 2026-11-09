@@ -1,6 +1,8 @@
 // The space editor panel; the dashboard card embeds it to show the rooms on the map.
 
-import { lineString } from "@turf/helpers";
+import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
+import { lineString, point } from "@turf/helpers";
+import nearestPointOnLine from "@turf/nearest-point-on-line";
 import type { Feature, MultiPolygon, Polygon, Position } from "geojson";
 import { LitElement, type PropertyValues, css, html, nothing } from "lit";
 import polylabel from "polylabel";
@@ -29,6 +31,7 @@ import {
 } from "./floor-stack";
 import type { Floor, FloorChoice } from "./floor-selector";
 import "./floor-selector";
+import { mapCursor } from "./map-cursor";
 import "./map-stack";
 import { type MapPaint, layerColours, readMapPaint, repaint } from "./map-paint";
 import { type ThemeState, bounds, darkModeOf, mapBearing, styleUrl, withMapTilesToken, workerUrl } from "./map-view";
@@ -402,6 +405,8 @@ class SpatialPanel extends LitElement {
   private _pointerToRead?: MapMouseEvent;
   // The building lit under the pointer, if any.
   private _pointedBuilding?: Polygon;
+  // The place the address search found last, pinned until a building is picked or the site has a direction; never stored.
+  private _place?: Position;
 
   constructor() {
     super();
@@ -579,6 +584,7 @@ class SpatialPanel extends LitElement {
     if (control === "use-outline") editor?.useMapOutline();
     else if (control === "draw-myself") editor?.drawOutlineMyself();
     else if (control === "looks-right") editor?.lengthChecked();
+    else if (control === "pick-again") this._selectTool("select");
     else if (control === "next-floor" && step.floor !== undefined) this._show(step.floor);
   }
 
@@ -599,11 +605,16 @@ class SpatialPanel extends LitElement {
   private _searchAddress = async (query: string): Promise<Place[]> =>
     (await this.hass!.connection.sendMessagePromise<{ places: Place[] }>({ type: "spatial/address/search", query })).places;
 
-  // The map goes near the picked place, and nothing more: a search often lands on the street, so the
-  // home is asked about only once the home's building is picked.
+  // The map goes near the picked place and pins it, and nothing more: a search often lands on the
+  // street, so the home is asked about only once the home's building is picked. Before Align it starts
+  // the pick over, in Select.
   private _flyToPlace = (event: CustomEvent<{ place: Place }>) => {
     this._closeSearch();
-    if (this._state.bearing === null) this._setPick(undefined);
+    this._place = [event.detail.place.lon, event.detail.place.lat];
+    if (this._state.bearing === null) {
+      this._setPick(undefined);
+      this._selectTool("select");
+    }
     const map = this._map;
     if (!map) return;
     const camera = cameraFor(event.detail.place);
@@ -611,11 +622,14 @@ class SpatialPanel extends LitElement {
     else map.flyTo({ center: camera.center, zoom: camera.zoom });
   };
 
-  // With Select on, while the home is to be picked, before Align, and while the map's outline is offered,
-  // buildings light up under the pointer and a click picks one. Another click picks again.
+  // While the home is to be picked, and once aligned until an outline is stored on a floor, buildings
+  // light up under the pointer and a click picks one; another click picks again. Not in Align, whose
+  // click picks the wall's building, nor while a box is drawn or a shape pressed, moved or resized.
   private get _picking() {
-    const kind = this._step()?.kind;
-    return this._editor?.tool === "select" && (kind === "pick" || kind === "align" || kind === "outline-question");
+    const editor = this._editor;
+    if (!editor || editor.tool === "align" || editor.gesture) return false;
+    if (this._state.bearing === null) return this._step()?.kind === "pick";
+    return this._state.outline.type !== "Polygon" && this._state.floor !== "all";
   }
 
   // Read at most once per animation frame, as each read joins the building across the tiles under it.
@@ -627,7 +641,8 @@ class SpatialPanel extends LitElement {
     requestAnimationFrame(() => {
       const pointer = this._pointerToRead;
       this._pointerToRead = undefined;
-      this._showPointedBuilding(pointer && this._picking && !this._zoomedOut ? this._buildingUnder(pointer) : undefined);
+      this._showPointedBuilding(pointer && this._picking && !this._zoomedOut ? this._pickableUnder(pointer, 0) : undefined);
+      this._showCursor();
     });
   }
 
@@ -636,23 +651,53 @@ class SpatialPanel extends LitElement {
     this._map?.getSource<GeoJSONSource>("spatial-pick-hover")?.setData(building ?? EMPTY);
   }
 
+  // The map canvas's cursor, as MapLibre's own examples set it, says what a click would do.
+  private _showCursor() {
+    const [map, editor] = [this._map, this._editor];
+    if (!map || !editor) return;
+    const pickable = this._pointedBuilding !== undefined && !editor.gesture;
+    map.getCanvas().style.cursor = mapCursor({ tool: editor.tool, pickable, ...editor.hover });
+  }
+
+  // The building a click here picks. In Draw only one that holds the point and lies clear of the picked
+  // building by a finger's or a mouse's reach, so a box started on or beside the pick, where its
+  // corners snap, still draws.
+  private _pickableUnder(event: MapMouseEvent, tolerancePx: number): Polygon | undefined {
+    const map = this._map;
+    if (!map || this._editor?.tool !== "draw") return this._buildingUnder(event, tolerancePx);
+    const picked = this._pickedBuilding;
+    const at: Position = [event.lngLat.lng, event.lngLat.lat];
+    const reachM = metresForPixels(isTouch(event) ? PICK_TOLERANCE_PX.touch : PICK_TOLERANCE_PX.mouse, map.getZoom(), at[1]);
+    const nearPick =
+      picked &&
+      (booleanPointInPolygon(at, picked) ||
+        picked.coordinates.some((ring) => nearestPointOnLine(lineString(ring), point(at), { units: "meters" }).properties.dist <= reachM));
+    return nearPick ? undefined : this._buildingUnder(event);
+  }
+
   // Inside a building wins; else the one whose edge is nearest within a finger's or a mouse's reach. Too
-  // far out, the click zooms in on itself instead.
+  // far out, the click zooms in on itself instead. A click that picks is marked with preventDefault, so
+  // the editor neither starts a box with it nor Align takes it. Before Align a pick turns Align on.
   private _clickBuilding(event: MapMouseEvent) {
     if (!this._picking || this._roomUnder(event)) return;
+    const drawing = this._editor?.tool === "draw";
     if (this._zoomedOut) {
+      if (drawing) return;
+      event.preventDefault();
       this._map?.easeTo({ center: event.lngLat, zoom: PICK_ZOOM });
       return;
     }
-    const building = this._buildingUnder(event, isTouch(event) ? PICK_TOLERANCE_PX.touch : PICK_TOLERANCE_PX.mouse);
+    const building = this._pickableUnder(event, isTouch(event) ? PICK_TOLERANCE_PX.touch : PICK_TOLERANCE_PX.mouse);
     if (!building) {
-      this._toast({ message: "No building here" });
+      if (!drawing) this._toast({ message: "No building here" });
       return;
     }
+    event.preventDefault();
     this._setPick(building);
     // Before Align the first click is often the neighbour; once aligned, a click here re-picks the
     // building whose outline is still to be stored, so the home is asked about again.
     if (this._state.bearing !== null) this._offerHome(building);
+    else if (this._state.floor !== "all") this._selectTool("align");
   }
 
   // The offered outline follows a new pick at once.
@@ -819,6 +864,7 @@ class SpatialPanel extends LitElement {
       this._buildStack();
       this._showLabels();
       this._offerMapOutline();
+      this._showPick();
       return site;
     };
     const editor = this.card
@@ -925,12 +971,16 @@ class SpatialPanel extends LitElement {
         this._showPick();
       });
     }
+    // Before the editor, so a click that picks a building does not also start a box.
+    map.on("click", (event) => this._clickBuilding(event));
     editor?.attach(map);
-    // After the editor, so the click that ends Align is not also a room pick in Select.
+    // After the editor: the cursor follows what its hover found, and the click that ends Align is not
+    // also a room pick in Select.
+    map.on("mousemove", () => this._showCursor());
     map.on("click", (event) => {
-      this._clickBuilding(event);
       this._alignAt(event);
       this._pointAt(event);
+      this._showCursor();
     });
     if (this.floor || this._state.floor === "all") this._fit();
   }
@@ -1085,6 +1135,15 @@ class SpatialPanel extends LitElement {
         source: "spatial-pick",
         paint: { ...colours["spatial-pick"], "line-width": 2, "line-dasharray": [2, 1] },
       });
+      map.addSource("spatial-place", { type: "geojson", data: EMPTY });
+      map.addLayer({
+        id: "spatial-place",
+        type: "circle",
+        source: "spatial-place",
+        // 18 px across: a 7 px radius inside a 2 px ring.
+        paint: { ...colours["spatial-place"], "circle-radius": 7, "circle-stroke-width": 2 },
+      });
+      this._showPick();
     }
     map.addSource("spatial-wall", { type: "geojson", data: EMPTY });
     map.addLayer({
@@ -1172,6 +1231,9 @@ class SpatialPanel extends LitElement {
     if (!editor || editor.tool === tool) return;
     if (editor.tool === "align") this._showWall();
     editor.setTool(tool);
+    // The next pointer move lights a building again where the new tool picks one.
+    this._showPointedBuilding(undefined);
+    this._showCursor();
   }
 
   private _toggleMap() {
@@ -1247,10 +1309,13 @@ class SpatialPanel extends LitElement {
     this._buildingAtHome = Boolean(this._buildingAt(home));
   }
 
-  // Until the site has a direction, the picked building shows dashed; after Align the offered outline takes over.
+  // Until an outline is stored, the picked building shows dashed; until a building is picked or the site
+  // has a direction, a pin marks the place the address search found.
   private _showPick() {
-    const shown = this._state.bearing === null ? this._pickedBuilding : undefined;
-    this._map?.getSource<GeoJSONSource>("spatial-pick")?.setData(shown ?? EMPTY);
+    const pick = this._state.outline.type === "Polygon" ? undefined : this._pickedBuilding;
+    this._map?.getSource<GeoJSONSource>("spatial-pick")?.setData(pick ?? EMPTY);
+    const pin = this._state.bearing === null && !this._pickedBuilding ? this._place : undefined;
+    this._map?.getSource<GeoJSONSource>("spatial-place")?.setData(pin ? point(pin) : EMPTY);
   }
 
   // Align on an empty plan puts the origin at the left end of the picked wall, with the building
@@ -1283,7 +1348,7 @@ class SpatialPanel extends LitElement {
   // The camera turns in place around the click, so the building stays in view. It turns before
   // the save, because Home Assistant sends the update event ahead of the reply.
   private _alignAt(event: MapMouseEvent) {
-    if (!this._aligning) return;
+    if (!this._aligning || event.defaultPrevented) return;
     const building = this._buildingUnder(event);
     this._selectTool("select");
     if (!building) {
@@ -1292,6 +1357,7 @@ class SpatialPanel extends LitElement {
     }
     // The clicked wall's building becomes the pick; its outline is offered once the new frame arrives.
     this._pickedBuilding = building;
+    this._showPick();
     const at: Position = [event.lngLat.lng, event.lngLat.lat];
     const fields = alignFields(building, at, this._editor?.hasShapes ?? false);
     // The picked wall lies low in the view with the building above it, its outside facing the viewer.

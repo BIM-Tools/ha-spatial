@@ -170,6 +170,7 @@ export const layerColours = (paint: MapPaint): LayerColours => ({
   "spatial-pick": { "line-color": paint.primary },
   "spatial-pick-hover": { "line-color": paint.primary },
   "spatial-pick-hover-fill": { "fill-color": paint.pickHoverFill },
+  "spatial-place": { "circle-color": paint.primary, "circle-stroke-color": paint.handleFill },
   "spatial-handles": { "circle-color": paint.handleFill, "circle-stroke-color": paint.primary },
   "spatial-draft-fill": { "fill-color": apart(paint.apartFill, paint.draftFill) },
   "spatial-draft": { "line-color": apart(paint.apartEdge, paint.primary) },
