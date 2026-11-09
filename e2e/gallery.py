@@ -820,7 +820,7 @@ def first_run_click_home(shot: Shot) -> None:
 def first_run_align(shot: Shot) -> None:
     first_run_click_home(shot)
     shot.click(*home_building(shot))
-    shot.panel.get_by_text("Click the front wall of your home").wait_for()
+    shot.panel.get_by_text("Press Align, then click the front wall").wait_for()
     shot.settle()
 
 

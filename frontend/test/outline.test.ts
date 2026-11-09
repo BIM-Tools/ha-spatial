@@ -5,7 +5,7 @@ import destination from "@turf/destination";
 import { polygon } from "@turf/helpers";
 import type { Polygon } from "geojson";
 import { expect, test } from "vitest";
-import { type TileBuildings, alignFields, buildingAt, reachesUnreadTiles, wallAt, wallBearingAt } from "../src/outline";
+import { type TileBuildings, alignFields, buildingAt, nearestBuilding, reachesUnreadTiles, wallAt, wallBearingAt } from "../src/outline";
 
 type Pos = [number, number];
 
@@ -137,6 +137,24 @@ test.each([
   ["a building only in a tile of another zoom", [{ ...splitWithBuffer[0], z: Z - 1 }]],
 ])("buildingAt finds nothing with %s", (_case, tiles) => {
   expect(buildingAt(tiles, lngLat(IN_LEFT_TILE), Z)).toBeUndefined();
+});
+
+// Two terraced houses sharing a wall, inside one tile; a unit is about 0.37 m here.
+const WALL_X = SEAM_X - 25 * UNIT;
+const WEST_HOUSE = across(SEAM_X - 40 * UNIT, WALL_X);
+const EAST_HOUSE = across(WALL_X, SEAM_X - 10 * UNIT);
+const terrace = [tile(8424, 5405, FAR, WEST_HOUSE, EAST_HOUSE)];
+// Two units, about 0.73 m, below the west house.
+const BELOW_WEST: Pos = [SEAM_X - 35 * UNIT, ROW_BOTTOM + 2 * UNIT];
+
+test.each<[string, Pos, number, Pos[] | undefined]>([
+  ["inside wins over a nearer edge of another building", [WALL_X + 0.5 * UNIT, SEAM_Y - 25 * UNIT], 5, EAST_HOUSE],
+  ["on a shared wall, the side the click is on", [WALL_X - 0.5 * UNIT, SEAM_Y - 25 * UNIT], 5, WEST_HOUSE],
+  ["outside, within the tolerance", BELOW_WEST, 1, WEST_HOUSE],
+  ["outside, beyond the tolerance", BELOW_WEST, 0.5, undefined],
+  ["outside, without a tolerance", BELOW_WEST, 0, undefined],
+])("nearestBuilding: %s", (_case, at, maxM, expected) => {
+  expect(nearestBuilding(terrace, lngLat(at), maxM, Z)).toEqual(expected && shape(expected));
 });
 
 test.each([

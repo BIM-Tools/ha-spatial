@@ -7,6 +7,7 @@ import nearestPointOnLine from "@turf/nearest-point-on-line";
 import rewind from "@turf/rewind";
 import union from "@turf/union";
 import type { MultiPolygon, Polygon, Position } from "geojson";
+import polylabel from "polylabel";
 
 /** The buildings layer of one rendered vector tile: the tile and its one MultiPolygon of buildings, in WGS84. */
 export interface TileBuildings {
@@ -147,6 +148,34 @@ export function buildingAt(tiles: TileBuildings[], at: Position, zoom: number): 
   if (whole?.type !== "MultiPolygon") return whole;
   const containing = whole.coordinates.find((coordinates) => booleanPointInPolygon(at, { type: "Polygon", coordinates }));
   return containing && { type: "Polygon", coordinates: containing };
+}
+
+// How closely a point inside a building near a click is found, in degrees: about 1 cm.
+const INSIDE_PRECISION_DEG = 1e-7;
+
+/**
+ * Custom. The building a click at `at` picks, from the tiles at `zoom`: the one that holds it, joined as
+ * `buildingAt` joins it; else the one whose edge lies nearest, within `maxM` metres. On a wall two
+ * buildings share, the side the click is on decides.
+ *
+ * Limits: the distance is to each part as its tile has it, so a part cut at a tile edge counts its cut
+ * as an edge; edges are taken straight in WGS84.
+ */
+export function nearestBuilding(tiles: TileBuildings[], at: Position, maxM: number, zoom: number): Polygon | undefined {
+  const inside = buildingAt(tiles, at, zoom);
+  if (inside || maxM <= 0) return inside;
+  let nearest: { metres: number; rings: Position[][] } | undefined;
+  for (const tile of tiles) {
+    if (tile.z !== zoom) continue;
+    const polygons = tile.geometry.type === "Polygon" ? [tile.geometry.coordinates] : tile.geometry.coordinates;
+    for (const rings of polygons) {
+      for (const ring of rings) {
+        const metres = nearestPointOnLine(lineString(ring), point(at), { units: "meters" }).properties.dist;
+        if (metres <= maxM && (!nearest || metres < nearest.metres)) nearest = { metres, rings };
+      }
+    }
+  }
+  return nearest && buildingAt(tiles, polylabel(nearest.rings as [number, number][][], INSIDE_PRECISION_DEG), zoom);
 }
 
 /** Whether `building` reaches into a tile at `zoom` that is not among `tiles`, where the map may hold more of it. */

@@ -55,7 +55,7 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/history.ts` | Session undo and redo of footprint changes, and `clearChange`, the change that removes a floor's room shapes |
 | `src/spatial-card.ts` | The card: wraps the panel element, without the header and tools; loads the panel bundle when created |
 | `src/map-view.ts` | Pure helpers: map bearing, style URL, map tiles token, floor order, room bounds |
-| `src/outline.ts` | The OSM building under a click, the bearing of its nearest wall, with turf, and the fields an Align pick writes |
+| `src/outline.ts` | The OSM building under or nearest a click, the bearing of its nearest wall, with turf, and the fields an Align pick writes |
 | `src/site-frame.ts` | Applies the site frame from `spatial/site`: lon/lat to lattice units and back |
 | `src/plan.ts` | Boxes, side lengths, resizing and moving on the site lattice, and the outline copied from a map building; joining with turf |
 | `src/units.ts` | Lengths, map distances and areas shown in Home Assistant's unit system and number format (metric at lattice precision, US feet and inches with primes), and typed lengths read back in metres |
@@ -100,8 +100,14 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
   the building on its left. On an empty plan (no footprint and no outline) it also sends `origin`,
   that edge's left end in the aligned view. Once the site has a bearing, Align leaves the toolbar
   and the header menu's Change alignment starts the same tool.
-- The map's outline: the panel keeps the building Align picked, or finds the building a grid step
-  inside the site origin once the map is idle, and `mapOutlineBox` in `plan.ts` turns it into the
+- The picked building: one polygon held in the panel, never stored. A click picks it before Align,
+  and again in Select while the map's outline is offered; the Align click picks the clicked wall's
+  building. `nearestBuilding` in `outline.ts` takes the building under the click, else the one whose
+  edge is nearest within 8 px (mouse) or 22 px (touch). While a building can be picked, the one
+  under the pointer is lit, read at most once per animation frame; below zoom 16 nothing is lit and
+  a click zooms in to 18.
+- The map's outline: the panel offers the picked building, or after a reload finds the building a
+  grid step inside the site origin once the map is idle, and `mapOutlineBox` in `plan.ts` turns it into the
   bounding rectangle along the site axes, 150 mm inward, on the lattice. While the Building pill
   is active without an outline, the editor shows it dashed with the guide line's question and adds
   it as the outline to the snap candidates of a Building gesture only. Use outline saves it like a
@@ -122,7 +128,6 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
   with Next floor, or done. Its line is the only instruction on screen, and its one lit control
   gets the tinted fill and 1.5 px ring (`litControl` in `styles.ts`). Nothing is stored: at start
   a plan with work left opens on the step's floor, and a skipped or finished step follows from
-  the data. Before any Align the building where the home is (a picked place, else Home
-  Assistant's home) shows dashed, and a pick switches Align on.
+  the data. Before any Align the picked building shows dashed and Align is lit.
 - Areas are created and renamed with Home Assistant's area registry commands; renaming the
   building sends `config/core/update` with `location_name`.

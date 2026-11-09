@@ -372,6 +372,28 @@ test("Align on an empty plan sends the bearing and the wall's left end as origin
   await vi.waitFor(() => expect(guideText(panel)).not.toBe(ALIGN_LINE));
 });
 
+test("a pick then Align offers the outline of the building Align was clicked on, without reading the map again", async () => {
+  let bearing: number | null = null;
+  const { panel, connection } = mountPanel({ site: () => ({ bearing_deg: bearing }) });
+  queryRenderedFeatures.mockImplementation(((_where: unknown, options: { layers: string[] }) =>
+    options.layers.includes("building-3d") ? [{ geometry: HOUSE }] : []) as never);
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
+  await settle(panel);
+  buttonNamed(panel, "No floor")!.click();
+  await settle(panel);
+  click();
+  await settle(panel);
+  expect(guideText(panel)).toBe("Press Align, then click the front wall Wrong building? Click the right one first.");
+  buttonNamed(panel, "Align")!.click();
+  await settle(panel);
+  click();
+  queryRenderedFeatures.mockReturnValue([]);
+  bearing = (updates(connection)[0] as unknown as { bearing_deg: number }).bearing_deg;
+  await onUpdateOf(connection)();
+  await vi.waitFor(() => expect(guideText(panel)).toMatch(/^Use the map's outline\?/));
+});
+
 test("Align is a tool until the first Align; then it leaves the toolbar and the header menu's Change alignment starts it", async () => {
   const { panel } = mountPanel(UNALIGNED);
   queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);

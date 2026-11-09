@@ -86,6 +86,8 @@ export interface MapPaint {
   activeRoomFill: string;
   building: string;
   activeBuildingFill: string;
+  // Under a building the pointer is on while the home is to be picked.
+  pickHoverFill: string;
   draftFill: string;
   apartEdge: string;
   apartFill: string;
@@ -128,6 +130,7 @@ export const readMapPaint = (element: Element, dark: boolean): MapPaint => {
     // A neutral grey between the two text colours: #5a5a5a on the light default, #bebebe on the dark one.
     building: rgba(mix(color("--primary-text-color"), color("--secondary-text-color"), dark ? 0.5 : 0.3)),
     activeBuildingFill: rgba(primary, tintOpacity),
+    pickHoverFill: rgba(primary, 0.12),
     draftFill: rgba(primary, tintOpacity),
     apartEdge: rgba(warning),
     apartFill: rgba(warning, 0.16),
@@ -163,7 +166,9 @@ export const layerColours = (paint: MapPaint): LayerColours => ({
   "spatial-hover": { "line-color": paint.primary },
   "spatial-hover-building": { "line-color": paint.primary },
   "spatial-map-outline": { "line-color": paint.primary },
-  "spatial-home": { "line-color": paint.primary },
+  "spatial-pick": { "line-color": paint.primary },
+  "spatial-pick-hover": { "line-color": paint.primary },
+  "spatial-pick-hover-fill": { "fill-color": paint.pickHoverFill },
   "spatial-handles": { "circle-color": paint.handleFill, "circle-stroke-color": paint.primary },
   "spatial-draft-fill": { "fill-color": apart(paint.apartFill, paint.draftFill) },
   "spatial-draft": { "line-color": apart(paint.apartEdge, paint.primary) },

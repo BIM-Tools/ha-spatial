@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // Checks the offer to copy the outline from the map's building after Align: the question, Use outline and Draw it myself.
-import type { Polygon } from "geojson";
+import type { MultiPolygon, Polygon } from "geojson";
 import { afterEach, expect, test, vi } from "vitest";
 import { buttonNamed, handlers, queryRenderedFeatures, resetFakes, settle, sources } from "./panel-harness";
 import { FRAME, chip, mountEditor, mouse, pixelBox, siteSaves, snapHighlights, startDrawing, toolPressed } from "./room-editor-fixture";
@@ -19,10 +19,15 @@ const question = (panel: HTMLElement) => panel.shadowRoot!.querySelector(".guide
 const preview = () => sources["spatial-map-outline"].data as Polygon | { features: unknown[] };
 const latticeCorners = (outline: Polygon) => outline.coordinates[0].map((corner) => FRAME.toLattice(corner));
 
-// Draw on the ground floor with the Building pill active and no outline; the map tiles hold `building`.
-const offer = async (building: Polygon | undefined) => {
+// A narrower neighbour 10 m further along the axis, in the same tile: 6 m wide and 8 m deep.
+const NEIGHBOUR = pixelBox(200, 0, 260, -80);
+const TERRACE: MultiPolygon = { type: "MultiPolygon", coordinates: [MAP_HOUSE.coordinates, NEIGHBOUR.coordinates] };
+
+// Draw on the ground floor with the Building pill active and no outline; the map tiles hold `buildings`.
+const offer = async (buildings: Polygon | MultiPolygon | undefined) => {
   const mounted = mountEditor(undefined, null);
-  queryRenderedFeatures.mockReturnValue(building ? [{ geometry: building }] : []);
+  queryRenderedFeatures.mockImplementation(((_where: unknown, options: { layers: string[] }) =>
+    buildings && options.layers.includes("building-3d") ? [{ geometry: buildings }] : []) as never);
   await startDrawing(mounted.panel);
   handlers.idle();
   await settle(mounted.panel);
@@ -32,7 +37,7 @@ const offer = async (building: Polygon | undefined) => {
 test("after Align the map's building under the site offers its outline, dashed, with its size and two answers", async () => {
   const { panel } = await offer(MAP_HOUSE);
   expect(guidePart(panel, ".text")).toBe("Use the map's outline?");
-  expect(guidePart(panel, ".detail")).toBe("9.70 × 7.70 m");
+  expect(guidePart(panel, ".detail")).toBe("9.70 × 7.70 m Or click another building.");
   expect(buttonNamed(panel, "Draw it myself")).toBeDefined();
   expect(buttonNamed(panel, "Use outline")!.classList.contains("lit")).toBe(true);
   expect(latticeCorners(preview() as Polygon)).toEqual([[6, 6], [394, 6], [394, 314], [6, 314], [6, 6]]);
@@ -59,6 +64,33 @@ test("Use outline saves it as the outline in one undoable write, then asks to ch
   buttonNamed(panel, "Undo")!.click();
   await vi.waitFor(() => expect(siteSaves(connection)).toHaveLength(2));
   expect(siteSaves(connection)[1].outline).toBeNull();
+});
+
+// In Select, a click on the neighbour picks it in place of the building at the site origin.
+const repick = async (panel: HTMLElement) => {
+  buttonNamed(panel, "Select")!.click();
+  await settle(panel);
+  handlers.click(mouse(230, -40));
+  await settle(panel);
+};
+
+test("in Select a click on another building picks it, and the offered outline follows", async () => {
+  const { panel } = await offer(TERRACE);
+  await repick(panel);
+  expect(guidePart(panel, ".detail")).toBe("5.70 × 7.70 m Or click another building.");
+  expect(latticeCorners(preview() as Polygon)).toEqual([[806, 6], [1034, 6], [1034, 314], [806, 314], [806, 6]]);
+});
+
+test("Undo of Use outline brings the question back with the pick kept", async () => {
+  const { panel, connection } = await offer(TERRACE);
+  await repick(panel);
+  buttonNamed(panel, "Use outline")!.click();
+  await vi.waitFor(() => expect(siteSaves(connection)).toHaveLength(1));
+  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
+  buttonNamed(panel, "Undo")!.click();
+  await vi.waitFor(() => expect(siteSaves(connection)).toHaveLength(2));
+  handlers.idle();
+  await vi.waitFor(() => expect(guidePart(panel, ".detail")).toBe("5.70 × 7.70 m Or click another building."));
 });
 
 test("Draw it myself keeps Draw on and the outline as a snap target for the Building only", async () => {

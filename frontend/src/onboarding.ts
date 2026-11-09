@@ -24,8 +24,10 @@ export interface Plan {
   buildingAtHome: boolean | undefined;
   // The address search was used or closed in this visit.
   searched: boolean;
-  // A building on the map was clicked as the home in this visit, since the last search pick.
-  homeClicked: boolean;
+  // A building on the map is picked as the home in this visit; never stored.
+  picked: boolean;
+  // The map is too far out to pick a building.
+  zoomedOut: boolean;
   // The site has a direction.
   aligned: boolean;
   outlineStored: boolean;
@@ -52,7 +54,7 @@ export interface GuideButton {
 export interface Step {
   kind:
     | "find"
-    | "click-home"
+    | "pick"
     | "choose-floor"
     | "align"
     | "outline-question"
@@ -72,6 +74,7 @@ export interface Step {
 }
 
 const CHOOSE_FLOOR = "Choose a floor to edit its rooms";
+const ZOOM_IN = "Zoom in to your house.";
 
 const unshaped = (floor: PlanFloor) => floor.areas.some((area) => !area.shaped);
 
@@ -87,25 +90,30 @@ const nextFloor = (floors: PlanFloor[], current: Floor): PlanFloor | undefined =
 
 /**
  * Custom. The one step the plan is at, in this order: find the home when Home Assistant has none or
- * the map draws no building there; click the home's building, until one was clicked in this visit (Align
+ * the map draws no building there; pick the home's building, until one is picked in this visit (Align
  * switched on by hand goes ahead); on All, which floor to open; align; check one length after Use
  * outline; the outline, as the map's question or drawn by hand; the active area while it has no shape;
  * the floor done with Next floor; done. An area the user picked to edit, while others wait, says nothing.
+ * While the building is still to be picked or aligned and the map is too far out, the detail says to zoom in.
  */
 export function nextStep(plan: Plan): Step {
   const floor = plan.floor === "all" ? workFloor(plan.floors) : plan.floor;
   if (!plan.aligned && !plan.searched && (!plan.homeKnown || plan.buildingAtHome === false)) return { kind: "find", floor };
-  if (!plan.aligned && !plan.homeClicked && plan.tool !== "align") {
-    return { kind: "click-home", text: "Click your home", detail: "Point at your house and click it.", floor };
+  const zoomIn = plan.zoomedOut ? ZOOM_IN : undefined;
+  if (!plan.aligned && !plan.picked && plan.tool !== "align") {
+    return { kind: "pick", text: "Click your home", detail: zoomIn ?? "Point at a building to light it up, then click it.", floor };
   }
   const done = plan.aligned && plan.outlineStored && !plan.floors.some(unshaped);
   if (plan.floor === "all") return done ? { kind: "done", text: CHOOSE_FLOOR } : { kind: "choose-floor", text: CHOOSE_FLOOR, floor };
-  if (!plan.aligned || plan.tool === "align") {
+  if (plan.tool === "align") {
+    return { kind: "align", text: "Click the front wall of your home", detail: "The view turns so that wall lies flat.", floor };
+  }
+  if (!plan.aligned) {
     return {
       kind: "align",
-      text: "Click the front wall of your home",
-      detail: "The view turns so that wall lies flat.",
-      lit: plan.tool === "align" ? undefined : "align",
+      text: "Press Align, then click the front wall",
+      detail: zoomIn ?? "Wrong building? Click the right one first.",
+      lit: "align",
       floor,
     };
   }
@@ -125,7 +133,7 @@ export function nextStep(plan: Plan): Step {
       return {
         kind: "outline-question",
         text: "Use the map's outline?",
-        detail: plan.outlineOffer,
+        detail: `${plan.outlineOffer} Or click another building.`,
         buttons: [
           { control: "draw-myself", label: "Draw it myself" },
           { control: "use-outline", label: "Use outline" },
