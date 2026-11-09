@@ -5,11 +5,13 @@ import booleanClockwise from "@turf/boolean-clockwise";
 import type { Polygon } from "geojson";
 import { expect, test } from "vitest";
 import {
+  addCorner,
   addToFootprint,
   areaLabel,
   boxChange,
   boxFromCorners,
   centreOf,
+  closesRing,
   edgeLengths,
   isAxisRectangle,
   mapOutline,
@@ -17,6 +19,7 @@ import {
   overallSize,
   resizeChange,
   resizeSide,
+  ringChange,
   type SideHandle,
   sideHandles,
   sideLabels,
@@ -194,6 +197,45 @@ test.each<[string, PlanFrame, number | undefined]>([
   const rectangle = boxFromCorners(frame, [0, 0], [160, 120])!;
   expect(resizeChange(frame, "kitchen", rectangle, 0, lengthM)).toEqual({ refusal: "too_small" });
 });
+test.each<[string, LatticePoint[], LatticePoint, LatticePoint[]]>([
+  ["the first corner starts the ring", [], [0, 0], [[0, 0]]],
+  ["a new corner goes last", [[0, 0]], [40, 0], [[0, 0], [40, 0]]],
+  ["a repeat of the last corner adds nothing", [[0, 0], [40, 0]], [40, 0], [[0, 0], [40, 0]]],
+])("addCorner: %s", (_name, corners, point, expected) => {
+  expect(addCorner(corners, point)).toEqual(expected);
+});
+
+test.each<[string, LatticePoint[], [number, number], boolean]>([
+  ["no corner yet", [], [0, 0], false],
+  ["within the radius of the first corner", [[0, 0], [40, 0], [40, 40]], [2, 2], true],
+  ["beyond the radius of the first corner", [[0, 0], [40, 0], [40, 40]], [3, 3], false],
+  ["on another corner", [[0, 0], [40, 0], [40, 40]], [40, 0], false],
+])("closesRing: %s", (_name, corners, pointer, closes) => {
+  expect(closesRing(corners, pointer, 3)).toBe(closes);
+});
+
+test.each<[string, LatticePoint[]]>([
+  ["counter-clockwise", [[0, 0], [160, 0], [160, 120], [80, 120], [80, 60], [0, 60]]],
+  ["clockwise, turned round", [[0, 0], [0, 60], [80, 60], [80, 120], [160, 120], [160, 0]]],
+])("ringChange saves a %s ring as the area's first shape, counter-clockwise", (_name, corners) => {
+  const result = ringChange(METRIC, "building", corners);
+  if (!("change" in result)) throw new Error("refused");
+  expect(result.change.before).toEqual({ building: null });
+  const shape = result.change.after.building!;
+  expect(booleanClockwise(shape.coordinates[0])).toBe(false);
+  // 4 m by 1.5 m and 2 m by 1.5 m.
+  expect(area(shape)).toBeCloseTo(9, 1);
+});
+
+test.each<[string, LatticePoint[], string]>([
+  ["fewer than three corners", [[0, 0], [160, 0]], "too_few_corners"],
+  ["a side under one grid step", [[0, 0], [160, 0], [160, 120], [2, 120], [0, 120]], "too_small"],
+  ["sides that cross", [[0, 0], [160, 120], [160, 0], [0, 120]], "crossing"],
+  ["a corner on another side", [[0, 0], [160, 0], [160, 120], [80, 0]], "crossing"],
+])("ringChange refuses %s", (_name, corners, refusal) => {
+  expect(ringChange(METRIC, "building", corners)).toEqual({ refusal });
+});
+
 // The building's outer ring in lattice units, then the offered outline's corners, or undefined for no offer.
 test.each<[string, PlanFrame, [number, number][], LatticePoint[] | undefined]>([
   ["a rectangle moves 150 mm in on each side", METRIC, [[0, 0], [400, 0], [400, 320], [0, 320]], [[6, 6], [394, 6], [394, 314], [6, 314]]],

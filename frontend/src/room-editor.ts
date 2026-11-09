@@ -11,10 +11,10 @@ import { type Change, History, type SiteFields, clearChange, startOverChange } f
 import type { LayerColours } from "./map-paint";
 import { byLevel } from "./map-view";
 import type { Plan } from "./onboarding";
-import { type ChangeOrRefusal, boxChange, isAxisRectangle, overallSize } from "./plan";
+import { type ChangeOrRefusal, boxChange, isAxisRectangle, overallSize, ringChange } from "./plan";
 import type { ScreenBox } from "./draft-labels";
 import { type SideControls, showSideControls, showSideLengths } from "./side-controls";
-import type { PlanFrame } from "./site-frame";
+import type { LatticePoint, PlanFrame } from "./site-frame";
 import { snapCandidatesFor } from "./snap";
 import { type HassUnits, formatSize, refusalMessage, saveFailureMessage } from "./units";
 
@@ -97,7 +97,7 @@ export class RoomEditor {
   ) {}
 
   get canUndo() {
-    return !this._saving && this._history.canUndo;
+    return !this._saving && (this._history.canUndo || Boolean(this._interaction?.ringOpen));
   }
 
   get canRedo() {
@@ -168,6 +168,8 @@ export class RoomEditor {
       onResize: (room, resized) => this._saveShape(room, resized),
       onResizing: (resizing) => this._resizing(resizing),
       onPickRoom: (areaId) => this._select(areaId),
+      onRing: (corners, frame) => this._closeRing(corners, frame),
+      onCornersChanged: () => this._host.requestUpdate(),
     });
     window.addEventListener("keydown", this._keys);
     this._showSides();
@@ -335,10 +337,11 @@ export class RoomEditor {
     this._select(firstToDraw(this._order(), this._linked()));
   };
 
-  // An empty history saves nothing, so it must not count as a save that supersedes a failed one.
-  undo = () =>
-    this._history.canUndo &&
-    this._whileSaving(async () => {
+  // An empty history saves nothing, so it must not count as a save that supersedes a failed one. While the
+  // outline's corners are placed, Undo takes back the last one instead.
+  undo = () => {
+    if (this._interaction?.dropCorner() || !this._history.canUndo) return;
+    void this._whileSaving(async () => {
       const change = this._history.undo();
       if (!change) return;
       await this._send(change, "before").catch((err) => {
@@ -346,6 +349,7 @@ export class RoomEditor {
         throw err;
       });
     });
+  };
 
   redo = () =>
     this._history.canRedo &&
@@ -394,6 +398,7 @@ export class RoomEditor {
       floorAreaIds: this._order().map((area) => area.area_id),
       footprints: this._footprints,
       mapGuide: this._mapGuide(),
+      outlineByCorners: this._active === BUILDING && !this._footprints.has(BUILDING),
     };
   }
 
@@ -570,18 +575,33 @@ export class RoomEditor {
 
   private async _finishBox(box: Polygon, frame: PlanFrame) {
     const areaId = this._active;
-    const floor = this._floor;
     const current = this._footprints.get(areaId);
     const drawn = boxChange(frame, areaId, current, box);
     if ("refusal" in drawn) {
       this._host.toast({ message: refusalMessage(drawn.refusal, this._host.units()) });
       return;
     }
-    await this._whileSaving(async () => {
-      await this._apply(drawn.change);
-      // Only a first shape moves on: the next box for a drawn area usually extends it.
-      if (!current && this._floor === floor) this._setActive(firstToDraw(this._order(), this._linked()));
-    }, current ? undefined : box);
+    await this._saveDrawn(drawn.change, current ? undefined : box);
+  }
+
+  // A ring the plan refuses stays open, with the reason as a toast.
+  private _closeRing(corners: readonly LatticePoint[], frame: PlanFrame): boolean {
+    const drawn = ringChange(frame, BUILDING, corners);
+    if ("refusal" in drawn) {
+      this._host.toast({ message: refusalMessage(drawn.refusal, this._host.units()) });
+      return false;
+    }
+    void this._saveDrawn(drawn.change, drawn.change.after[BUILDING] ?? undefined);
+    return true;
+  }
+
+  // Only a first shape moves on: the next box for a drawn area usually extends it.
+  private _saveDrawn(change: Change, first: Polygon | undefined) {
+    const floor = this._floor;
+    return this._whileSaving(async () => {
+      await this._apply(change);
+      if (first && this._floor === floor) this._setActive(firstToDraw(this._order(), this._linked()));
+    }, first);
   }
 
   private _saveShape({ areaId, footprint }: ActiveRoom, changed: Polygon) {

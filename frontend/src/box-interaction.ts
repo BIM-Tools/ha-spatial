@@ -1,18 +1,18 @@
-// Turns mouse input and keys on the map into box drafts, room moves, resizes and room picks, so the room editor only edits and saves.
+// Turns mouse input and keys on the map into box drafts, outline corners, room moves, resizes and room picks, so the room editor only edits and saves.
 
 import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
 import { feature } from "@turf/helpers";
-import type { FeatureCollection, Point, Polygon, Position } from "geojson";
+import type { FeatureCollection, LineString, Point, Polygon, Position } from "geojson";
 import { type GeoJSONSource, Marker, type MapMouseEvent, type Map as MapLibreMap } from "maplibre-gl";
 import { BUILDING } from "./area-strip";
 import { type DraftLabelPlaces, type ScreenBox, placeDraftLabels } from "./draft-labels";
 import { type Pixel, type ResizeTarget, resizeCursor, resizeRectangle, resizeTargetAt } from "./edge-drag";
 import type { LayerColours } from "./map-paint";
 import { mapBearing } from "./map-view";
-import { areaLabel, boxChange, boxFromCorners, centreOf, isAxisRectangle, movePolygon, sideLabels } from "./plan";
+import { addCorner, areaLabel, boxChange, boxFromCorners, centreOf, closesRing, isAxisRectangle, movePolygon, sideLabels } from "./plan";
 import type { Tool } from "./room-editor";
 import type { LatticePoint, PlanFrame } from "./site-frame";
-import { type SnapCandidates, type SnapOptions, type SnapSource, snapCandidatesFor, snapMove, snapPoint } from "./snap";
+import { type SnapCandidates, type SnapOptions, type SnapSource, snapCandidatesFor, snapMove, snapPoint, withOpenRing } from "./snap";
 import { SnapHighlight, snapMarks } from "./snap-highlight";
 import { planPill } from "./styles";
 import type { HassUnits } from "./units";
@@ -37,6 +37,8 @@ export interface EditorSnapshot {
   readonly footprints: ReadonlyMap<string, Polygon>;
   // The map's building while no outline is stored: it snaps after the rooms and the outline, and stops nothing.
   readonly mapGuide: Polygon | undefined;
+  // The Building is active without an outline: Draw places its corners one click at a time instead of boxes.
+  readonly outlineByCorners: boolean;
 }
 
 export interface BoxInteractionCallbacks {
@@ -49,6 +51,10 @@ export interface BoxInteractionCallbacks {
   // the reply is where those controls now sit on screen, so the area label keeps clear of them.
   readonly onResizing: (resizing: { target: ResizeTarget; draft: Polygon } | undefined) => readonly ScreenBox[];
   readonly onPickRoom: (areaId: string) => void;
+  // A click on the first corner closes the ring; false refuses it and keeps the ring open.
+  readonly onRing: (corners: readonly LatticePoint[], frame: PlanFrame) => boolean;
+  // A corner was placed or dropped, so whether Undo drops a corner may have changed.
+  readonly onCornersChanged: () => void;
 }
 
 // A gesture keeps the frame, the snap candidates and the pointer's radius it started with.
@@ -65,6 +71,11 @@ interface Grab extends Snapping {
 
 interface Start extends Snapping {
   corner: LatticePoint;
+}
+
+// The outline's corners placed so far, on the lattice, so a pan or zoom between clicks does not move them.
+interface OpenRing extends Snapping {
+  corners: LatticePoint[];
 }
 
 interface Resize extends Snapping {
@@ -89,6 +100,7 @@ const SNAP_MARK_HALF_PX = 24;
 export class BoxInteraction {
   // A lattice point, so a pan or zoom between the two taps does not move it.
   private _corner?: Start;
+  private _ring?: OpenRing;
   private _press?: Pixel;
   private _pressCorner?: Start;
   private _dragging = false;
@@ -158,6 +170,7 @@ export class BoxInteraction {
   cancel() {
     this._stopHover();
     this._corner = undefined;
+    this._ring = undefined;
     this._press = undefined;
     this._pressCorner = undefined;
     this._dragging = false;
@@ -172,7 +185,7 @@ export class BoxInteraction {
   }
 
   keepShape(shape: Polygon) {
-    if (this._press || this._corner) return;
+    if (this._press || this._corner || this._ring) return;
     this._preview(undefined);
     this._kept = shape;
     this._map.getSource<GeoJSONSource>("spatial-draft")?.setData(feature(shape, { apart: false }));
@@ -218,6 +231,10 @@ export class BoxInteraction {
     return this._toolOnFloor() === "draw";
   }
 
+  private _drawsCorners() {
+    return this._canDraw() && this._callbacks.snapshot().outlineByCorners;
+  }
+
   private _listenToKeys(listen: boolean) {
     if (listen) {
       window.addEventListener("keydown", this._key);
@@ -242,7 +259,9 @@ export class BoxInteraction {
     }
     if (event.key === "Escape" && this._resize) this.cancel();
     if (!this._canDraw()) return;
-    if (event.key === "Escape") this.cancel();
+    // On an open ring Escape takes back the last corner, once per press.
+    if (event.key === "Escape" && !this._ring) this.cancel();
+    if (event.key === "Escape" && event.type === "keydown") this.dropCorner();
     if (event.key !== " ") return;
     // Keeps Space from pressing the focused toolbar button.
     event.preventDefault();
@@ -263,8 +282,8 @@ export class BoxInteraction {
   private _down = (event: MapMouseEvent) => {
     const { saving, siteFrame: frame, activeRoom: room } = this._callbacks.snapshot();
     if (!this._toolOnFloor() || this._spaceHeld || saving || event.originalEvent.button !== 0) return;
-    // Until the first site reply there is no lattice to draw on.
-    if (!frame) return;
+    // Until the first site reply there is no lattice to draw on. Corners are placed by clicks alone.
+    if (!frame || this._drawsCorners()) return;
     const target = this._resizeTarget(event.point);
     if (target && this.startResize(target, event.point, event.originalEvent.altKey)) {
       // Keeps MapLibre from panning the map under the edge.
@@ -335,9 +354,9 @@ export class BoxInteraction {
     this._highlight.clear();
   };
 
-  // Leaving the map ends a hover, not a box, a move or a resize in progress.
+  // Leaving the map ends a hover, not a box, a ring of corners, a move or a resize in progress.
   private _out = () => {
-    if (this._press || this._corner || this._resize) return;
+    if (this._press || this._corner || this._ring || this._resize) return;
     this._stopHover();
     this._highlight.clear();
     this._cursor = "";
@@ -349,9 +368,27 @@ export class BoxInteraction {
     return Boolean(this._resize);
   }
 
-  /** Whether a box is being drawn, or a shape pressed, moved or resized, from its press or first click on. */
+  /** Whether a box or a ring of corners is being drawn, or a shape pressed, moved or resized, from its press or first click on. */
   get gesture() {
-    return Boolean(this._corner || this._press || this._resize);
+    return Boolean(this._corner || this._ring || this._press || this._resize);
+  }
+
+  /** Whether the outline's corners are being placed, so Undo and Escape take back the last one. */
+  get ringOpen() {
+    return Boolean(this._ring);
+  }
+
+  /** Takes back the last corner of an open ring, the ring with its only one; false when no ring is open. */
+  dropCorner(): boolean {
+    const ring = this._ring;
+    if (!ring) return false;
+    const corners = ring.corners.slice(0, -1);
+    this._ring = corners.length ? { ...ring, corners } : undefined;
+    this._highlight.clear();
+    if (this._ring) this._drawRing(this._ring, corners[corners.length - 1]);
+    else this._preview(undefined);
+    this._callbacks.onCornersChanged();
+    return true;
   }
 
   /** What the pointer is on, for the map's cursor: the resize cursor of an edge or corner, and the active shape in Select. */
@@ -452,15 +489,51 @@ export class BoxInteraction {
     this._hoverEvent = undefined;
   }
 
-  // Before the first corner a marker shows where a press would land, and the highlight what it snaps to.
+  // Before the first corner a marker shows where a press would land, and the highlight what it snaps to;
+  // on an open ring the same marker ends the line from the last corner.
   private _hover = () => {
     const event = this._hoverEvent;
     this._hoverEvent = undefined;
     this._hoverFrame = undefined;
     const frame = this._callbacks.snapshot().siteFrame;
-    if (!event || !frame || !this._canDraw() || this.gesture || this._spaceHeld) return;
-    this._cornerAt(event, this._snapping(frame), true);
+    if (!event || !frame || !this._canDraw() || this._spaceHeld) return;
+    const ring = this._ring;
+    if (ring) this._drawRing(ring, this._ringCornerAt(event, ring, true).point);
+    else if (!this.gesture) this._cornerAt(event, this._snapping(frame), true);
   };
+
+  // Where a click on an open ring lands: on its first corner within the snap radius, which closes it;
+  // else snapped as any corner, the placed corners and sides included.
+  private _ringCornerAt(event: MapMouseEvent, ring: OpenRing, marked = false): { point: LatticePoint; closes: boolean } {
+    const snapping = { ...ring, candidates: withOpenRing(ring.candidates, ring.corners) };
+    const pointer = ring.frame.toLatticeUnits(lngLatOf(event));
+    const options = this._options(event.point, event.originalEvent.altKey, snapping);
+    if (!closesRing(ring.corners, pointer, options.radius)) return { point: this._cornerAt(event, snapping, marked), closes: false };
+    const first = ring.corners[0];
+    this._showSnap(snapping, [{ kind: "corner", at: first }], [first], pointer, options, marked ? first : undefined);
+    return { point: first, closes: true };
+  }
+
+  // The placed sides and the line on to `point` as one line; a lone corner as a dot.
+  private _drawRing({ frame, corners }: OpenRing, point: LatticePoint) {
+    const line = addCorner(corners, point).map((corner) => frame.fromLattice(corner));
+    this._preview(line.length > 1 ? { type: "LineString", coordinates: line } : { type: "Point", coordinates: line[0] });
+  }
+
+  private _clickCorner(event: MapMouseEvent, frame: PlanFrame) {
+    const ring = this._ring ?? { ...this._snapping(frame), corners: [] };
+    const { point, closes } = this._ringCornerAt(event, ring);
+    if (closes) {
+      if (!this._callbacks.onRing(ring.corners, ring.frame)) return;
+      this._ring = undefined;
+      this._preview(undefined);
+      this._highlight.clear();
+    } else {
+      this._ring = { ...ring, corners: addCorner(ring.corners, point) };
+      this._drawRing(this._ring, point);
+    }
+    this._callbacks.onCornersChanged();
+  }
 
   private _snapping(frame: PlanFrame, exclude?: string): Snapping {
     const { floorAreaIds, footprints, mapGuide } = this._callbacks.snapshot();
@@ -512,6 +585,11 @@ export class BoxInteraction {
     if (!this._canDraw() || this._spaceHeld || this._callbacks.snapshot().saving) return;
     const start = this._corner;
     this._stopHover();
+    if (this._drawsCorners()) {
+      const frame = this._callbacks.snapshot().siteFrame;
+      if (frame) this._clickCorner(event, frame);
+      return;
+    }
     if (!start) {
       const frame = this._callbacks.snapshot().siteFrame;
       if (!frame) return;
@@ -552,7 +630,7 @@ export class BoxInteraction {
   }
 
   // A resize leaves the side lengths to its side controls.
-  private _preview(draft: Polygon | Point | undefined, frame?: PlanFrame, apart = false, controls?: readonly ScreenBox[]) {
+  private _preview(draft: Polygon | LineString | Point | undefined, frame?: PlanFrame, apart = false, controls?: readonly ScreenBox[]) {
     const map = this._map;
     this._kept = undefined;
     map.getSource<GeoJSONSource>("spatial-draft")?.setData(draft ? feature(draft, { apart }) : EMPTY);

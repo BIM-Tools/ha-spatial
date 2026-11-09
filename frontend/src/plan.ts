@@ -1,4 +1,4 @@
-// Plan geometry for drawing rooms on the site lattice: boxes, side lengths, resizing, moving and joining shapes.
+// Plan geometry for drawing rooms on the site lattice: boxes, rings of corners, side lengths, resizing, moving and joining shapes.
 
 import difference from "@turf/difference";
 import { polygon } from "@turf/helpers";
@@ -343,6 +343,31 @@ export function boxChange(frame: PlanFrame, areaId: string, current: Polygon | u
   const footprint = addToFootprint(frame, current, box);
   if (!footprint) return { refusal: "apart" };
   return { change: footprintChange(areaId, current ?? null, footprint) };
+}
+
+/** The corners of an open ring with `point` added; a repeat of the last corner, as from a double click, adds nothing. */
+export function addCorner(corners: readonly LatticePoint[], point: LatticePoint): LatticePoint[] {
+  const last = corners[corners.length - 1];
+  return last && last[0] === point[0] && last[1] === point[1] ? [...corners] : [...corners, point];
+}
+
+/** Whether a click at `pointer`, in lattice units, lands on the first corner of an open ring, within `radius`. */
+export function closesRing(corners: readonly LatticePoint[], pointer: readonly [number, number], radius: number): boolean {
+  const [first] = corners;
+  return first !== undefined && Math.hypot(pointer[0] - first[0], pointer[1] - first[1]) <= radius;
+}
+
+/**
+ * A ring of clicked corners becomes the area's first shape, counter-clockwise; refused with fewer
+ * than three corners, a side under one grid step, or sides that cross or touch.
+ */
+export function ringChange(frame: PlanFrame, areaId: string, corners: readonly LatticePoint[]): ChangeOrRefusal {
+  if (corners.length < 3) return { refusal: "too_few_corners" };
+  const ring = [...corners];
+  if (ring.some((corner, index) => edgeUnits(corner, ring[(index + 1) % ring.length]) < frame.unitsPerStep)) return { refusal: "too_small" };
+  if (!isSimpleRing(ring)) return { refusal: "crossing" };
+  if (doubleArea(ring) < 0) ring.reverse();
+  return { change: footprintChange(areaId, null, { type: "Polygon", coordinates: [ringToWgs84(frame, ring)] }) };
 }
 
 /** A typed side length resizes the rectangle; an unreadable length or one under a grid step is refused. */

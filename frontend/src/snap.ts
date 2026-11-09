@@ -105,6 +105,15 @@ export function snapCandidatesFor(
 }
 
 /**
+ * The candidates while the outline is drawn by its corners: the corners placed so far and the sides
+ * between them snap in the outline's tier, as the outline is not stored yet.
+ */
+export function withOpenRing(candidates: SnapCandidates, corners: readonly LatticePoint[]): SnapCandidates {
+  const sides = corners.slice(1).map((corner, index): LatticeEdge => [corners[index], corner]);
+  return { ...candidates, outlineCorners: [...candidates.outlineCorners, ...corners], outlineEdges: [...candidates.outlineEdges, ...sides] };
+}
+
+/**
  * The guides across `axis` in tiers, rooms, then the outline, then the map's building: each wall that runs across `axis` and
  * each corner. Walls list first, so on a tie with their own end corner the wall lights up.
  */

@@ -16,7 +16,7 @@ const KEYS: [key: string, does: string][] = [
   ["Space + drag", "Pan"],
   ["Ctrl Z", "Undo"],
   ["Ctrl Shift Z", "Redo"],
-  ["Esc", "Cancel the box"],
+  ["Esc", "Cancel the box, or take back the last outline corner"],
   ["Delete", "Remove the active shape"],
 ];
 

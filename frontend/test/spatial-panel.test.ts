@@ -72,7 +72,7 @@ test("the panel refreshes the map tiles token when the connection is ready again
 
 test("an empty plan opens on No floor with its step, not a separate no-rooms message", async () => {
   const { panel } = mountPanel();
-  await vi.waitFor(() => expect(guideText(panel)).toBe("Draw the outline of your home Click and drag a box; boxes join. Or click another building."));
+  await vi.waitFor(() => expect(guideText(panel)).toBe("Draw the outline of your home Click each corner; click the first corner to finish. Or click another building."));
   expect(buttonNamed(panel, "No floor")!.getAttribute("aria-pressed")).toBe("true");
   expect(panel.shadowRoot!.textContent).not.toContain("No rooms yet");
 });
@@ -693,9 +693,14 @@ test("a unit system change uses the refetched frame", async () => {
     const [lng, lat] = unprojectPixel([x, y]);
     return { point: { x, y }, lngLat: { lng, lat }, originalEvent: { button: 0 }, preventDefault: vi.fn() };
   };
-  handlers.mousedown(mouse(10.3, 0.2));
-  handlers.mousemove(mouse(47.1, 31.7));
-  handlers.mouseup(mouse(47.1, 31.7));
+  for (const [x, y] of [
+    [10.3, 0.2],
+    [47.1, 0.4],
+    [47.1, 31.7],
+    [10.3, 0.2],
+  ]) {
+    handlers.click(mouse(x, y));
+  }
   await vi.waitFor(() => expect(updates(connection)).toHaveLength(1));
   const [{ outline }] = updates(connection) as unknown as [{ outline: { coordinates: number[][][] } }];
   const inches = PlanFrame.fromSite(frame);
