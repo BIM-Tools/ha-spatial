@@ -80,8 +80,6 @@ const MAP_SHOWN_KEY = "spatial-show-map";
 // The whole globe in view, for a home that is not known yet.
 const GLOBE_CENTRE: [number, number] = [0, 20];
 const GLOBE_ZOOM = 1.5;
-// Long enough to read the question and the distance; Home Assistant's default of 3 s is not.
-const HOME_QUESTION_MS = 10000;
 // How closely the middle of a clicked home is found, in degrees: about 0.1 m.
 const HOME_MIDDLE_PRECISION_DEG = 1e-6;
 // A building is read at the point, then from the tiles under it, and once more for one that reaches a third tile.
@@ -650,7 +648,9 @@ class SpatialPanel extends LitElement {
           ? "Use this as Home Assistant's home?"
           : `Move Home Assistant's home here? The home pin is ${formatDistance(question.metres, this.hass!)} away`,
       action: { text: question.kind === "use" ? "Use as home" : "Move", action: () => this._moveHome(to, back) },
-      duration: HOME_QUESTION_MS,
+      // A question waits for its answer: Close means not now, and another pick's question replaces it.
+      duration: -1,
+      dismissable: true,
     });
   }
 
