@@ -5,7 +5,7 @@ import { type PointerState, mapCursor } from "../src/map-cursor";
 const NOTHING: PointerState = { tool: "select", pickable: false, resize: undefined, onShape: false };
 
 test.each<[string, Partial<PointerState>, string]>([
-  ["Select over nothing: default", {}, "default"],
+  ["Select over nothing: MapLibre's own", {}, ""],
   ["Select on the active shape: move", { onShape: true }, "move"],
   ["Select on an edge of the active shape: ew-resize", { onShape: true, resize: "ew-resize" }, "ew-resize"],
   ["Select over a building to pick: pointer", { pickable: true }, "pointer"],

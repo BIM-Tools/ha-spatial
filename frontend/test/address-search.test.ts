@@ -9,6 +9,7 @@ import {
   flyTo,
   guideText,
   handlers,
+  layers,
   mapCreated,
   type Mount,
   mountPanel,
@@ -331,7 +332,8 @@ test("a new search before Align drops the pick", async () => {
   expect(guideText(panel)).toBe(PICK_LINE);
 });
 
-test("the picked building shows dashed after Align until an outline is stored", async () => {
+test("the picked building shows dashed before Align, thin and solid after it, until an outline is stored", async () => {
+  const shownAs = () => layers.filter((layer) => layer.source === "spatial-pick" && layer.layout?.visibility !== "none").map((layer) => layer.id);
   let site: { bearing_deg: number | null; outline?: object } = { bearing_deg: null };
   const { panel, connection } = mountPanel({ homeLocation: {}, site: () => site, reply: searchingAnd([DOMTOREN]) });
   await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
@@ -340,10 +342,12 @@ test("the picked building shows dashed after Align until an outline is stored", 
   buildingsUnderPointer([{ geometry: TOWER }]);
   pointer("click", [5.1214, 52.0907]);
   expect(sources["spatial-pick"].data).toEqual(TOWER);
+  expect(shownAs()).toEqual(["spatial-pick"]);
   site = { bearing_deg: 0 };
   await onUpdateOf(connection)();
   handlers.idle();
   expect(sources["spatial-pick"].data).toEqual(TOWER);
+  expect(shownAs()).toEqual(["spatial-pick-aligned"]);
   site = { bearing_deg: 0, outline: TOWER };
   await onUpdateOf(connection)();
   expect(sources["spatial-pick"].data).toEqual(EMPTY);

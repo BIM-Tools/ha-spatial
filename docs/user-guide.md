@@ -63,7 +63,7 @@ and **Align** is lit, and the next building you click replaces the pick.
 
 The pointer shows what a click does: a hand over a building a click would pick, a crosshair in
 Draw and Align, a move arrow over the selected shape in Select, a resize arrow on its sides, and
-the plain arrow elsewhere.
+the map's open hand elsewhere, to pan.
 
 **Home location.** Once you have aligned on your house (step 1 below), Home Assistant's toast
 offers to make the middle of that building the home location Home Assistant uses for zones and
@@ -96,7 +96,7 @@ nothing is asked. This needs an administrator, like the panel.
    another building.", or "9.80 × 7.60 m overall" for any shape but a rectangle. When the shape
    cannot move inward cleanly (a part narrower than about 30 cm, or walls that would cross),
    nothing is offered and the line says "Draw the outline of your home ... Or click another
-   building.". Until an outline is saved, the picked building stays dashed, buildings light up
+   building.". Until an outline is saved, the picked building stays as a thin line, buildings light up
    under the pointer, and a click picks another one, whose shape and size are then offered. In
    Draw that holds for a click inside another building, away from the picked one and while no
    box is being drawn; any other click starts a box. The site direction stays; for a house

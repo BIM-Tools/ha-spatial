@@ -13,10 +13,13 @@ export interface PointerState {
   onShape: boolean;
 }
 
-/** The CSS cursor for the map: resize on an edge, pointer on a building to pick, crosshair to draw or align, move on a shape. */
+/**
+ * The CSS cursor for the map: resize on an edge, pointer on a building to pick, crosshair to draw or
+ * align, move on a shape; elsewhere "", which leaves MapLibre's own grab and grabbing cursors for a pan.
+ */
 export function mapCursor({ tool, pickable, resize, onShape }: PointerState): string {
   if (resize) return resize;
   if (pickable) return "pointer";
   if (tool !== "select") return "crosshair";
-  return onShape ? "move" : "default";
+  return onShape ? "move" : "";
 }

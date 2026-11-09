@@ -1135,6 +1135,13 @@ class SpatialPanel extends LitElement {
         source: "spatial-pick",
         paint: { ...colours["spatial-pick"], "line-width": 2, "line-dasharray": [2, 1] },
       });
+      // After Align the offered outline or the dotted guide is the dashed line, so the pick turns thin and solid.
+      map.addLayer({
+        id: "spatial-pick-aligned",
+        type: "line",
+        source: "spatial-pick",
+        paint: { ...colours["spatial-pick-aligned"], "line-width": 1 },
+      });
       map.addSource("spatial-place", { type: "geojson", data: EMPTY });
       map.addLayer({
         id: "spatial-place",
@@ -1309,11 +1316,17 @@ class SpatialPanel extends LitElement {
     this._buildingAtHome = Boolean(this._buildingAt(home));
   }
 
-  // Until an outline is stored, the picked building shows dashed; until a building is picked or the site
-  // has a direction, a pin marks the place the address search found.
+  // Until an outline is stored the picked building shows: dashed before Align, thin and solid after it.
+  // Until a building is picked or the site has a direction, a pin marks the place the address search found.
   private _showPick() {
+    const map = this._map;
     const pick = this._state.outline.type === "Polygon" ? undefined : this._pickedBuilding;
-    this._map?.getSource<GeoJSONSource>("spatial-pick")?.setData(pick ?? EMPTY);
+    map?.getSource<GeoJSONSource>("spatial-pick")?.setData(pick ?? EMPTY);
+    if (map?.getLayer("spatial-pick")) {
+      const aligned = this._state.bearing !== null;
+      map.setLayoutProperty("spatial-pick", "visibility", aligned ? "none" : "visible");
+      map.setLayoutProperty("spatial-pick-aligned", "visibility", aligned ? "visible" : "none");
+    }
     const pin = this._state.bearing === null && !this._pickedBuilding ? this._place : undefined;
     this._map?.getSource<GeoJSONSource>("spatial-place")?.setData(pin ? point(pin) : EMPTY);
   }
@@ -1357,7 +1370,6 @@ class SpatialPanel extends LitElement {
     }
     // The clicked wall's building becomes the pick; its outline is offered once the new frame arrives.
     this._pickedBuilding = building;
-    this._showPick();
     const at: Position = [event.lngLat.lng, event.lngLat.lat];
     const fields = alignFields(building, at, this._editor?.hasShapes ?? false);
     // The picked wall lies low in the view with the building above it, its outside facing the viewer.
@@ -1365,6 +1377,7 @@ class SpatialPanel extends LitElement {
     this._map?.easeTo({ bearing: mapBearing(fields.bearing_deg), center: event.lngLat, offset: [0, wallBelowCentre] });
     // Once aligned, the home's building is certain enough to ask about the home.
     this._saveBearing(fields, this._state.bearing ?? null, () => this._offerHome(building));
+    this._showPick();
   }
 
   // A failed save turns the view back. A refusal shows Spatial's reason, as trying again would not
