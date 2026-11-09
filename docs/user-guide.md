@@ -59,14 +59,15 @@ you click, and nothing about the building is stored.
 The building you picked shows dashed and the line says "Press Align, then click the front wall",
 with **Align** lit. Wrong building? Click the right one first; it replaces the pick.
 
-**Home location.** When you click your home, Home Assistant's toast offers to make the middle of
-that building the home location Home Assistant uses for zones and presence: **Use as home** when
-Home Assistant has no home location yet, or **Move** when it lies more than 25 m from it, with
-the distance. The question stays until you answer it or close it (not now), and you can go on
-to Align meanwhile. Each click on another building before Align asks again. On a site that already has a direction,
-the toast comes when you pick a search result instead, once a visit. Only the latitude and
-longitude change; the toast **Home location moved** offers **Undo**. Within 25 m nothing is
-asked. This needs an administrator, like the panel.
+**Home location.** Once you have aligned on your house (step 1 below), Home Assistant's toast
+offers to make the middle of that building the home location Home Assistant uses for zones and
+presence: **Use as home** when Home Assistant has no home location yet, or **Move** when it lies
+more than 25 m from it, with the distance. The question stays until you answer it or close it
+(not now), and you can go on meanwhile. Clicking another building before the outline is stored
+asks again, for that building; a new question replaces an open one. A search result or a click
+before Align asks nothing, as either often lands on the street or the house next door. Only the
+latitude and longitude change; the toast **Home location moved** offers **Undo**. Within 25 m
+nothing is asked. This needs an administrator, like the panel.
 
 1. **Align.** Press **Align**; the line says "Click the front wall of your home". Click your
    house on the map near the wall the rooms follow; the wall under the pointer lights up. The
@@ -283,7 +284,7 @@ a touch screen), and a link to this documentation.
 
 | Control | Does |
 | --- | --- |
-| Find an address | Opens the address search card; picking a result flies the map there and may offer to move the home location |
+| Find an address | Opens the address search card; picking a result flies the map there |
 | Map | Shows or hides the map under the plan; off shows the plan on the page colour. Remembered in this browser |
 | Zoom in, zoom out | Zooms the map |
 | Compass | Turns with the map; a click turns back to the site direction ("Face the house"), or north up before any Align ("Face north") |
