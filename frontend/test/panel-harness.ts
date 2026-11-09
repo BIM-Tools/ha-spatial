@@ -463,6 +463,9 @@ export const toastMessages = () => toasts.map((toast) => toast.message);
 type Updating = Element & { updateComplete?: Promise<boolean> };
 
 /** Waits for the panel and the elements it renders to finish rendering. */
+/** Resolves after the next animation frame, once what the panel read in that frame is shown. */
+export const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
+
 export const settle = async (panel: HTMLElement) => {
   await (panel as Updating).updateComplete;
   for (const element of panel.shadowRoot?.querySelectorAll<Updating>("*") ?? []) await element.updateComplete;

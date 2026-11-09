@@ -209,7 +209,8 @@ Exactly one tool is active; **Select** is the default. The tools work on a floor
   grid last. Near two walls that meet, it lands on both. What it snaps to lights up: a short
   thick line on the wall around the snapped point, a short line on both walls and a dot at a
   corner, else a dot on the corner it lines up with. The active shape's own walls never light
-  up. So rooms drawn
+  up. Before the first corner, a small ring under the pointer shows where a click would put it,
+  with what it snaps to lit up. So rooms drawn
   side by side share their wall and count as adjacent. Walls at other angles do not snap, their
   corners do.
 - **Alt:** hold Alt to place without snapping, on the 2.5 cm (1 in) lattice. Phones always snap.

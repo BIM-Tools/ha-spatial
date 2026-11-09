@@ -8,6 +8,7 @@ import {
   handlers,
   jumpTo,
   liveMarkers,
+  nextFrame,
   toasts,
   onUpdateOf,
   panMap,
@@ -157,10 +158,13 @@ test("rooms on other floors are not candidates, rooms on this floor and the outl
   await startDrawing(panel);
   // Near a corner the two walls that meet there light up, and the corner.
   handlers.mousemove(mouse(203, 2));
+  await nextFrame();
   expect(snapHighlights()).toEqual([]);
   handlers.mousemove(mouse(53, 2));
+  await nextFrame();
   expect(snapHighlights()).toEqual(["LineString", "LineString", "Point"]);
   handlers.mousemove(mouse(103, 102));
+  await nextFrame();
   expect(snapHighlights()).toEqual(["LineString", "LineString", "Point"]);
 });
 

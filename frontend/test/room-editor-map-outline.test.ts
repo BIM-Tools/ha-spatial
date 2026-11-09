@@ -2,7 +2,7 @@
 // Checks the offer to copy the outline from the map's building after Align: the question, Use outline and Draw it myself.
 import type { MultiPolygon, Polygon } from "geojson";
 import { afterEach, expect, test, vi } from "vitest";
-import { buttonNamed, handlers, queryRenderedFeatures, resetFakes, settle, sources } from "./panel-harness";
+import { buttonNamed, handlers, nextFrame, queryRenderedFeatures, resetFakes, settle, sources } from "./panel-harness";
 import { FRAME, chip, mountEditor, mouse, pixelBox, siteSaves, snapHighlights, startDrawing, toolPressed } from "./room-editor-fixture";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
@@ -117,9 +117,11 @@ test("Draw it myself keeps Draw on and the outline as a dotted snap guide for th
   expect(latticeCorners(guideLine() as Polygon)).toEqual([[6, 6], [394, 6], [394, 314], [6, 314], [6, 6]]);
   // 1.5 px right of the guide's left side, which lies 6 lattice units, 1.5 px, in.
   handlers.mousemove(mouse(3, -40));
+  await nextFrame();
   expect(snapHighlights()).toEqual(["LineString"]);
   chip(panel, "Bath").click();
   await settle(panel);
   handlers.mousemove(mouse(3, -40));
+  await nextFrame();
   expect(snapHighlights()).toEqual(["LineString"]);
 });
