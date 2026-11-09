@@ -142,7 +142,7 @@ export function nextStep(plan: Plan): Step {
         floor,
       };
     }
-    return { kind: "draw-outline", text: "Draw the outline of your home", detail: "Click and drag a box; boxes join. Or click another building.", lit: drawLit, floor };
+    return { kind: "draw-outline", text: "Draw the outline of your home", detail: "Click each corner; click the first corner to finish. Or click another building.", lit: drawLit, floor };
   }
   const here = plan.floors.find((entry) => entry.floor === floor) ?? { floor, name: "", areas: [] };
   const active = here.areas.find((area) => area.area_id === plan.active);

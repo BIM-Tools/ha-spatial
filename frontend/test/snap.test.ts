@@ -3,7 +3,7 @@
 import type { Polygon } from "geojson";
 import { expect, test } from "vitest";
 import { PlanFrame, type LatticePoint } from "../src/site-frame";
-import { type LatticeEdge, type SnapSource, candidatesOf, snapCandidatesFor, snapLine, snapMove, snapPoint } from "../src/snap";
+import { type LatticeEdge, type SnapSource, candidatesOf, snapCandidatesFor, snapLine, snapMove, snapPoint, withOpenRing } from "../src/snap";
 import { siteFrameData } from "./site-frame-fixture";
 
 const FRAME = PlanFrame.fromSite(siteFrameData([5, 52], 20));
@@ -235,4 +235,10 @@ test.each<[string, string | undefined, Polygon[], Polygon | undefined, boolean]>
   const floorAreaIds = ["kitchen", "hall", "bath"];
   const expected = candidatesOf(FRAME, rooms, outline);
   expect(snapCandidatesFor(FRAME, floorAreaIds, FOOTPRINTS, "#outline", exclude)).toEqual(roomsStop ? expected : { ...expected, roomRings: [] });
+});
+
+test("withOpenRing lets a corner snap to the corners and sides placed so far, in the outline's tier", () => {
+  const open = withOpenRing(candidatesOf(FRAME, [], undefined), [[0, 0], [40, 0], [40, 40]]);
+  expect(snapPoint([1, 2], open, OPTIONS).point).toEqual([0, 0]);
+  expect(snapPoint([42, 20], open, OPTIONS).point).toEqual([40, 20]);
 });

@@ -121,6 +121,8 @@ test.each<[Refusal, HassUnits, string]>([
   ["apart", METRIC, "A room is one shape: draw against it"],
   ["too_small", METRIC, "Too small: every side needs at least 10 cm"],
   ["too_small", US, "Too small: every side needs at least 4 in"],
+  ["too_few_corners", METRIC, "An outline needs at least three corners"],
+  ["crossing", METRIC, "The outline cannot cross itself"],
 ])("refusalMessage words %s", (refusal, units, message) => {
   expect(refusalMessage(refusal, units)).toBe(message);
 });

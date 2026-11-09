@@ -73,7 +73,7 @@ test.each<[string, Partial<Plan>, object]>([
   [
     "no map building: draw the outline, Draw lit",
     { outlineStored: false, active: BUILDING },
-    { kind: "draw-outline", text: "Draw the outline of your home", detail: "Click and drag a box; boxes join. Or click another building.", lit: "draw" },
+    { kind: "draw-outline", text: "Draw the outline of your home", detail: "Click each corner; click the first corner to finish. Or click another building.", lit: "draw" },
   ],
   ["drawing the outline: Draw on, nothing lit", { outlineStored: false, active: BUILDING, tool: "draw" }, { kind: "draw-outline", lit: undefined }],
   [
