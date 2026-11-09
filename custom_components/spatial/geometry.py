@@ -113,7 +113,8 @@ class SiteFrame:
         """Return the corners of every ring of a GeoJSON Polygon, snapped to the lattice.
 
         Corners that snap onto their predecessor are dropped, so an edge shorter
-        than half a unit disappears.
+        than half a unit disappears, and so are corners that then lie between
+        their neighbours on one straight line (_corners).
         """
         return [
             _corners([self._snap(position) for position in ring]) for ring in polygon["coordinates"]
@@ -247,14 +248,41 @@ def _segments_cross_or_overlap(p1: Point, p2: Point, p3: Point, p4: Point) -> bo
     )
 
 
+def _straight_through(previous: Point, corner: Point, following: Point) -> bool:
+    """Return True if the corner lies between its neighbours on one straight line.
+
+    Custom. The edges into and out of the corner have a cross product of 0 and
+    a positive dot product; a turn back (negative dot product) is not straight.
+    """
+    ux, uy = corner[0] - previous[0], corner[1] - previous[1]
+    wx, wy = following[0] - corner[0], following[1] - corner[1]
+    return ux * wy - uy * wx == 0 and ux * wx + uy * wy > 0
+
+
 def _corners(ring: Sequence[Sequence[float]]) -> Ring:
-    """Return the corners of a closed ring, without repeated positions or the closing one."""
-    corners: Ring = []
+    """Return the corners of a closed ring, without the closing position.
+
+    Custom. Repeated positions are dropped first, then every corner that lies
+    between its neighbours on one straight line (_straight_through), in one pass
+    with a stack, so a run of such corners collapses to its ends, also across the
+    ring start. A turn back stays, for validation to refuse. Exact on whole
+    lattice units. It runs on read: storage keeps the corners as written.
+    """
+    distinct: Ring = []
     for x, y, *_ in ring[:-1]:
-        if not corners or corners[-1] != (x, y):
-            corners.append((x, y))
-    if len(corners) > 1 and corners[0] == corners[-1]:
+        if not distinct or distinct[-1] != (x, y):
+            distinct.append((x, y))
+    if len(distinct) > 1 and distinct[0] == distinct[-1]:
+        distinct.pop()
+    corners: Ring = []
+    for point in distinct:
+        while len(corners) > 1 and _straight_through(corners[-2], corners[-1], point):
+            corners.pop()
+        corners.append(point)
+    while len(corners) > 2 and _straight_through(corners[-2], corners[-1], corners[0]):
         corners.pop()
+    while len(corners) > 2 and _straight_through(corners[-1], corners[0], corners[1]):
+        corners.pop(0)
     return corners
 
 
