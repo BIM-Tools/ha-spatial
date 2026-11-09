@@ -109,9 +109,11 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
   a click zooms in to 18.
 - The map's outline: the panel offers the picked building, or after a reload finds the building a
   grid step inside the site origin once the map is idle, and `mapOutline` in `plan.ts` turns its outer ring into the
-  outline: walls within 3 degrees of a site axis straightened onto it, a mitred inset of 150 mm,
-  corners rounded to the lattice, and no offer when an edge turns around, falls under one grid
-  step or the ring crosses itself. In the length check after Use outline, a shape that is no axis
+  outline: walls within 3 degrees of a site axis straightened onto it, an inset of 150 mm as a
+  negative buffer (the shape minus a band along every edge and a square on every corner, with
+  `@turf/difference`; the largest part stays, parts narrower than 300 mm disappear), corners
+  rounded to the lattice, and no offer when nothing is left, an edge falls under one grid step
+  or the ring touches itself. In the length check after Use outline, a shape that is no axis
   rectangle gets a plain length chip on every side (`showSideLengths` in `side-controls.ts`). While the Building pill
   is active without an outline, the editor shows it dashed with the guide line's question and adds
   it as the outline to the snap candidates of a Building gesture only. Use outline saves it like a
