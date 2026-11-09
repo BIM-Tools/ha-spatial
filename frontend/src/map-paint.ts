@@ -178,6 +178,7 @@ export const layerColours = (paint: MapPaint): LayerColours => ({
   "spatial-draft-point": { "circle-color": paint.primary, "circle-stroke-color": paint.handleFill },
   "spatial-snap-line": { "line-color": paint.primary },
   "spatial-snap-point": { "circle-color": paint.primary, "circle-stroke-color": paint.handleFill },
+  "spatial-snap-marker": { "circle-color": paint.handleFill, "circle-stroke-color": paint.primary },
 });
 
 type PaintArguments = Parameters<MapLibreMap["setPaintProperty"]>;

@@ -1,10 +1,10 @@
 // @vitest-environment happy-dom
 // Checks map pointer, drag and keyboard events that draft boxes, move rooms and pick areas.
 
-import type { Feature, Point, Polygon, Position } from "geojson";
+import type { Feature, FeatureCollection, Point, Polygon, Position } from "geojson";
 import type { Map as MapLibreMap } from "maplibre-gl";
 import { afterEach, expect, test, vi } from "vitest";
-import { EMPTY, fakeMapLibre, handlers, layers, liveMarkers, resetFakes, SITE, sources, unprojectPixel } from "./panel-harness";
+import { EMPTY, fakeMapLibre, handlers, layers, liveMarkers, nextFrame, resetFakes, SITE, sources, unprojectPixel } from "./panel-harness";
 import { FRAME, pixelBox } from "./room-editor-fixture";
 import { siteFrameData } from "./site-frame-fixture";
 import { METRIC_UNITS } from "./units-fixture";
@@ -79,6 +79,12 @@ const highlighted = () =>
     ({ geometry }) => geometry,
   );
 const highlightedTypes = () => highlighted().map(({ type }) => type);
+const marker = () => (sources["spatial-snap-marker"].data as FeatureCollection<Point>).features.map(({ geometry }) => FRAME.toLattice(geometry.coordinates));
+// A hover in Draw snaps on the next animation frame.
+const hoverAt = async (x: number, y: number, altKey = false) => {
+  handlers.mousemove(pointEvent(x, y, 0, altKey));
+  await nextFrame();
+};
 // A point snapped onto a neighbour's corner lights the two walls that meet there, and the corner.
 const CORNER_SNAP = ["LineString", "LineString", "Point"];
 const boxCorners = (box: Polygon, frame = FRAME) => box.coordinates[0].map((corner) => frame.toLattice(corner));
@@ -116,9 +122,9 @@ test("a box corner near an axis edge lands exactly on it, and the edge lights up
   expect(boxCorners(onBox.mock.calls[0][0])).toContainEqual([cornerAt(50, 0)[0], cornerAt(0, 30)[1]]);
 });
 
-test("a wall lights only 24 px either side of the snapped point, up to its end", () => {
+test("a wall lights only 24 px either side of the snapped point, up to its end", async () => {
   mountInteraction("draw", undefined, true, { neighbours: [NEIGHBOUR] });
-  handlers.mousemove(pointEvent(53, 30.2));
+  await hoverAt(53, 30.2);
   const ends = (highlighted()[0].coordinates as unknown as Position[]).map((end) => FRAME.toLatticeUnits(end));
   const expected = [FRAME.toLatticeUnits(unprojectPixel([50, 6], 300)), FRAME.toLatticeUnits(unprojectPixel([50, 50], 300))];
   const sorted = (points: number[][]) => [...points].sort((a, b) => a[1] - b[1] || a[0] - b[0]);
@@ -128,23 +134,32 @@ test("a wall lights only 24 px either side of the snapped point, up to its end",
   });
 });
 
-test("the active room's own walls never light up while drawing next to it", () => {
+test("the active room's own walls never light up while drawing next to it", async () => {
   mountInteraction("draw", { areaId: "0", footprint: NEIGHBOUR }, true, { neighbours: [NEIGHBOUR] });
-  handlers.mousemove(pointEvent(52, 1));
+  await hoverAt(52, 1);
   expect(highlighted()).toEqual([]);
 });
 
-test("the hover in Draw shows the highlight before the first corner", () => {
+test("the hover in Draw marks where the first corner lands and lights what the first click then snaps to", async () => {
   mountInteraction("draw", undefined, true, { neighbours: [NEIGHBOUR] });
-  handlers.mousemove(pointEvent(52, 1));
-  expect(highlightedTypes()).toEqual(CORNER_SNAP);
-  handlers.mousemove(pointEvent(120, 120));
+  await hoverAt(120, 120);
   expect(highlighted()).toEqual([]);
+  expect(marker()).toHaveLength(1);
+  handlers.mouseout();
+  expect(marker()).toEqual([]);
+  await hoverAt(54, 3);
+  expect(highlightedTypes()).toEqual(CORNER_SNAP);
+  expect(marker()).toEqual([cornerAt(50, 0)]);
+  const lit = highlighted();
+  handlers.click(pointEvent(54, 3));
+  expect(FRAME.toLattice((sources["spatial-draft"].data as Feature<Point>).geometry.coordinates)).toEqual(cornerAt(50, 0));
+  expect(highlighted()).toEqual(lit);
+  expect(marker()).toEqual([]);
 });
 
-test("Alt places on the lattice without a highlight", () => {
+test("Alt places on the lattice without a highlight", async () => {
   const { onBox } = mountInteraction("draw", undefined, true, { neighbours: [NEIGHBOUR] });
-  handlers.mousemove(pointEvent(54, 3, 0, true));
+  await hoverAt(54, 3, true);
   expect(highlighted()).toEqual([]);
   handlers.mousedown(pointEvent(54, 3, 0, true));
   handlers.mousemove(pointEvent(140, 90, 0, true));
@@ -193,14 +208,14 @@ test("a moved room snaps its corner to a neighbour's corner", () => {
   expect(highlighted()).toEqual([]);
 });
 
-test("the radius is 12 px on a coarse pointer and 8 px on a fine one", () => {
+test("the radius is 12 px on a coarse pointer and 8 px on a fine one", async () => {
   const query = pointer(false);
   mountInteraction("draw", undefined, true, { neighbours: [NEIGHBOUR] });
-  handlers.mousemove(pointEvent(60, 0));
+  await hoverAt(60, 0);
   expect(highlighted()).toEqual([]);
   query.mockRestore();
   pointer(true);
-  handlers.mousemove(pointEvent(60, 0));
+  await hoverAt(60, 0);
   expect(highlightedTypes()).toEqual(CORNER_SNAP);
   vi.restoreAllMocks();
 });
@@ -233,22 +248,22 @@ test("a site update during a drag keeps the gesture's frame and candidates", () 
   expect(boxCorners(onBox.mock.calls[0][0])).toContainEqual(cornerAt(50, 0));
 });
 
-test("Escape, Space and a tool change clear the highlight", () => {
+test("Escape, Space and a tool change clear the highlight", async () => {
   mountInteraction("draw", undefined, true, { neighbours: [NEIGHBOUR] });
-  const hover = () => {
-    handlers.mousemove(pointEvent(52, 1));
+  const hover = async () => {
+    await hoverAt(52, 1);
     expect(highlightedTypes()).toEqual(CORNER_SNAP);
   };
-  hover();
+  await hover();
   window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
   expect(highlighted()).toEqual([]);
-  hover();
+  await hover();
   window.dispatchEvent(new KeyboardEvent("keydown", { key: " " }));
   expect(highlighted()).toEqual([]);
-  handlers.mousemove(pointEvent(52, 1));
+  await hoverAt(52, 1);
   expect(highlighted()).toEqual([]);
   window.dispatchEvent(new KeyboardEvent("keyup", { key: " " }));
-  hover();
+  await hover();
   mounted!.toolChanged();
   expect(highlighted()).toEqual([]);
 });
