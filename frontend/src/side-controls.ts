@@ -1,4 +1,4 @@
-// Every side of the active rectangle is a handle that stretches it by drag or opens a field to type its length; each length shows once, on a chip.
+// Every side of the active rectangle is a handle that stretches it by drag or opens a field to type its length; each length shows once, on a chip. A copied outline of another shape only shows its lengths.
 
 import { mdiDragVertical } from "@mdi/js";
 import type { Polygon, Position } from "geojson";
@@ -119,6 +119,20 @@ export function showSideControls(
         return { centre: { x: left + width / 2 - mapBox.left, y: top + height / 2 - mapBox.top }, size: { width, height } };
       });
     },
+    remove() {
+      for (const marker of markers) marker.remove();
+    },
+  };
+}
+
+/** A plain length chip on every side of a shape that is no axis rectangle, which nothing can resize. */
+export function showSideLengths(map: MapLibreMap, frame: PlanFrame, footprint: Polygon, units: HassUnits): Pick<SideControls, "remove"> {
+  const markers = sideLabels(frame, footprint, units).map(({ at, text }) => {
+    const chip = Object.assign(document.createElement("span"), { className: "side-length", textContent: text });
+    chip.style.cssText = planPill;
+    return new Marker({ element: chip }).setLngLat(at as [number, number]).addTo(map);
+  });
+  return {
     remove() {
       for (const marker of markers) marker.remove();
     },

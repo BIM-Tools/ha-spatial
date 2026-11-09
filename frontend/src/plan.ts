@@ -7,6 +7,7 @@ import type { Change } from "./history";
 import type { LatticePoint, PlanFrame } from "./site-frame";
 import type { LatticeEdge } from "./snap";
 import { type HassUnits, type Refusal, formatArea, formatLength } from "./units";
+import { onSegment, properlyCross } from "./wall-stop";
 
 type Ring = LatticePoint[];
 
@@ -49,20 +50,112 @@ export function boxFromCorners(frame: PlanFrame, a: LatticePoint, b: LatticePoin
 
 // The map shows the outer face of a building's walls; the outline lies on their axis.
 const MAP_OUTLINE_INSET_M = 0.15;
+// A map wall within 3 degrees of a site axis is taken to lie on it; the rest is noise in the map.
+const STRAIGHTEN_TANGENT = Math.tan((3 * Math.PI) / 180);
+
+type FloatRing = [number, number][];
+
+// The site axis an edge runs along within 3 degrees, 0 for x and 1 for y, or undefined for a diagonal.
+const nearAxisOf = (from: LatticePoint, to: LatticePoint): 0 | 1 | undefined => {
+  const [dx, dy] = [Math.abs(to[0] - from[0]), Math.abs(to[1] - from[1])];
+  if (dy <= dx * STRAIGHTEN_TANGENT) return 0;
+  if (dx <= dy * STRAIGHTEN_TANGENT) return 1;
+  return undefined;
+};
 
 /**
- * Custom. The outline copied from a map building: the bounding rectangle of its outer ring along the
- * site axes, each side moved 150 mm inward and rounded to the lattice. Undefined when a side would be
- * under one grid step.
+ * Custom. Each run of consecutive edges within 3 degrees of the same site axis becomes one straight
+ * line on that axis: its corners take the length-weighted mean of the run's coordinate across the
+ * axis. Only that coordinate moves, so a corner between an x run and a y run takes one from each;
+ * diagonal edges keep their corners, apart from what a neighbouring run moves.
  */
-export function mapOutlineBox(frame: PlanFrame, building: Polygon): Polygon | undefined {
-  const corners = building.coordinates[0].map((corner) => frame.toLatticeUnits(corner));
-  const inset = MAP_OUTLINE_INSET_M / frame.unitM;
-  const inward = (values: number[]) => [Math.round(Math.min(...values) + inset), Math.round(Math.max(...values) - inset)];
-  const [left, right] = inward(corners.map(([x]) => x));
-  const [bottom, top] = inward(corners.map(([, y]) => y));
-  if (right - left < frame.unitsPerStep || top - bottom < frame.unitsPerStep) return undefined;
-  return boxFromCorners(frame, [left, bottom], [right, top]);
+function straighten(corners: FloatRing): FloatRing {
+  const count = corners.length;
+  const axes = corners.map((corner, index) => nearAxisOf(corner, corners[(index + 1) % count]));
+  const result = corners.map(([x, y]): [number, number] => [x, y]);
+  const start = axes.findIndex((axis, index) => axis !== axes[(index + count - 1) % count]);
+  if (start < 0) return result;
+  for (let offset = 0; offset < count; ) {
+    const first = (start + offset) % count;
+    const axis = axes[first];
+    let length = 1;
+    while (offset + length < count && axes[(first + length) % count] === axis) length++;
+    offset += length;
+    if (axis === undefined) continue;
+    const across = axis === 0 ? 1 : 0;
+    let [weighted, total] = [0, 0];
+    for (let step = 0; step < length; step++) {
+      const [from, to] = [corners[(first + step) % count], corners[(first + step + 1) % count]];
+      const edge = edgeUnits(from, to);
+      weighted += (edge * (from[across] + to[across])) / 2;
+      total += edge;
+    }
+    for (let step = 0; step <= length; step++) result[(first + step) % count][across] = weighted / total;
+  }
+  return result;
+}
+
+/**
+ * Custom. A mitred inset of a counter-clockwise ring: each edge moves `distance` to its left, inward,
+ * and each corner goes to where its two moved edges meet. Limits: a very sharp corner moves far, an
+ * edge shorter than about twice the inset turns around, and an edge that doubles back on its neighbour
+ * has no corner (undefined).
+ */
+function insetRing(corners: FloatRing, distance: number): FloatRing | undefined {
+  const count = corners.length;
+  const normals = corners.map((from, index) => {
+    const to = corners[(index + 1) % count];
+    const length = edgeUnits(from, to);
+    return [(from[1] - to[1]) / length, (to[0] - from[0]) / length];
+  });
+  const inset: FloatRing = [];
+  for (const [index, [x, y]] of corners.entries()) {
+    const [before, after] = [normals[(index + count - 1) % count], normals[index]];
+    const meet = 1 + before[0] * after[0] + before[1] * after[1];
+    if (meet < 1e-9) return undefined;
+    const scale = distance / meet;
+    inset.push([x + (before[0] + after[0]) * scale, y + (before[1] + after[1]) * scale]);
+  }
+  return inset;
+}
+
+// No two edges of the ring cross or touch, apart from neighbours at their shared corner.
+function isSimpleRing(corners: Ring): boolean {
+  const edges = corners.map((corner, index): LatticeEdge => [corner, corners[(index + 1) % corners.length]]);
+  return edges.every((edge, i) =>
+    edges.every((other, j) => {
+      if (j <= i) return true;
+      const [[a, b], [c, d]] = [edge, other];
+      if (j === i + 1) return !onSegment(d, edge) && !onSegment(a, other);
+      if (i === 0 && j === edges.length - 1) return !onSegment(c, edge) && !onSegment(b, other);
+      return !properlyCross(edge, other) && ![a, b].some((end) => onSegment(end, other)) && ![c, d].some((end) => onSegment(end, edge));
+    }),
+  );
+}
+
+/**
+ * The outline copied from a map building: the outer ring of its own shape (courtyards dropped), with
+ * walls within 3 degrees of a site axis straightened onto it, moved 150 mm inward and rounded to the
+ * lattice. Undefined when that is no clean ring: an edge turned around against the map's, an edge
+ * under one grid step, or edges that cross or touch.
+ */
+export function mapOutline(frame: PlanFrame, building: Polygon): Polygon | undefined {
+  const corners: FloatRing = building.coordinates[0].slice(0, -1).map((corner) => frame.toLatticeUnits(corner));
+  const distinct = corners.filter((corner, index) => edgeUnits(corner, corners[(index + 1) % corners.length]) > 1e-9);
+  if (distinct.length < 3) return undefined;
+  const source = doubleArea(distinct) > 0 ? distinct : distinct.reverse();
+  const inset = insetRing(straighten(source), MAP_OUTLINE_INSET_M / frame.unitM);
+  if (!inset) return undefined;
+  const outline: Ring = inset.map(([x, y]) => [Math.round(x) + 0, Math.round(y) + 0]);
+  const count = outline.length;
+  const keepsItsEdges = outline.every((from, index) => {
+    const to = outline[(index + 1) % count];
+    const [sourceFrom, sourceTo] = [source[index], source[(index + 1) % count]];
+    const along = (to[0] - from[0]) * (sourceTo[0] - sourceFrom[0]) + (to[1] - from[1]) * (sourceTo[1] - sourceFrom[1]);
+    return along > 0 && edgeUnits(from, to) >= frame.unitsPerStep;
+  });
+  if (!keepsItsEdges || !isSimpleRing(outline)) return undefined;
+  return { type: "Polygon", coordinates: [ringToWgs84(frame, outline)] };
 }
 
 export function sideLabels(
@@ -130,12 +223,24 @@ export function areaLabel(frame: PlanFrame, shape: Polygon, units: HassUnits): s
   return formatArea(squareUnits * frame.unitM * frame.unitM, units);
 }
 
-/** Where the area label goes: the middle of the shape's bounding box on the plan. */
-export function centreOf(frame: PlanFrame, shape: Polygon): Position {
+// The extent of the outer ring along the site axes, in lattice units.
+const latticeBounds = (frame: PlanFrame, shape: Polygon) => {
   const corners = outerCorners(frame, shape);
   const xs = corners.map(([x]) => x);
   const ys = corners.map(([, y]) => y);
-  return frame.fromLattice([(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2]);
+  return { left: Math.min(...xs), bottom: Math.min(...ys), right: Math.max(...xs), top: Math.max(...ys) };
+};
+
+/** Where the area label goes: the middle of the shape's bounding box on the plan. */
+export function centreOf(frame: PlanFrame, shape: Polygon): Position {
+  const { left, bottom, right, top } = latticeBounds(frame, shape);
+  return frame.fromLattice([(left + right) / 2, (bottom + top) / 2]);
+}
+
+/** The width and depth of the shape along the site axes, in metres. */
+export function overallSize(frame: PlanFrame, shape: Polygon): [number, number] {
+  const { left, bottom, right, top } = latticeBounds(frame, shape);
+  return [(right - left) * frame.unitM, (top - bottom) * frame.unitM];
 }
 
 /** One ring of four corners whose edges all run along the site axes. */

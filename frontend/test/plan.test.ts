@@ -12,8 +12,9 @@ import {
   centreOf,
   edgeLengths,
   isAxisRectangle,
-  mapOutlineBox,
+  mapOutline,
   movePolygon,
+  overallSize,
   resizeChange,
   resizeSide,
   type SideHandle,
@@ -133,6 +134,11 @@ test("centreOf is the middle of the box on the plan", () => {
   expect(y).toBeCloseTo(60, 6);
 });
 
+test("overallSize is the extent along the site axes in metres", () => {
+  const ell = shapeOf(METRIC, [[0, 0], [400, 0], [400, 160], [200, 160], [200, 320], [0, 320]]);
+  expect(rounded(overallSize(METRIC, ell))).toEqual([10, 8]);
+});
+
 test("addToFootprint unions touching boxes into one Polygon", () => {
   const neighbour = boxFromCorners(METRIC, [0, 120], [160, 240])!;
   const joined = addToFootprint(METRIC, box, neighbour)!;
@@ -188,20 +194,16 @@ test.each<[string, PlanFrame, number | undefined]>([
   const rectangle = boxFromCorners(frame, [0, 0], [160, 120])!;
   expect(resizeChange(frame, "kitchen", rectangle, 0, lengthM)).toEqual({ refusal: "too_small" });
 });
-// The building's corners in lattice units, then the stored outline's lower left and upper right corner.
-test.each<[string, PlanFrame, [number, number][], [LatticePoint, LatticePoint] | undefined]>([
-  ["an axis rectangle moves 150 mm in on each side", METRIC, [[0, 0], [400, 0], [400, 320], [0, 320]], [[6, 6], [394, 314]]],
-  ["a turned building gives its bounding rectangle", METRIC, [[200, 0], [400, 200], [200, 400], [0, 200]], [[6, 6], [394, 394]]],
-  ["each side rounds to the lattice", METRIC, [[0.3, 0.4], [400.2, 0.4], [400.2, 320.7], [0.3, 320.7]], [[6, 6], [394, 315]]],
-  ["150 mm is about six inches in a US customary frame", INCHES, [[0, 0], [400, 0], [400, 320], [0, 320]], [[6, 6], [394, 314]]],
-  ["a side under one grid step after the inset is refused", METRIC, [[0, 0], [15, 0], [15, 320], [0, 320]], undefined],
-  ["a side the inset turns inside out is refused", METRIC, [[0, 0], [5, 0], [5, 320], [0, 320]], undefined],
-])("mapOutlineBox: %s", (_name, frame, corners, expected) => {
-  const outline = mapOutlineBox(frame, shapeOf(frame, corners));
-  if (!expected) {
-    expect(outline).toBeUndefined();
-    return;
-  }
-  const [[left, bottom], [right, top]] = expected;
-  expect(latticeOf(frame, outline!)[0]).toEqual([[left, bottom], [right, bottom], [right, top], [left, top], [left, bottom]]);
+// The building's outer ring in lattice units, then the offered outline's corners, or undefined for no offer.
+test.each<[string, PlanFrame, [number, number][], LatticePoint[] | undefined]>([
+  ["a rectangle moves 150 mm in on each side", METRIC, [[0, 0], [400, 0], [400, 320], [0, 320]], [[6, 6], [394, 6], [394, 314], [6, 314]]],
+  ["an L keeps its inner corner", METRIC, [[0, 0], [400, 0], [400, 160], [200, 160], [200, 320], [0, 320]], [[6, 6], [394, 6], [394, 154], [194, 154], [194, 314], [6, 314]]],
+  ["a 45 degree wall stays diagonal", METRIC, [[0, 0], [400, 0], [400, 200], [280, 320], [0, 320]], [[6, 6], [394, 6], [394, 198], [278, 314], [6, 314]]],
+  ["walls within 3 degrees of an axis are straightened onto it", METRIC, [[0, 0.5], [200, 1.5], [400, 0], [404, 320], [0, 318]], [[6, 7], [200, 7], [396, 7], [396, 313], [6, 313]]],
+  ["150 mm is about six inches in a US customary frame", INCHES, [[0, 0], [400, 0], [400, 320], [0, 320]], [[6, 6], [394, 6], [394, 314], [6, 314]]],
+  ["a part narrower than the inset on both sides is refused", METRIC, [[0, 0], [400, 0], [400, 320], [208, 320], [208, 400], [200, 400], [200, 320], [0, 320]], undefined],
+  ["a building with sides under one grid step after the inset is refused", METRIC, [[0, 0], [15, 0], [15, 15], [0, 15]], undefined],
+])("mapOutline: %s", (_name, frame, corners, expected) => {
+  const outline = mapOutline(frame, shapeOf(frame, corners));
+  expect(outline && latticeOf(frame, outline)[0]).toEqual(expected && [...expected, expected[0]]);
 });
