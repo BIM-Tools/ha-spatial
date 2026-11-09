@@ -1,5 +1,6 @@
 // Plan geometry for drawing rooms on the site lattice: boxes, side lengths, resizing, moving and joining shapes.
 
+import difference from "@turf/difference";
 import { polygon } from "@turf/helpers";
 import union from "@turf/union";
 import type { Polygon, Position } from "geojson";
@@ -109,28 +110,48 @@ function straighten(corners: FloatRing): FloatRing {
   return result;
 }
 
+const closedRing = (corners: FloatRing): Position[] => [...corners, corners[0]];
+
 /**
- * Custom. A mitred inset of a counter-clockwise ring: each edge moves `distance` to its left, inward,
- * and each corner goes to where its two moved edges meet. Limits: a very sharp corner moves far, an
- * edge shorter than about twice the inset turns around, and an edge that doubles back on its neighbour
- * has no corner (undefined).
+ * The ring moved `distance` inward, as GEOS buffers by a negative distance with square end caps: the
+ * ring minus a band of width twice `distance` centred on every edge and a square of that side, along
+ * the site axes, centred on every corner. Axis corners get an exact mitre, diagonal ones a close
+ * bevel; parts narrower than twice `distance` disappear. Custom only in the construction of the bands
+ * and squares; the boolean difference is polyclip-ts through turf. The largest part by area, without
+ * holes, or undefined when nothing is left.
  */
-function insetRing(corners: FloatRing, distance: number): FloatRing | undefined {
-  const count = corners.length;
-  const normals = corners.map((from, index) => {
-    const to = corners[(index + 1) % count];
+function insetShell(corners: FloatRing, distance: number): FloatRing | undefined {
+  const band = (from: [number, number], to: [number, number]) => {
     const length = edgeUnits(from, to);
-    return [(from[1] - to[1]) / length, (to[0] - from[0]) / length];
+    const [nx, ny] = [((from[1] - to[1]) / length) * distance, ((to[0] - from[0]) / length) * distance];
+    return polygon([closedRing([[from[0] + nx, from[1] + ny], [to[0] + nx, to[1] + ny], [to[0] - nx, to[1] - ny], [from[0] - nx, from[1] - ny]])]);
+  };
+  const square = ([x, y]: [number, number]) =>
+    polygon([closedRing([[x - distance, y - distance], [x + distance, y - distance], [x + distance, y + distance], [x - distance, y + distance]])]);
+  const cuts = corners.flatMap((corner, index) => [band(corner, corners[(index + 1) % corners.length]), square(corner)]);
+  const left = difference({ type: "FeatureCollection", features: [polygon([closedRing(corners)]), ...cuts] })?.geometry;
+  if (!left) return undefined;
+  const shells = (left.type === "Polygon" ? [left.coordinates] : left.coordinates).map((rings) =>
+    rings[0].slice(0, -1).map(([x, y]): [number, number] => [x, y]),
+  );
+  return shells.reduce((largest, shell) => (Math.abs(doubleArea(shell)) > Math.abs(doubleArea(largest)) ? shell : largest));
+}
+
+// Custom. The boolean engine leaves corners a hair apart where cuts meet; on the lattice they fall on one
+// point or on one straight line. Drops a corner equal to the one before it, then a corner the ring
+// runs straight through.
+function withoutSpareCorners(corners: Ring): Ring {
+  const at = <T>(ring: T[], index: number): T => ring[(index + ring.length) % ring.length];
+  const distinct = corners.filter(([x, y], index) => {
+    const [px, py] = at(corners, index - 1);
+    return x !== px || y !== py;
   });
-  const inset: FloatRing = [];
-  for (const [index, [x, y]] of corners.entries()) {
-    const [before, after] = [normals[(index + count - 1) % count], normals[index]];
-    const meet = 1 + before[0] * after[0] + before[1] * after[1];
-    if (meet < 1e-9) return undefined;
-    const scale = distance / meet;
-    inset.push([x + (before[0] + after[0]) * scale, y + (before[1] + after[1]) * scale]);
-  }
-  return inset;
+  return distinct.filter(([x, y], index) => {
+    const [[px, py], [nx, ny]] = [at(distinct, index - 1), at(distinct, index + 1)];
+    const cross = (x - px) * (ny - y) - (y - py) * (nx - x);
+    const along = (x - px) * (nx - x) + (y - py) * (ny - y);
+    return cross !== 0 || along <= 0;
+  });
 }
 
 // No two edges of the ring cross or touch, apart from neighbours at their shared corner.
@@ -150,25 +171,21 @@ function isSimpleRing(corners: Ring): boolean {
 /**
  * The outline copied from a map building: the outer ring of its own shape (courtyards dropped),
  * without edges under one grid step, with walls within 3 degrees of a site axis straightened onto
- * it, moved 150 mm inward and rounded to the lattice. Undefined when that is no clean ring: an edge turned around against the map's, an edge
- * under one grid step, or edges that cross or touch.
+ * it, moved 150 mm inward (its largest part when the inset splits it) and rounded to the lattice.
+ * It may have fewer or more corners than the map's. Undefined when nothing is left, or when the
+ * rounded ring has an edge under one grid step or edges that cross or touch.
  */
 export function mapOutline(frame: PlanFrame, building: Polygon): Polygon | undefined {
   const corners: FloatRing = building.coordinates[0].slice(0, -1).map((corner) => frame.toLatticeUnits(corner));
   const kept = withoutShortEdges(corners, frame.unitsPerStep);
   if (kept.length < 3) return undefined;
-  const source = doubleArea(kept) > 0 ? kept : kept.reverse();
-  const inset = insetRing(straighten(source), MAP_OUTLINE_INSET_M / frame.unitM);
+  const inset = insetShell(straighten(kept), MAP_OUTLINE_INSET_M / frame.unitM);
   if (!inset) return undefined;
-  const outline: Ring = inset.map(([x, y]) => [Math.round(x) + 0, Math.round(y) + 0]);
-  const count = outline.length;
-  const keepsItsEdges = outline.every((from, index) => {
-    const to = outline[(index + 1) % count];
-    const [sourceFrom, sourceTo] = [source[index], source[(index + 1) % count]];
-    const along = (to[0] - from[0]) * (sourceTo[0] - sourceFrom[0]) + (to[1] - from[1]) * (sourceTo[1] - sourceFrom[1]);
-    return along > 0 && edgeUnits(from, to) >= frame.unitsPerStep;
-  });
-  if (!keepsItsEdges || !isSimpleRing(outline)) return undefined;
+  const outline = withoutSpareCorners(inset.map(([x, y]) => [Math.round(x) + 0, Math.round(y) + 0]));
+  if (outline.length < 3) return undefined;
+  const edgesLongEnough = outline.every((from, index) => edgeUnits(from, outline[(index + 1) % outline.length]) >= frame.unitsPerStep);
+  // Rounding to the lattice can bring two parts of the ring together that the inset kept apart.
+  if (!edgesLongEnough || !isSimpleRing(outline)) return undefined;
   return { type: "Polygon", coordinates: [ringToWgs84(frame, outline)] };
 }
 

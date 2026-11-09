@@ -199,12 +199,22 @@ test.each<[string, PlanFrame, [number, number][], LatticePoint[] | undefined]>([
   ["a rectangle moves 150 mm in on each side", METRIC, [[0, 0], [400, 0], [400, 320], [0, 320]], [[6, 6], [394, 6], [394, 314], [6, 314]]],
   ["an L keeps its inner corner", METRIC, [[0, 0], [400, 0], [400, 160], [200, 160], [200, 320], [0, 320]], [[6, 6], [394, 6], [394, 154], [194, 154], [194, 314], [6, 314]]],
   ["a 45 degree wall stays diagonal", METRIC, [[0, 0], [400, 0], [400, 200], [280, 320], [0, 320]], [[6, 6], [394, 6], [394, 198], [278, 314], [6, 314]]],
-  ["walls within 3 degrees of an axis are straightened onto it", METRIC, [[0, 0.5], [200, 1.5], [400, 0], [404, 320], [0, 318]], [[6, 7], [200, 7], [396, 7], [396, 313], [6, 313]]],
-  ["a 5 cm jog in a long wall straightens into one line", METRIC, [[0, 0], [100, 0], [100, 2], [400, 2], [400, 320], [0, 320]], [[6, 7], [100, 7], [394, 7], [394, 314], [6, 314]]],
+  ["walls within 3 degrees of an axis are straightened onto it", METRIC, [[0, 0.5], [200, 1.5], [400, 0], [404, 320], [0, 318]], [[6, 7], [396, 7], [396, 313], [6, 313]]],
+  ["a 5 cm jog in a long wall straightens into one line", METRIC, [[0, 0], [100, 0], [100, 2], [400, 2], [400, 320], [0, 320]], [[6, 7], [394, 7], [394, 314], [6, 314]]],
   ["150 mm is about six inches in a US customary frame", INCHES, [[0, 0], [400, 0], [400, 320], [0, 320]], [[6, 6], [394, 6], [394, 314], [6, 314]]],
-  ["a part narrower than the inset on both sides is refused", METRIC, [[0, 0], [400, 0], [400, 320], [208, 320], [208, 400], [200, 400], [200, 320], [0, 320]], undefined],
+  ["a 20 cm wide part disappears and the main body stays", METRIC, [[0, 0], [400, 0], [400, 320], [208, 320], [208, 400], [200, 400], [200, 320], [0, 320]], [[6, 6], [394, 6], [394, 314], [6, 314]]],
+  ["a 20 cm neck splits the building and the larger part stays", METRIC, [[0, 0], [400, 0], [400, 100], [440, 100], [440, 0], [560, 0], [560, 200], [440, 200], [440, 108], [400, 108], [400, 320], [0, 320]], [[6, 6], [394, 6], [394, 314], [6, 314]]],
   ["a building with sides under one grid step after the inset is refused", METRIC, [[0, 0], [15, 0], [15, 15], [0, 15]], undefined],
+  [
+    "recesses of 40 to 80 cm, a 20 cm pier between two of them and a 45 degree corner",
+    METRIC,
+    [[0, 0], [480, 0], [480, 320], [440, 360], [340, 360], [340, 336], [300, 336], [300, 360], [292, 360], [292, 344], [260, 344], [260, 360], [0, 360], [0, 240], [32, 240], [32, 160], [0, 160]],
+    [[6, 6], [474, 6], [474, 318], [438, 354], [346, 354], [346, 330], [294, 330], [294, 338], [254, 338], [254, 354], [6, 354], [6, 246], [38, 246], [38, 154], [6, 154]],
+  ],
 ])("mapOutline: %s", (_name, frame, corners, expected) => {
   const outline = mapOutline(frame, shapeOf(frame, corners));
-  expect(outline && latticeOf(frame, outline)[0]).toEqual(expected && [...expected, expected[0]]);
+  const ring = outline && latticeOf(frame, outline)[0].slice(0, -1);
+  // The ring may start at any corner; compare it from the expected first one.
+  const start = ring ? ring.findIndex(([x, y]) => x === expected?.[0][0] && y === expected?.[0][1]) : 0;
+  expect(ring && [...ring.slice(start), ...ring.slice(0, start)]).toEqual(expected);
 });
