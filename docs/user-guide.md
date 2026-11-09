@@ -376,7 +376,8 @@ each one means, and the [importer](../tools/README.md) sets floor heights.
 - Align needs a building in the map tiles. A building cut by a tile border gives only the part
   in that tile.
 - The map's outline follows the map's shape: a wall more than 3 degrees off the site direction
-  stays slanted, and a house the map joins to its neighbours is offered with them. On any shape
+  stays slanted, a step in a wall under one grid step (10 cm, 4 in) is straightened away, and a
+  house the map joins to its neighbours is offered with them. On any shape
   but a rectangle its side lengths only show, they cannot be typed. It is offered for the building picked in this visit, else, after leaving and coming back, for
   the building the map shows at the grid origin, which Align on an empty plan puts on the
   clicked wall; with the map hidden it is not offered. The map's buildings are about 0.4 m accurate, so check one length.

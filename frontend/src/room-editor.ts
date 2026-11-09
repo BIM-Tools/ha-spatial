@@ -123,10 +123,11 @@ export class RoomEditor {
    */
   plan(floorName: (floor: string | null) => string): Pick<
     Plan,
-    "outlineStored" | "outlineOffer" | "checkingLength" | "floors" | "tool" | "active"
+    "outlineStored" | "outlineOffer" | "checkingLength" | "outlineIsBox" | "floors" | "tool" | "active"
   > {
     const offered = this._mapOutlineDeclined ? undefined : this._offeredOutline();
     const frame = this._host.siteFrame();
+    const outline = this._footprints.get(BUILDING);
     // Along the site axes; for any shape but a rectangle that is its overall extent.
     const size = offered && frame ? formatSize(...overallSize(frame, offered), this._host.units()) : undefined;
     const overall = offered && frame && !isAxisRectangle(frame, offered) ? " overall" : "";
@@ -139,6 +140,7 @@ export class RoomEditor {
       outlineStored: this._footprints.has(BUILDING),
       outlineOffer: size && `${size}${overall}`,
       checkingLength: this._checkingLength && this._active === BUILDING && this._footprints.has(BUILDING),
+      outlineIsBox: Boolean(outline && frame && isAxisRectangle(frame, outline)),
       floors,
       tool: this.tool,
       active: this._active,

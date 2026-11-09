@@ -64,6 +64,20 @@ const nearAxisOf = (from: LatticePoint, to: LatticePoint): 0 | 1 | undefined => 
 };
 
 /**
+ * Custom. Drops the corner that ends an edge shorter than `shortest`, one at a time until none is
+ * left or fewer than three corners remain, so a jog of map noise or a tile seam between two parallel
+ * walls leaves one wall to straighten. Limit: a real recess under one grid step disappears.
+ */
+function withoutShortEdges(corners: FloatRing, shortest: number): FloatRing {
+  let ring = corners;
+  for (;;) {
+    const short = ring.findIndex((corner, index) => edgeUnits(corner, ring[(index + 1) % ring.length]) < shortest);
+    if (short < 0 || ring.length < 3) return ring;
+    ring = ring.filter((_, index) => index !== (short + 1) % ring.length);
+  }
+}
+
+/**
  * Custom. Each run of consecutive edges within 3 degrees of the same site axis becomes one straight
  * line on that axis: its corners take the length-weighted mean of the run's coordinate across the
  * axis. Only that coordinate moves, so a corner between an x run and a y run takes one from each;
@@ -134,16 +148,16 @@ function isSimpleRing(corners: Ring): boolean {
 }
 
 /**
- * The outline copied from a map building: the outer ring of its own shape (courtyards dropped), with
- * walls within 3 degrees of a site axis straightened onto it, moved 150 mm inward and rounded to the
- * lattice. Undefined when that is no clean ring: an edge turned around against the map's, an edge
+ * The outline copied from a map building: the outer ring of its own shape (courtyards dropped),
+ * without edges under one grid step, with walls within 3 degrees of a site axis straightened onto
+ * it, moved 150 mm inward and rounded to the lattice. Undefined when that is no clean ring: an edge turned around against the map's, an edge
  * under one grid step, or edges that cross or touch.
  */
 export function mapOutline(frame: PlanFrame, building: Polygon): Polygon | undefined {
   const corners: FloatRing = building.coordinates[0].slice(0, -1).map((corner) => frame.toLatticeUnits(corner));
-  const distinct = corners.filter((corner, index) => edgeUnits(corner, corners[(index + 1) % corners.length]) > 1e-9);
-  if (distinct.length < 3) return undefined;
-  const source = doubleArea(distinct) > 0 ? distinct : distinct.reverse();
+  const kept = withoutShortEdges(corners, frame.unitsPerStep);
+  if (kept.length < 3) return undefined;
+  const source = doubleArea(kept) > 0 ? kept : kept.reverse();
   const inset = insetRing(straighten(source), MAP_OUTLINE_INSET_M / frame.unitM);
   if (!inset) return undefined;
   const outline: Ring = inset.map(([x, y]) => [Math.round(x) + 0, Math.round(y) + 0]);
