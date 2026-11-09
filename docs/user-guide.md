@@ -56,7 +56,8 @@ Nothing goes on until you click. A click beside any building says "No building h
 **Home location.** When you click your home, Home Assistant's toast offers to make the middle of
 that building the home location Home Assistant uses for zones and presence: **Use as home** when
 Home Assistant has no home location yet, or **Move** when it lies more than 25 m from it, with
-the distance. Each click on another building asks again. On a site that already has a direction,
+the distance. The question stays until you answer it or close it (not now), and you can go on
+to Align meanwhile. Each click on another building asks again. On a site that already has a direction,
 the toast comes when you pick a search result instead, once a visit. Only the latitude and
 longitude change; the toast **Home location moved** offers **Undo**. Within 25 m nothing is
 asked. This needs an administrator, like the panel.

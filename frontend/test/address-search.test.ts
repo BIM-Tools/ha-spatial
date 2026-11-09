@@ -253,6 +253,16 @@ test("without a home location, a picked place offers Use as home", async () => {
   await vi.waitFor(() => expect(homeWrites(connection)).toEqual([{ type: "config/core/update", latitude: 52.0907, longitude: 5.1214 }]));
 });
 
+test.each([
+  ["Move", {}],
+  ["Use as home", { homeLocation: {} }],
+])("the %s question stays until it is answered or dismissed", async (_, home) => {
+  const { panel } = await openSearch(searchingAnd([DOMTOREN]), home);
+  await searchAndPick(panel);
+  expect(toasts).toHaveLength(1);
+  expect(toasts[0]).toMatchObject({ duration: -1, dismissable: true });
+});
+
 // The map tiles' building around the Domtoren point.
 const TOWER = { type: "Polygon", coordinates: [[[5.121, 52.0903], [5.1218, 52.0903], [5.1218, 52.0911], [5.121, 52.0911], [5.121, 52.0903]]] };
 const toolPressed = (panel: HTMLElement, name: string) => buttonNamed(panel, name)?.getAttribute("aria-pressed");
