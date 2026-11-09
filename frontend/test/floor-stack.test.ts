@@ -4,7 +4,6 @@ import { expect, test } from "vitest";
 import {
   FIT_MARGIN,
   SLAB_SPACING_M,
-  SLAB_THICKNESS_M,
   type StackPoint,
   type StackScreen,
   fitStack,
@@ -73,7 +72,6 @@ const heights = (rooms: Feature<Polygon>[], outline: Polygon | undefined, floors
     .map((feature) => [feature.properties!.kind, feature.properties!.base_m, feature.properties!.top_m]);
 
 const upper = SLAB_SPACING_M;
-const thick = SLAB_THICKNESS_M;
 
 test.each([
   {
@@ -81,12 +79,10 @@ test.each([
     rooms: [room(rectangle(0, 0, 4, 4), "ground"), room(rectangle(0, 0, 4, 4), "first")],
     outline: rectangle(0, 0, 8, 6),
     expected: [
-      ["shadow", -0.05, 0],
-      ["slab", 0, thick],
-      ["shadow", upper - 0.05, upper],
-      ["slab", upper, upper + thick],
-      ["room", thick, thick + 0.02],
-      ["room", upper + thick, upper + thick + 0.02],
+      ["slab", 0, 0],
+      ["slab", upper, upper],
+      ["room", 0, 0.02],
+      ["room", upper, upper + 0.02],
     ],
   },
   {
@@ -94,9 +90,8 @@ test.each([
     rooms: [room(rectangle(0, 0, 4, 4), "ground")],
     outline: undefined,
     expected: [
-      ["shadow", -0.05, 0],
-      ["slab", 0, thick],
-      ["room", thick, thick + 0.02],
+      ["slab", 0, 0],
+      ["room", 0, 0.02],
     ],
   },
   {
@@ -104,12 +99,10 @@ test.each([
     rooms: [room(rectangle(0, 0, 4, 4), "ground", ["ground", "first"])],
     outline: undefined,
     expected: [
-      ["shadow", -0.05, 0],
-      ["slab", 0, thick],
-      ["shadow", upper - 0.05, upper],
-      ["slab", upper, upper + thick],
-      ["room", thick, thick + 0.02],
-      ["room", upper + thick, upper + thick + 0.02],
+      ["slab", 0, 0],
+      ["slab", upper, upper],
+      ["room", 0, 0.02],
+      ["room", upper, upper + 0.02],
     ],
   },
   {
@@ -133,9 +126,9 @@ test("floorStack gives each slab its room count and top corners, and frames ever
   const stack = floorStack(rooms, rectangle(0, 0, 8, 6), ["ground", "first"], FRAME, PIXEL_M);
   expect(stack.slabs.map((slab) => [slab.floorId, slab.rooms])).toEqual([["ground", 2], ["first", 1]]);
   const top = stack.slabs[0].top.map(([x, y, z]) => [millimetres(x), millimetres(y), z]);
-  expect(top.slice(0, 4)).toEqual([[0, 0, thick], [8, 0, thick], [8, 6, thick], [0, 6, thick]]);
+  expect(top.slice(0, 4)).toEqual([[0, 0, 0], [8, 0, 0], [8, 6, 0], [0, 6, 0]]);
   const zs = new Set(stack.corners.map(([, , z]) => millimetres(z)));
-  expect([...zs]).toEqual([0, thick, upper, upper + thick].map(millimetres));
+  expect([...zs]).toEqual([0, upper].map(millimetres));
 });
 
 // The across-edge width of a strip in metres: the narrower side of its box in the frame.
@@ -147,8 +140,8 @@ const stripWidth = (strip: Polygon) => {
 };
 
 test.each([
-  { kind: "slab-edge", pixels: SLAB_EDGE_PX, base: 0, top: thick, count: 4 },
-  { kind: "edge", pixels: ROOM_EDGE_PX, base: thick, top: thick + 0.04, count: 4 },
+  { kind: "slab-edge", pixels: SLAB_EDGE_PX, base: 0, top: 0.01, count: 4 },
+  { kind: "edge", pixels: ROOM_EDGE_PX, base: 0, top: 0.04, count: 4 },
 ])("floorStack draws $kind as $count lines $pixels pixels wide", ({ kind, pixels, base, top, count }) => {
   const stack = floorStack([room(rectangle(0, 0, 4, 3), "ground")], rectangle(0, 0, 8, 6), ["ground"], FRAME, PIXEL_M);
   const edges = stack.features.features.filter((feature) => feature.properties!.kind === kind);
