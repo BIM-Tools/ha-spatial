@@ -106,6 +106,9 @@ export class BoxInteraction {
   private _cursor = "";
   // The pointer is on the active shape in Select, where a press grabs it.
   private _onShape = false;
+  // The latest pointer of a hover in Draw, read once per animation frame.
+  private _hoverEvent?: MapMouseEvent;
+  private _hoverFrame?: number;
 
   constructor(
     private readonly _map: MapLibreMap,
@@ -153,6 +156,7 @@ export class BoxInteraction {
   }
 
   cancel() {
+    this._stopHover();
     this._corner = undefined;
     this._press = undefined;
     this._pressCorner = undefined;
@@ -272,6 +276,7 @@ export class BoxInteraction {
     if (!grabbed && !this._canDraw()) return;
     // A moved shape does not snap to itself.
     const snapping = this._snapping(frame, grabbed?.areaId);
+    this._stopHover();
     this._grab = grabbed && { ...snapping, room: grabbed, from: at };
     this._press = event.point;
     this._pressCorner = { ...snapping, corner: this._cornerAt(event, snapping) };
@@ -308,7 +313,7 @@ export class BoxInteraction {
     }
     const start = this._dragging ? this._pressCorner : this._corner;
     if (start) this._draft(start, this._cornerAt(event, start));
-    else if (!press && !this._spaceHeld) this._hover(event);
+    else if (!press && !this._spaceHeld) this._scheduleHover(event);
   };
 
   private _up = (event: MapMouseEvent) => {
@@ -333,6 +338,7 @@ export class BoxInteraction {
   // Leaving the map ends a hover, not a box, a move or a resize in progress.
   private _out = () => {
     if (this._press || this._corner || this._resize) return;
+    this._stopHover();
     this._highlight.clear();
     this._cursor = "";
     this._onShape = false;
@@ -433,11 +439,28 @@ export class BoxInteraction {
     return resizeCursor(target, corners);
   }
 
-  // Before the first corner the highlight shows where a press would land.
-  private _hover(event: MapMouseEvent) {
-    const frame = this._callbacks.snapshot().siteFrame;
-    if (frame) this._cornerAt(event, this._snapping(frame));
+  // Each snap reads every footprint, so a hover snaps at most once per animation frame, at its latest pointer.
+  private _scheduleHover(event: MapMouseEvent) {
+    const scheduled = this._hoverEvent !== undefined;
+    this._hoverEvent = event;
+    if (!scheduled) this._hoverFrame = requestAnimationFrame(this._hover);
   }
+
+  private _stopHover() {
+    if (this._hoverFrame !== undefined) cancelAnimationFrame(this._hoverFrame);
+    this._hoverFrame = undefined;
+    this._hoverEvent = undefined;
+  }
+
+  // Before the first corner a marker shows where a press would land, and the highlight what it snaps to.
+  private _hover = () => {
+    const event = this._hoverEvent;
+    this._hoverEvent = undefined;
+    this._hoverFrame = undefined;
+    const frame = this._callbacks.snapshot().siteFrame;
+    if (!event || !frame || !this._canDraw() || this.gesture || this._spaceHeld) return;
+    this._cornerAt(event, this._snapping(frame), true);
+  };
 
   private _snapping(frame: PlanFrame, exclude?: string): Snapping {
     const { floorAreaIds, footprints, mapGuide } = this._callbacks.snapshot();
@@ -455,11 +478,11 @@ export class BoxInteraction {
     return { radius, gridUnits: frame.unitsPerStep, free };
   }
 
-  private _cornerAt(event: MapMouseEvent, snapping: Snapping): LatticePoint {
+  private _cornerAt(event: MapMouseEvent, snapping: Snapping, marked = false): LatticePoint {
     const pointer = snapping.frame.toLatticeUnits(lngLatOf(event));
     const options = this._options(event.point, event.originalEvent.altKey, snapping);
     const { point, sources } = snapPoint(pointer, snapping.candidates, options);
-    this._showSnap(snapping, sources, [point], pointer, options);
+    this._showSnap(snapping, sources, [point], pointer, options, marked ? point : undefined);
     return point;
   }
 
@@ -471,9 +494,10 @@ export class BoxInteraction {
     points: readonly LatticePoint[],
     pointer: readonly [number, number],
     { radius }: SnapOptions,
+    marker?: LatticePoint,
   ) {
     const own = this._callbacks.snapshot().activeRoom?.footprint.coordinates.map((ring) => ring.slice(0, -1).map((corner) => frame.toLattice(corner)));
-    this._highlight.show(frame, snapMarks(sources, points, pointer, (radius * SNAP_MARK_HALF_PX) / radiusPx, own));
+    this._highlight.show(frame, snapMarks(sources, points, pointer, (radius * SNAP_MARK_HALF_PX) / radiusPx, own), marker);
   }
 
   // MapLibre fires `click` for a tap too, so two taps draw a box on a phone. A click the panel used to
@@ -487,6 +511,7 @@ export class BoxInteraction {
     }
     if (!this._canDraw() || this._spaceHeld || this._callbacks.snapshot().saving) return;
     const start = this._corner;
+    this._stopHover();
     if (!start) {
       const frame = this._callbacks.snapshot().siteFrame;
       if (!frame) return;
