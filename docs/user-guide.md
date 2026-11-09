@@ -86,9 +86,11 @@ nothing is asked. This needs an administrator, like the panel.
    face of the walls, the outline is their axis), with walls within 3 degrees of the site
    direction straightened onto it and diagonal walls kept. The line at the top asks "Use the
    map's outline?" with its size along the site direction, for example "9.80 × 7.60 m Or click
-   another building.", or "9.80 × 7.60 m overall" for any shape but a rectangle. When the shape
-   cannot move inward cleanly (a part narrower than about 30 cm, or walls that would cross),
-   nothing is offered and the line says "Draw the outline of your home". In Select, buildings
+   another building.", or "9.80 × 7.60 m overall" for any shape but a rectangle. A part
+   narrower than about 30 cm disappears when the shape moves inward; when that splits the
+   building, the largest piece is offered. Only when nothing usable is left (a building under
+   about 40 cm across, or a side shorter than 10 cm), nothing is offered and the line says
+   "Draw the outline of your home". In Select, buildings
    light up under the pointer again, and a click picks another one, whose shape and size are then
    offered. The site direction stays; for a house
    at another angle use **Change alignment**.
