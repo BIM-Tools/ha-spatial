@@ -11,11 +11,12 @@ export type StackPoint = [number, number, number];
 
 /** From one slab to the next: a little more than a storey, so each floor shows between the ones above and below it. */
 export const SLAB_SPACING_M = 3.2;
-// The slab is a flat sheet with no height; its edge, the rooms' fill and their edges lie a hair
-// above it and each other, so the depth test never has to choose between two equal heights.
-const SLAB_EDGE_M = 0.01;
-const ROOM_FILL_M = 0.02;
-const EDGE_HEIGHT_M = 0.04;
+// The slab is a flat sheet with no height; its edge, the rooms' fill and their edges rise above it
+// and each other by a share of a screen pixel, so the depth test never has to choose between two
+// equal heights, while no side face grows to a visible band at any zoom.
+const SLAB_EDGE_RAISE_PX = 0.3;
+const ROOM_FILL_RAISE_PX = 0.6;
+const ROOM_EDGE_RAISE_PX = 0.9;
 /** On-screen widths of the slab's edge and of the rooms' edges, in pixels. */
 export const SLAB_EDGE_PX = 1.5;
 export const ROOM_EDGE_PX = 1.2;
@@ -109,7 +110,7 @@ export const edgeStrips = (polygon: Polygon, frame: PlanFrame, widthM: number): 
  * The stack: a slab per floor in `floors`, under the building outline or, without one, under that
  * floor's rooms, with its edge; each room as a fill with its edge on every slab it occupies. Rooms
  * on No floor lie on the ground without a slab. `pixelM` is the size of a screen pixel in metres,
- * which keeps the edges thin lines.
+ * which keeps the edges thin lines and every raise above a slab below a pixel.
  */
 export const floorStack = (
   rooms: Feature<Polygon>[],
@@ -136,7 +137,7 @@ export const floorStack = (
     const topCorners: StackPoint[] = [];
     for (const footprint of footprints) {
       add("slab", footprint, base, base);
-      for (const strip of edgeStrips(footprint, frame, SLAB_EDGE_PX * pixelM)) add("slab-edge", strip, base, base + SLAB_EDGE_M);
+      for (const strip of edgeStrips(footprint, frame, SLAB_EDGE_PX * pixelM)) add("slab-edge", strip, base, base + SLAB_EDGE_RAISE_PX * pixelM);
       addCorners(footprint, [base]);
       for (const position of footprint.coordinates[0]) topCorners.push([...toMetres(frame, position), base]);
     }
@@ -147,9 +148,9 @@ export const floorStack = (
     for (const floorId of floorsOf(room)) {
       const index = floorId === null ? -1 : floors.indexOf(floorId);
       const floorTop = index < 0 ? 0 : slabBase(index);
-      add("room", room.geometry, floorTop, floorTop + ROOM_FILL_M);
+      add("room", room.geometry, floorTop, floorTop + ROOM_FILL_RAISE_PX * pixelM);
       for (const strip of edgeStrips(room.geometry, frame, ROOM_EDGE_PX * pixelM)) {
-        add("edge", strip, floorTop, floorTop + EDGE_HEIGHT_M);
+        add("edge", strip, floorTop, floorTop + ROOM_EDGE_RAISE_PX * pixelM);
       }
       addCorners(room.geometry, [floorTop]);
     }
