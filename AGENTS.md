@@ -61,7 +61,7 @@ Change these only through an issue that names the reason.
 | Site anchor | One direction per installation; the centre follows all footprints, else the outline; aligns views only, so stored geometry never moves with it, except through the explicit, confirmed and undoable "Change alignment" (rotation reduced to a right angle, then snapped to the grid, in one write) |
 | Site grid | Stored as written in WGS84, read on a lattice of a quarter drawing grid step (2.5 cm or 1 in, from Home Assistant's unit system) in the frame of the site origin and bearing; drawing snaps to 10 cm (4 in); the integration publishes the frame in `spatial/site` and the panel draws in it; the first Align on an empty plan sets the origin to the left end of the picked wall |
 | Dependencies | Pure Python in the integration; no shapely or other compiled packages |
-| Finding the building | OSM buildings in Home Assistant's map tiles set the axis, act as an unstored snap guide while the outline is drawn, and can be copied once as the outline on an explicit choice (its own shape: walls within 3 degrees of a site axis straightened onto it, 150 mm inward, on the lattice; diagonal walls stay); nothing about the map building is stored |
+| Finding the building | OSM buildings in Home Assistant's map tiles set the axis, act as an unstored snap guide while the outline is drawn, and can be copied once as the outline on an explicit choice (its own shape: walls within 3 degrees of a site axis, or at most one map tile unit across it, straightened onto it, 150 mm inward, on the lattice; diagonal walls stay); nothing about the map building is stored |
 | Frontend packages | Packages shared with Home Assistant's frontend use the exact version that frontend ships |
 | Domain | `spatial` |
 

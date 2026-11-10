@@ -242,6 +242,14 @@ test.each<[string, PlanFrame, [number, number][], LatticePoint[] | undefined]>([
   ["an L keeps its inner corner", METRIC, [[0, 0], [400, 0], [400, 160], [200, 160], [200, 320], [0, 320]], [[6, 6], [394, 6], [394, 154], [194, 154], [194, 314], [6, 314]]],
   ["a 45 degree wall stays diagonal", METRIC, [[0, 0], [400, 0], [400, 200], [280, 320], [0, 320]], [[6, 6], [394, 6], [394, 198], [278, 314], [6, 314]]],
   ["walls within 3 degrees of an axis are straightened onto it", METRIC, [[0, 0.5], [200, 1.5], [400, 0], [404, 320], [0, 318]], [[6, 7], [396, 7], [396, 313], [6, 313]]],
+  // One map tile unit is about 0.37 m (14.7 lattice units) at 52 degrees north.
+  [
+    "a stair step of one map tile unit and a short wall 5 degrees off are straightened onto the axes",
+    METRIC,
+    [[0, 0], [150, 0], [250, 14], [400, 14], [400, 320], [240, 320], [160, 327], [0, 327]],
+    [[6, 13], [394, 13], [394, 317], [6, 317]],
+  ],
+  ["a wall a little over one map tile unit across, 5 degrees off over 4 m, stays diagonal", METRIC, [[0, 0], [400, 0], [415, 160], [415, 320], [0, 320]], [[6, 6], [395, 6], [409, 160], [409, 314], [6, 314]]],
   ["a 5 cm jog in a long wall straightens into one line", METRIC, [[0, 0], [100, 0], [100, 2], [400, 2], [400, 320], [0, 320]], [[6, 7], [394, 7], [394, 314], [6, 314]]],
   ["150 mm is about six inches in a US customary frame", INCHES, [[0, 0], [400, 0], [400, 320], [0, 320]], [[6, 6], [394, 6], [394, 314], [6, 314]]],
   ["a 20 cm wide part disappears and the main body stays", METRIC, [[0, 0], [400, 0], [400, 320], [208, 320], [208, 400], [200, 400], [200, 320], [0, 320]], [[6, 6], [394, 6], [394, 314], [6, 314]]],
