@@ -1027,7 +1027,7 @@ class SpatialPanel extends LitElement {
     return mapBearing(this._state.axisDeg + (this._state.floor === "all" ? VIEW_TURN_DEG : 0));
   }
 
-  // The edges are drawn as strips a pixel or so wide at this zoom, so they are built again after a zoom.
+  // The edges are strips a pixel or so wide and every raise above a slab is under a pixel at this zoom, so they are built again after a zoom.
   private _buildStack(zoom = this._map?.getZoom() ?? START_ZOOM) {
     const frame = this._state.frame;
     if (!frame) return;
