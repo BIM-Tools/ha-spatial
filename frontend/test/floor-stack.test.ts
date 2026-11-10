@@ -61,15 +61,15 @@ test.each([
   expect(slabBase(index)).toBeCloseTo(base, 9);
 });
 
-type Heights = [kind: string, base: number, top: number][];
+type Bases = [kind: string, base: number][];
 
 // A screen pixel of 1 cm.
 const PIXEL_M = 0.01;
 
-const heights = (rooms: Feature<Polygon>[], outline: Polygon | undefined, floors: string[]): Heights =>
+const bases = (rooms: Feature<Polygon>[], outline: Polygon | undefined, floors: string[]): Bases =>
   floorStack(rooms, outline, floors, FRAME, PIXEL_M)
     .features.features.filter((feature) => !feature.properties!.kind.endsWith("edge"))
-    .map((feature) => [feature.properties!.kind, feature.properties!.base_m, feature.properties!.top_m]);
+    .map((feature) => [feature.properties!.kind, feature.properties!.base_m]);
 
 const upper = SLAB_SPACING_M;
 
@@ -79,10 +79,10 @@ test.each([
     rooms: [room(rectangle(0, 0, 4, 4), "ground"), room(rectangle(0, 0, 4, 4), "first")],
     outline: rectangle(0, 0, 8, 6),
     expected: [
-      ["slab", 0, 0],
-      ["slab", upper, upper],
-      ["room", 0, 0.02],
-      ["room", upper, upper + 0.02],
+      ["slab", 0],
+      ["slab", upper],
+      ["room", 0],
+      ["room", upper],
     ],
   },
   {
@@ -90,8 +90,8 @@ test.each([
     rooms: [room(rectangle(0, 0, 4, 4), "ground")],
     outline: undefined,
     expected: [
-      ["slab", 0, 0],
-      ["room", 0, 0.02],
+      ["slab", 0],
+      ["room", 0],
     ],
   },
   {
@@ -99,27 +99,42 @@ test.each([
     rooms: [room(rectangle(0, 0, 4, 4), "ground", ["ground", "first"])],
     outline: undefined,
     expected: [
-      ["slab", 0, 0],
-      ["slab", upper, upper],
-      ["room", 0, 0.02],
-      ["room", upper, upper + 0.02],
+      ["slab", 0],
+      ["slab", upper],
+      ["room", 0],
+      ["room", upper],
     ],
   },
   {
     name: "a room on No floor lies on the ground without a slab",
     rooms: [room(rectangle(10, 0, 12, 2), null)],
     outline: undefined,
-    expected: [["room", 0, 0.02]],
+    expected: [["room", 0]],
   },
 ])("floorStack: $name", ({ rooms, outline, expected }) => {
   const floors = stackFloors(rooms, levelOf);
-  const actual = heights(rooms, outline, floors);
+  const actual = bases(rooms, outline, floors);
   expect(actual.map(([kind]) => kind)).toEqual(expected.map(([kind]) => kind));
-  actual.forEach(([, base, top], index) => {
-    expect(base).toBeCloseTo(expected[index][1] as number, 9);
-    expect(top).toBeCloseTo(expected[index][2] as number, 9);
-  });
+  actual.forEach(([, base], index) => expect(base).toBeCloseTo(expected[index][1] as number, 9));
 });
+
+test.each([0.001, 0.01, 0.1])(
+  "floorStack keeps the slab flat and lifts its edge, the room fill and the room edges in that order within a pixel of %f m",
+  (pixelM) => {
+    const stack = floorStack([room(rectangle(0, 0, 4, 3), "first")], rectangle(0, 0, 8, 6), ["ground", "first"], FRAME, pixelM);
+    const raiseOf = (kind: string) => {
+      const features = stack.features.features.filter((feature) => feature.properties!.kind === kind && feature.properties!.base_m === upper);
+      expect(features.length).toBeGreaterThan(0);
+      const raises = new Set(features.map((feature) => feature.properties!.top_m - upper));
+      expect(raises.size).toBe(1);
+      return [...raises][0];
+    };
+    const raises = ["slab", "slab-edge", "room", "edge"].map(raiseOf);
+    expect(raises[0]).toBe(0);
+    raises.slice(1).forEach((raise, index) => expect(raise).toBeGreaterThan(raises[index]));
+    expect(raises[3]).toBeLessThan(pixelM);
+  },
+);
 
 test("floorStack gives each slab its room count and top corners, and frames every slab and room corner", () => {
   const rooms = [room(rectangle(0, 0, 4, 3), "ground"), room(rectangle(4, 0, 8, 3), "ground", ["ground", "first"])];
@@ -140,17 +155,13 @@ const stripWidth = (strip: Polygon) => {
 };
 
 test.each([
-  { kind: "slab-edge", pixels: SLAB_EDGE_PX, base: 0, top: 0.01, count: 4 },
-  { kind: "edge", pixels: ROOM_EDGE_PX, base: 0, top: 0.04, count: 4 },
-])("floorStack draws $kind as $count lines $pixels pixels wide", ({ kind, pixels, base, top, count }) => {
+  { kind: "slab-edge", pixels: SLAB_EDGE_PX, count: 4 },
+  { kind: "edge", pixels: ROOM_EDGE_PX, count: 4 },
+])("floorStack draws $kind as $count lines $pixels pixels wide", ({ kind, pixels, count }) => {
   const stack = floorStack([room(rectangle(0, 0, 4, 3), "ground")], rectangle(0, 0, 8, 6), ["ground"], FRAME, PIXEL_M);
   const edges = stack.features.features.filter((feature) => feature.properties!.kind === kind);
   expect(edges).toHaveLength(count);
-  for (const edge of edges) {
-    expect(stripWidth(edge.geometry)).toBeCloseTo(pixels * PIXEL_M, 6);
-    expect(edge.properties!.base_m).toBeCloseTo(base, 9);
-    expect(edge.properties!.top_m).toBeCloseTo(top, 9);
-  }
+  for (const edge of edges) expect(stripWidth(edge.geometry)).toBeCloseTo(pixels * PIXEL_M, 6);
 });
 
 test("edgeStrips draws each edge as a strip of the given width that runs past both corners by half that", () => {
