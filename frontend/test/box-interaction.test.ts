@@ -52,12 +52,15 @@ const mountInteraction = (
       floorAreaIds: neighbours.map((_, index) => String(index)),
       footprints: new Map(neighbours.map((neighbour, index) => [String(index), neighbour])),
       mapGuide: undefined,
+      outlineByCorners: false,
     }),
     onBox,
     onMove,
     onResize,
     onResizing,
     onPickRoom,
+    onRing: vi.fn(() => true),
+    onCornersChanged: vi.fn(),
   });
   mounted.addLayers(layerColours(readMapPaint(document.body, false)));
   return { onBox, onMove, onPickRoom, onResize, onResizing };

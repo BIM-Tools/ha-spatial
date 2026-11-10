@@ -13,14 +13,25 @@ const METRES_PER_MILE = 1609.344;
 
 export const isUsCustomary =(hass: HassUnits): boolean => hass.config.unit_system.length === "mi";
 
-/** Why a gesture saves nothing: a box apart from its room, or a side under one grid step. */
-export type Refusal = "apart" | "too_small";
+/**
+ * Why a gesture saves nothing: a box apart from its room, a side under one grid step, a ring of
+ * corners with fewer than three, or one whose sides cross or touch.
+ */
+export type Refusal = "apart" | "too_small" | "too_few_corners" | "crossing";
 
 /** The toast for a refused gesture; the minimum side is the drawing grid step of the unit system. */
-export const refusalMessage = (refusal: Refusal, hass: HassUnits): string =>
-  refusal === "apart"
-    ? "A room is one shape: draw against it"
-    : `Too small: every side needs at least ${isUsCustomary(hass) ? "4 in" : "10 cm"}`;
+export const refusalMessage = (refusal: Refusal, hass: HassUnits): string => {
+  switch (refusal) {
+    case "apart":
+      return "A room is one shape: draw against it";
+    case "too_few_corners":
+      return "An outline needs at least three corners";
+    case "crossing":
+      return "The outline cannot cross itself";
+    case "too_small":
+      return `Too small: every side needs at least ${isUsCustomary(hass) ? "4 in" : "10 cm"}`;
+  }
+};
 
 /** Whether a websocket error means the integration has not registered its commands yet, right after a restart. */
 export const isStillStarting = (error: unknown): boolean =>

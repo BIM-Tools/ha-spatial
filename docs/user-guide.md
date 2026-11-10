@@ -100,8 +100,8 @@ nothing is asked. This needs an administrator, like the panel.
    "Draw the outline of your home ... Or click another building.". Until an outline is saved,
    the picked building stays as a thin line, buildings light up under the pointer, and a click
    picks another one, whose shape and size are then offered. In Draw that holds for a click
-   inside another building, away from the picked one and while no box is being drawn; any
-   other click starts a box. The site direction stays; for a house
+   inside another building, away from the picked one and before the first corner; any other
+   click places a corner. The site direction stays; for a house
    at another angle use **Change alignment**.
    - **Use outline** saves that shape as the outline (Undo takes it back and asks again, with
      the same building picked) and makes it
@@ -116,9 +116,15 @@ nothing is asked. This needs an administrator, like the panel.
    move, as the map is only roughly right; once the outline is saved, the outline is the guide.
 
    To draw it, put it on the middle of the exterior walls, with the building on the map as a
-   guide: press and drag from one corner to the opposite one, or click one corner and then the
-   other. After the first box the next area is highlighted; for an L or other shape, choose the
-   building again and add boxes against the outline.
+   guide, and click each corner in turn; the line says "Click each corner; click the first
+   corner to finish. Or click another building.". Each corner snaps like a box corner, also to
+   the corners and sides placed so far, and a line runs from the last corner to the pointer.
+   Clicking the first corner again (within the snap reach, where the ring under the pointer
+   jumps onto it) saves the outline in one save and one undo step, and the next area is
+   highlighted. Escape, Undo or Ctrl+Z takes back the last corner; Escape on the only corner
+   ends the outline. An outline with fewer than three corners, a side shorter than one grid step
+   or sides that cross is not saved: a toast gives the reason and the corners stay. Once the
+   outline is saved, a box drawn with the building's pill against it joins it, as for rooms.
 3. **Draw the rooms.** After an area's first shape, the next area of the floor without one is
    highlighted, and the line at the top says "Draw Kitchen" with how far the floor is, for
    example "3 of 5 on the Ground floor", and **Draw** lit while another tool is on. Draw each
@@ -173,7 +179,7 @@ Exactly one tool is active; **Select** is the default. The tools work on a floor
 | Tool | Does |
 | --- | --- |
 | Align | In the toolbar until the first Align, then in the header menu as Change alignment. One click on a building on the map, near a wall, saves that wall's direction as the site direction. Without a building under the click a toast says "No building here"; when Spatial refuses the new direction, the toast gives its reason. On an empty plan, with no room and no outline drawn, it also puts the grid origin on the left end of that wall. The map stays on while Align is active |
-| Draw | Draws boxes along the site direction (north up before any Align) for the highlighted pill. Corners snap to nearby room corners and walls on this floor and to the outline, else land on the 10 cm (4 in) grid; with Alt held they land on the 2.5 cm (1 in) lattice without snapping. While a side is shorter than one grid step only the start dot shows, and such a box is not drawn |
+| Draw | Draws boxes along the site direction (north up before any Align) for the highlighted pill; the building without an outline is drawn corner by corner instead. Corners snap to nearby room corners and walls on this floor and to the outline, else land on the 10 cm (4 in) grid; with Alt held they land on the 2.5 cm (1 in) lattice without snapping. While a side is shorter than one grid step only the start dot shows, and such a box is not drawn |
 | Select | A tap on a room makes it active: it is filled, edged and gets round handles on its corners. Drag the active room to move it, or a side or corner of a rectangle to resize it. Type exact side lengths (below) |
 
 ### The area strip
@@ -222,7 +228,7 @@ Exactly one tool is active; **Select** is the default. The tools work on a floor
   a wall or touching a corner is fine, overlapping is not. The stretch of each wall or the corner
   that stops it lights up; the rest of the drag still slides it along a wall that runs along the
   site direction. A room that already overlaps another moves freely past that one.
-- **Pan:** hold Space and drag. **Escape** cancels a box. **Delete** removes the active shape.
+- **Pan:** hold Space and drag. **Escape** cancels a box, or takes back the last corner of an\n  outline being drawn. **Delete** removes the active shape.
 - Draw turns the map back to the site direction and keeps it flat until another tool is picked.
 
 ### Select and side lengths
@@ -266,8 +272,9 @@ Exactly one tool is active; **Select** is the default. The tools work on a floor
 
 ### Undo, redo and saving
 
-- **Undo** and **Redo** (Ctrl+Z, Ctrl+Shift+Z) step through every box, move, resize and removal
-  of this session, each as one save.
+- **Undo** and **Redo** (Ctrl+Z, Ctrl+Shift+Z) step through every box, outline, move, resize and
+  removal of this session, each as one save. While an outline's corners are being placed, Undo
+  takes back the last corner instead.
 - **Remove** (the bin after Redo) does what the Delete key does: it removes the active shape,
   the Building outline included, at once and as one undo step. It is off while the active space
   has no shape.
@@ -290,7 +297,7 @@ a touch screen), and a link to this documentation.
 | --- | --- |
 | Space + drag | Pan |
 | Ctrl Z, Ctrl Shift Z | Undo, redo |
-| Esc | Cancel the box, or a side or corner drag |
+| Esc | Cancel the box, or a side or corner drag; take back the last outline corner |
 | Delete | Remove the active shape |
 
 ### Map controls
