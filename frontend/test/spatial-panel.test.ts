@@ -172,7 +172,6 @@ test("All draws the stack's slabs, rooms and walls from base_m to top_m instead 
   await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
   handlers["style.load"]();
   for (const [id, kind] of [
-    ["stack-shadow", "shadow"],
     ["stack-slabs", "slab"],
     ["stack-slab-edges", "slab-edge"],
     ["stack-rooms", "room"],

@@ -1,4 +1,4 @@
-// All floors at a glance: an exploded stack of floor slabs and the camera that frames it, worked out without a map so both can be tested.
+// All floors at a glance: an exploded stack of flat floor sheets and the camera that frames it, worked out without a map so both can be tested.
 
 import type { Feature, FeatureCollection, Polygon, Position } from "geojson";
 import { css } from "lit";
@@ -11,12 +11,11 @@ export type StackPoint = [number, number, number];
 
 /** From one slab to the next: a little more than a storey, so each floor shows between the ones above and below it. */
 export const SLAB_SPACING_M = 3.2;
-/** A thin sheet, about a hand's width. */
-export const SLAB_THICKNESS_M = 0.1;
-// The rooms lie on the slab as a thin fill and the edges a little higher, so both clear its top face.
+// The slab is a flat sheet with no height; its edge, the rooms' fill and their edges lie a hair
+// above it and each other, so the depth test never has to choose between two equal heights.
+const SLAB_EDGE_M = 0.01;
 const ROOM_FILL_M = 0.02;
 const EDGE_HEIGHT_M = 0.04;
-const SHADOW_DEPTH_M = 0.05;
 /** On-screen widths of the slab's edge and of the rooms' edges, in pixels. */
 export const SLAB_EDGE_PX = 1.5;
 export const ROOM_EDGE_PX = 1.2;
@@ -51,10 +50,10 @@ export const stackFloors = (rooms: Feature[], levelOf: (floorId: string) => numb
     .map((floor) => floor.floor_id);
 };
 
-/** The base of the slab at this place in the stack, in metres; the lowest floor lies on the ground. */
+/** The height of the slab at this place in the stack, in metres; the lowest floor lies on the ground. */
 export const slabBase = (index: number): number => index * SLAB_SPACING_M;
 
-/** A floor's slab: its floor, how many rooms lie on it, and the corners of its top face, for the floor's label. */
+/** A floor's slab: its floor, how many rooms lie on it, and the corners of its sheet, for the floor's label. */
 export interface Slab {
   floorId: string;
   rooms: number;
@@ -62,10 +61,10 @@ export interface Slab {
 }
 
 export interface FloorStack {
-  /** Slabs, their shadows and edges, rooms and their edges as `kind` with `base_m` and `top_m`, for MapLibre's fill-extrusion. */
+  /** Slabs and their edges, rooms and their edges as `kind` with `base_m` and `top_m`, for MapLibre's fill-extrusion. */
   features: FeatureCollection<Polygon>;
   slabs: Slab[];
-  /** Every corner of the slabs and rooms, top and bottom, for framing the stack. */
+  /** Every corner of the slabs and rooms, for framing the stack. */
   corners: StackPoint[];
 }
 
@@ -131,17 +130,15 @@ export const floorStack = (
   };
   const slabs = floors.map((floorId, index) => {
     const base = slabBase(index);
-    const top = base + SLAB_THICKNESS_M;
     const footprints = outline
       ? [outline]
       : rooms.filter((room) => floorsOf(room).includes(floorId)).map((room) => room.geometry);
     const topCorners: StackPoint[] = [];
     for (const footprint of footprints) {
-      add("shadow", footprint, base - SHADOW_DEPTH_M, base);
-      add("slab", footprint, base, top);
-      for (const strip of edgeStrips(footprint, frame, SLAB_EDGE_PX * pixelM)) add("slab-edge", strip, base, top);
-      addCorners(footprint, [base, top]);
-      for (const position of footprint.coordinates[0]) topCorners.push([...toMetres(frame, position), top]);
+      add("slab", footprint, base, base);
+      for (const strip of edgeStrips(footprint, frame, SLAB_EDGE_PX * pixelM)) add("slab-edge", strip, base, base + SLAB_EDGE_M);
+      addCorners(footprint, [base]);
+      for (const position of footprint.coordinates[0]) topCorners.push([...toMetres(frame, position), base]);
     }
     const roomCount = rooms.filter((room) => floorsOf(room).includes(floorId)).length;
     return { floorId, rooms: roomCount, top: topCorners };
@@ -149,7 +146,7 @@ export const floorStack = (
   for (const room of rooms) {
     for (const floorId of floorsOf(room)) {
       const index = floorId === null ? -1 : floors.indexOf(floorId);
-      const floorTop = index < 0 ? 0 : slabBase(index) + SLAB_THICKNESS_M;
+      const floorTop = index < 0 ? 0 : slabBase(index);
       add("room", room.geometry, floorTop, floorTop + ROOM_FILL_M);
       for (const strip of edgeStrips(room.geometry, frame, ROOM_EDGE_PX * pixelM)) {
         add("edge", strip, floorTop, floorTop + EDGE_HEIGHT_M);

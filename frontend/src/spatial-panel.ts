@@ -68,13 +68,12 @@ interface Hass extends HassUnits {
 
 // Share of the map height the aligned wall sits below the centre.
 const WALL_OFFSET_SHARE = 0.3;
-// The stack's layers, bottom up: id, feature kind, opacity, and a shift on screen that lets the shadow show below its slab.
-const STACK_LAYERS: [string, string, number, [number, number]][] = [
-  ["stack-shadow", "shadow", 0.2, [5, 9]],
-  ["stack-slabs", "slab", 1, [0, 0]],
-  ["stack-slab-edges", "slab-edge", 1, [0, 0]],
-  ["stack-rooms", "room", 1, [0, 0]],
-  ["stack-room-edges", "edge", 1, [0, 0]],
+// The stack's layers, bottom up: id and feature kind.
+const STACK_LAYERS: [string, string][] = [
+  ["stack-slabs", "slab"],
+  ["stack-slab-edges", "slab-edge"],
+  ["stack-rooms", "room"],
+  ["stack-room-edges", "edge"],
 ];
 const REGISTRY_EVENTS = ["area_registry_updated", "floor_registry_updated"];
 const START_ZOOM = 19;
@@ -1090,7 +1089,7 @@ class SpatialPanel extends LitElement {
     const map = this._map!;
     const colours = layerColours(this._readPaint());
     map.addSource("stack", { type: "geojson", data: this._stack?.features ?? EMPTY });
-    for (const [id, kind, opacity, translate] of STACK_LAYERS) {
+    for (const [id, kind] of STACK_LAYERS) {
       map.addLayer({
         id,
         type: "fill-extrusion",
@@ -1100,9 +1099,6 @@ class SpatialPanel extends LitElement {
           ...colours[id],
           "fill-extrusion-base": ["get", "base_m"],
           "fill-extrusion-height": ["get", "top_m"],
-          "fill-extrusion-opacity": opacity,
-          "fill-extrusion-translate": translate,
-          "fill-extrusion-translate-anchor": "viewport",
         },
       });
     }
