@@ -109,7 +109,8 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
   a click zooms in to 18.
 - The map's outline: the panel offers the picked building, or after a reload finds the building a
   grid step inside the site origin once the map is idle, and `mapOutline` in `plan.ts` turns its outer ring into the
-  outline: walls within 3 degrees of a site axis straightened onto it, an inset of 150 mm as a
+  outline: walls within 3 degrees of a site axis, or at most one map tile unit (zoom 14, 4096 units
+  a tile) across it, straightened onto it, an inset of 150 mm as a
   negative buffer (the shape minus a band along every edge and a square on every corner, with
   `@turf/difference`; the largest part stays, parts narrower than 300 mm disappear), corners
   rounded to the lattice, and no offer when nothing is left, an edge falls under one grid step

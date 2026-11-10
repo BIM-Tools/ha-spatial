@@ -51,16 +51,23 @@ export function boxFromCorners(frame: PlanFrame, a: LatticePoint, b: LatticePoin
 
 // The map shows the outer face of a building's walls; the outline lies on their axis.
 const MAP_OUTLINE_INSET_M = 0.15;
-// A map wall within 3 degrees of a site axis is taken to lie on it; the rest is noise in the map.
+// A map wall within 3 degrees of a site axis, or at most one map tile unit across it, is taken to lie
+// on it; the rest is noise in the map.
 const STRAIGHTEN_TANGENT = Math.tan((3 * Math.PI) / 180);
+const EQUATOR_M = 40075016.686;
+
+// Home Assistant's map tiles carry buildings at zoom 14 at most, 4096 units across a tile, so a map
+// corner is only known to one such unit: a short wall reads several degrees crooked or as a stair step.
+const mapTileUnitM = (latitude: number): number => (EQUATOR_M * Math.cos((latitude * Math.PI) / 180)) / 2 ** 14 / 4096;
 
 type FloatRing = [number, number][];
 
-// The site axis an edge runs along within 3 degrees, 0 for x and 1 for y, or undefined for a diagonal.
-const nearAxisOf = (from: LatticePoint, to: LatticePoint): 0 | 1 | undefined => {
+// The site axis an edge runs along, 0 for x and 1 for y, or undefined for a diagonal: within 3 degrees
+// of it, or at most `tileUnits` across it from end to end.
+const nearAxisOf = (from: LatticePoint, to: LatticePoint, tileUnits: number): 0 | 1 | undefined => {
   const [dx, dy] = [Math.abs(to[0] - from[0]), Math.abs(to[1] - from[1])];
-  if (dy <= dx * STRAIGHTEN_TANGENT) return 0;
-  if (dx <= dy * STRAIGHTEN_TANGENT) return 1;
+  if (dy <= dx && (dy <= dx * STRAIGHTEN_TANGENT || dy <= tileUnits)) return 0;
+  if (dx <= dy && (dx <= dy * STRAIGHTEN_TANGENT || dx <= tileUnits)) return 1;
   return undefined;
 };
 
@@ -79,14 +86,14 @@ function withoutShortEdges(corners: FloatRing, shortest: number): FloatRing {
 }
 
 /**
- * Custom. Each run of consecutive edges within 3 degrees of the same site axis becomes one straight
- * line on that axis: its corners take the length-weighted mean of the run's coordinate across the
+ * Custom. Each run of consecutive edges that `nearAxisOf` puts on the same site axis becomes one
+ * straight line on that axis: its corners take the length-weighted mean of the run's coordinate across the
  * axis. Only that coordinate moves, so a corner between an x run and a y run takes one from each;
  * diagonal edges keep their corners, apart from what a neighbouring run moves.
  */
-function straighten(corners: FloatRing): FloatRing {
+function straighten(corners: FloatRing, tileUnits: number): FloatRing {
   const count = corners.length;
-  const axes = corners.map((corner, index) => nearAxisOf(corner, corners[(index + 1) % count]));
+  const axes = corners.map((corner, index) => nearAxisOf(corner, corners[(index + 1) % count], tileUnits));
   const result = corners.map(([x, y]): [number, number] => [x, y]);
   const start = axes.findIndex((axis, index) => axis !== axes[(index + count - 1) % count]);
   if (start < 0) return result;
@@ -170,8 +177,8 @@ function isSimpleRing(corners: Ring): boolean {
 
 /**
  * The outline copied from a map building: the outer ring of its own shape (courtyards dropped),
- * without edges under one grid step, with walls within 3 degrees of a site axis straightened onto
- * it, moved 150 mm inward (its largest part when the inset splits it) and rounded to the lattice.
+ * without edges under one grid step, with walls within 3 degrees of a site axis or at most one map
+ * tile unit across it straightened onto it, moved 150 mm inward (its largest part when the inset splits it) and rounded to the lattice.
  * It may have fewer or more corners than the map's. Undefined when nothing is left, or when the
  * rounded ring has an edge under one grid step or edges that cross or touch.
  */
@@ -179,7 +186,8 @@ export function mapOutline(frame: PlanFrame, building: Polygon): Polygon | undef
   const corners: FloatRing = building.coordinates[0].slice(0, -1).map((corner) => frame.toLatticeUnits(corner));
   const kept = withoutShortEdges(corners, frame.unitsPerStep);
   if (kept.length < 3) return undefined;
-  const inset = insetShell(straighten(kept), MAP_OUTLINE_INSET_M / frame.unitM);
+  const tileUnits = mapTileUnitM(building.coordinates[0][0][1]) / frame.unitM;
+  const inset = insetShell(straighten(kept, tileUnits), MAP_OUTLINE_INSET_M / frame.unitM);
   if (!inset) return undefined;
   const outline = withoutSpareCorners(inset.map(([x, y]) => [Math.round(x) + 0, Math.round(y) + 0]));
   if (outline.length < 3) return undefined;

@@ -91,7 +91,7 @@ nothing is asked. This needs an administrator, like the panel.
    the map, the line says "Draw the outline of your home" with **Draw** lit. When a building
    is picked, its own shape shows dashed, 150 mm inside the map's line (the map shows the outer
    face of the walls, the outline is their axis), with walls within 3 degrees of the site
-   direction straightened onto it and diagonal walls kept. The line at the top asks "Use the
+   direction, or at most one unit of the map tiles (about 40 cm) across it, straightened onto it and diagonal walls kept. The line at the top asks "Use the
    map's outline?" with its size along the site direction, for example "9.80 × 7.60 m Or click
    another building.", or "9.80 × 7.60 m overall" for any shape but a rectangle. A part
    narrower than about 30 cm disappears when the shape moves inward; when that splits the
@@ -400,7 +400,7 @@ each one means, and the [importer](../tools/README.md) sets floor heights.
 - Align needs a building in the map tiles. A building cut by a tile border gives only the part
   in that tile.
 - The map's outline follows the map's shape: a wall more than 3 degrees off the site direction
-  stays slanted, a step in a wall under one grid step (10 cm, 4 in) is straightened away, and a
+  and more than about 40 cm across it (one unit of the map tiles) stays slanted, a step in a wall under one grid step (10 cm, 4 in) is straightened away, and a
   house the map joins to its neighbours is offered with them. On any shape
   but a rectangle its side lengths only show, they cannot be typed. It is offered for the building picked in this visit, else, after leaving and coming back, for
   the building the map shows at the grid origin, which Align on an empty plan puts on the
