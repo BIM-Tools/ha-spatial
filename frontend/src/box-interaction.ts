@@ -6,10 +6,10 @@ import type { FeatureCollection, LineString, Point, Polygon, Position } from "ge
 import { type GeoJSONSource, Marker, type MapMouseEvent, type Map as MapLibreMap } from "maplibre-gl";
 import { BUILDING } from "./area-strip";
 import { type DraftLabelPlaces, type ScreenBox, placeDraftLabels } from "./draft-labels";
-import { type Pixel, type ResizeTarget, resizeCursor, resizeRectangle, resizeTargetAt } from "./edge-drag";
+import { type Pixel, type ResizeTarget, isResizable, resizeCursor, resizeShape, resizeTargetAt } from "./edge-drag";
 import type { LayerColours } from "./map-paint";
 import { mapBearing } from "./map-view";
-import { addCorner, areaLabel, boxChange, boxFromCorners, centreOf, closesRing, isAxisRectangle, movePolygon, sideLabels } from "./plan";
+import { addCorner, areaLabel, boxChange, boxFromCorners, centreOf, closesRing, isAxisRectangle, movePolygon, reshapeChange, sideLabels } from "./plan";
 import type { Tool } from "./room-editor";
 import type { LatticePoint, PlanFrame } from "./site-frame";
 import { type SnapCandidates, type SnapOptions, type SnapSource, snapCandidatesFor, snapMove, snapPoint, withOpenRing } from "./snap";
@@ -45,7 +45,8 @@ export interface BoxInteractionCallbacks {
   readonly snapshot: () => EditorSnapshot;
   readonly onBox: (box: Polygon, frame: PlanFrame) => void;
   readonly onMove: (room: ActiveRoom, moved: Polygon) => void;
-  readonly onResize: (room: ActiveRoom, resized: Polygon) => void;
+  // In the frame the drag started in, so the editor checks the reshaped ring on the lattice it was made on.
+  readonly onResize: (room: ActiveRoom, resized: Polygon, frame: PlanFrame) => void;
   // Each move of an edge or corner drag, from the first that leaves the press, with what is held and the
   // draft; undefined when it ends. The draft shows only its area, so the side controls count the lengths;
   // the reply is where those controls now sit on screen, so the area label keeps clear of them.
@@ -85,6 +86,8 @@ interface Resize extends Snapping {
   offset: [number, number];
   press: Pixel;
   moved: boolean;
+  // The outline in a shape other than a rectangle: its corners move freely and nothing keeps its ring valid until the save.
+  freeForm: boolean;
 }
 
 const lngLatOf = (event: MapMouseEvent): Position => [event.lngLat.lng, event.lngLat.lat];
@@ -396,7 +399,7 @@ export class BoxInteraction {
     return { resize: this._cursor || undefined, onShape: this._onShape || Boolean(this._grab) };
   }
 
-  /** Grabs an edge or a corner of the active axis rectangle at a pixel; false when there is none to grab. */
+  /** Grabs an edge or a corner of the active axis rectangle, or of the outline in any shape, at a pixel; false when there is none to grab. */
   startResize(target: ResizeTarget, pixel: Pixel, free: boolean): boolean {
     const room = this._resizable();
     const frame = this._callbacks.snapshot().siteFrame;
@@ -410,13 +413,14 @@ export class BoxInteraction {
       offset: [anchorX - x, anchorY - y],
       press: pixel,
       moved: false,
+      freeForm: !isAxisRectangle(frame, room.footprint),
     };
     this._cursor = this._cursorOf(target);
     if (free) this._altInMove = true;
     return true;
   }
 
-  // The corner, else the edge, of the active axis rectangle within the snap radius of a pixel; in Select only.
+  // The corner, else the edge, of the active resizable shape within the snap radius of a pixel; in Select only.
   private _resizeTarget(pixel: Pixel): ResizeTarget | undefined {
     const room = this._resizable();
     const project = (position: Position) => this._map.project(position as [number, number]);
@@ -431,9 +435,12 @@ export class BoxInteraction {
     resize.moved = true;
     const { shape, sources, pointer, options } = this._resized(resize, pixel, free);
     const controls = this._callbacks.onResizing({ target: resize.target, draft: shape });
-    this._preview(shape, resize.frame, false, controls);
+    // A ring the save would refuse shows in the warning colour while it is dragged.
+    const refused = resize.freeForm && "refusal" in reshapeChange(resize.frame, resize.room.areaId, resize.room.footprint, shape);
+    this._preview(shape, resize.frame, refused, controls);
     const corners = shape.coordinates[0].slice(0, -1).map((corner) => resize.frame.toLattice(corner));
-    this._showSnap(resize, sources, corners, pointer, options);
+    // The outline's own walls that stay are snap guides of a free-form drag, so they light up too.
+    this._showSnap(resize, sources, corners, pointer, options, undefined, resize.freeForm ? [] : undefined);
   }
 
   /**
@@ -448,23 +455,23 @@ export class BoxInteraction {
     const { shape, changed } = this._resized(resize, pixel, free);
     this._preview(undefined);
     this._highlight.clear();
-    if (changed) this._callbacks.onResize(resize.room, shape);
+    if (changed) this._callbacks.onResize(resize.room, shape, resize.frame);
     this._callbacks.onResizing(undefined);
     return true;
   }
 
-  // The active shape, when it is an axis rectangle in Select on a floor and nothing else is going on.
+  // The active shape, when `isResizable` allows it, in Select on a floor and nothing else is going on.
   private _resizable(): ActiveRoom | undefined {
     const { saving, siteFrame: frame, activeRoom: room } = this._callbacks.snapshot();
     if (this._toolOnFloor() !== "select" || saving) return undefined;
-    return frame && room && isAxisRectangle(frame, room.footprint) ? room : undefined;
+    return frame && room && isResizable(frame, room.footprint, room.areaId === BUILDING) ? room : undefined;
   }
 
   private _resized(resize: Resize, pixel: Pixel, free: boolean) {
     const [x, y] = this._latticeAt(pixel, resize.frame);
     const pointer: [number, number] = [x + resize.offset[0], y + resize.offset[1]];
     const options = this._options(pixel, free, resize);
-    return { ...resizeRectangle(resize.frame, resize.room.footprint, resize.target, pointer, resize.candidates, options), pointer, options };
+    return { ...resizeShape(resize.frame, resize.room.footprint, resize.target, pointer, resize.candidates, options), pointer, options };
   }
 
   private _latticeAt(pixel: Pixel, frame: PlanFrame): [number, number] {
@@ -472,8 +479,10 @@ export class BoxInteraction {
   }
 
   private _cursorOf(target: ResizeTarget): string {
-    const corners = this._callbacks.snapshot().activeRoom!.footprint.coordinates[0].map((corner) => this._map.project(corner as [number, number]));
-    return resizeCursor(target, corners);
+    const { activeRoom, siteFrame } = this._callbacks.snapshot();
+    const footprint = activeRoom!.footprint;
+    const corners = footprint.coordinates[0].map((corner) => this._map.project(corner as [number, number]));
+    return resizeCursor(target, corners, Boolean(siteFrame && !isAxisRectangle(siteFrame, footprint)));
   }
 
   // Each snap reads every footprint, so a hover snaps at most once per animation frame, at its latest pointer.
@@ -559,8 +568,8 @@ export class BoxInteraction {
     return point;
   }
 
-  // Lights what a gesture snapped to near `points`, never the active shape's own walls; the stretch's
-  // half length in lattice units scales from the snap radius `_options` converted at the pointer.
+  // Lights what a gesture snapped to near `points`, by default never the active shape's own walls; the
+  // stretch's half length in lattice units scales from the snap radius `_options` converted at the pointer.
   private _showSnap(
     { frame, radiusPx }: Snapping,
     sources: readonly SnapSource[],
@@ -568,8 +577,8 @@ export class BoxInteraction {
     pointer: readonly [number, number],
     { radius }: SnapOptions,
     marker?: LatticePoint,
+    own = this._callbacks.snapshot().activeRoom?.footprint.coordinates.map((ring) => ring.slice(0, -1).map((corner) => frame.toLattice(corner))),
   ) {
-    const own = this._callbacks.snapshot().activeRoom?.footprint.coordinates.map((ring) => ring.slice(0, -1).map((corner) => frame.toLattice(corner)));
     this._highlight.show(frame, snapMarks(sources, points, pointer, (radius * SNAP_MARK_HALF_PX) / radiusPx, own), marker);
   }
 

@@ -19,6 +19,7 @@ import {
   overallSize,
   resizeChange,
   resizeSide,
+  reshapeChange,
   ringChange,
   type SideHandle,
   sideHandles,
@@ -234,6 +235,19 @@ test.each<[string, LatticePoint[], string]>([
   ["a corner on another side", [[0, 0], [160, 0], [160, 120], [80, 0]], "crossing"],
 ])("ringChange refuses %s", (_name, corners, refusal) => {
   expect(ringChange(METRIC, "building", corners)).toEqual({ refusal });
+});
+
+const SLANTED_OUTLINE = shapeOf(METRIC, [[0, 0], [160, 0], [166, 120], [0, 120]]);
+
+// A dragged corner or edge reshapes the outline as it is, a straight corner included; the ring rules are ringChange's.
+test.each<[string, LatticePoint[], string | undefined]>([
+  ["a ring with a corner on a straight line", [[0, 0], [160, 0], [160, 60], [160, 120], [0, 120]], undefined],
+  ["a ring with a side under one grid step", [[0, 0], [160, 0], [160, 120], [2, 120], [0, 120]], "too_small"],
+  ["a ring whose sides cross", [[0, 0], [160, 0], [-20, 120], [0, 120]], "crossing"],
+])("reshapeChange of %s, refusal: %s",(_name, corners, refusal) => {
+  const after = shapeOf(METRIC, corners);
+  const expected = refusal ? { refusal } : { change: { before: { building: SLANTED_OUTLINE }, after: { building: after } } };
+  expect(reshapeChange(METRIC, "building", SLANTED_OUTLINE, after)).toEqual(expected);
 });
 
 // The building's outer ring in lattice units, then the offered outline's corners, or undefined for no offer.

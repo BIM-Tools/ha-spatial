@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// Checks drawing, moving and resizing the building outline with the Building pill.
+// Checks drawing, moving, resizing and reshaping the building outline with the Building pill.
 import area from "@turf/area";
 import type { Polygon } from "geojson";
 import { afterEach, expect, test, vi } from "vitest";
@@ -22,6 +22,9 @@ import {
   buildingHighlight,
   ctrlZ,
   key,
+  pixelShape,
+  sideButtons,
+  sideField,
 } from "./room-editor-fixture";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
@@ -117,6 +120,63 @@ test("a ring that crosses itself is refused with a toast and stays open", async 
   tap(100, 0);
   await vi.waitFor(() => expect(siteSaves(connection)).toHaveLength(1));
   expect(area(siteSaves(connection)[0].outline!)).toBeCloseTo(6, 1);
+});
+
+// An outline copied from a map with a slanted right wall, from [400, -400] to [420, -800] on the lattice.
+const SLANTED = pixelShape([0, 100], [100, 100], [105, 200], [0, 200]);
+const latticeCorners = (shape: Polygon) => shape.coordinates[0].slice(0, -1).map((corner) => FRAME.toLattice(corner));
+const selectSlantedOutline = async () => {
+  const mounted = mountEditor(undefined, SLANTED);
+  await startSelecting(mounted.panel);
+  chip(mounted.panel, "Building").click();
+  await settle(mounted.panel);
+  return mounted;
+};
+const pointer = (target: HTMLElement, type: string, [clientX, clientY]: [number, number]) =>
+  target.dispatchEvent(new PointerEvent(type, { clientX, clientY, pointerId: 1, button: 0, bubbles: true, cancelable: true }));
+
+test.each<[string, () => void, [number, number][]]>([
+  [
+    "its slanted wall's corner dragged onto the line of the others",
+    () => {
+      handlers.mousedown(mouse(105, 200));
+      handlers.mousemove(mouse(98, 195));
+      handlers.mouseup(mouse(100.2, 200));
+    },
+    [[0, -400], [400, -400], [400, -800], [0, -800]],
+  ],
+  [
+    "the chip of its slanted wall dragged out, along the wall's normal",
+    () => {
+      const slanted = sideButtons()[1];
+      pointer(slanted, "pointerdown", [102.5, 150]);
+      pointer(slanted, "pointermove", [112.5, 150]);
+      pointer(slanted, "pointerup", [112.5, 150]);
+      slanted.click();
+    },
+    [[0, -400], [440, -398], [460, -798], [0, -800]],
+  ],
+])("an outline of another shape in Select shows a length chip on every side, and %s saves it once with one undo step", async (_name, drag, corners) => {
+  const { panel, connection } = await selectSlantedOutline();
+  expect(sideButtons().map((button) => button.textContent)).toEqual(["10.00 m", "10.00 m", "10.50 m", "10.00 m"]);
+  drag();
+  await vi.waitFor(() => expect(siteSaves(connection)).toHaveLength(1));
+  expect(latticeCorners(siteSaves(connection)[0].outline!)).toEqual(corners);
+  expect(sideField()).toBeUndefined();
+  await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
+  buttonNamed(panel, "Undo")!.click();
+  await vi.waitFor(() => expect(siteSaves(connection)).toHaveLength(2));
+  expect(siteSaves(connection)[1].outline).toEqual(SLANTED);
+});
+
+test("a corner of an outline of another shape dragged so that its walls cross is refused with a toast and saves nothing", async () => {
+  const { panel, connection } = await selectSlantedOutline();
+  handlers.mousedown(mouse(105, 200));
+  handlers.mousemove(mouse(60, 180));
+  handlers.mouseup(mouse(-30, 150));
+  await settle(panel);
+  expect(toasts).toEqual([{ message: "The outline cannot cross itself" }]);
+  expect(siteSaves(connection)).toEqual([]);
 });
 
 // Each row acts on the outline with the Building pill active: one outline save, no area save.

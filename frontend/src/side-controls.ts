@@ -1,4 +1,4 @@
-// Every side of the active rectangle is a handle that stretches it by drag or opens a field to type its length; each length shows once, on a chip. A copied outline of another shape only shows its lengths.
+// Every side of the active rectangle is a handle that stretches it by drag or opens a field to type its length; each length shows once, on a chip. Every side of an outline of another shape is a chip with its length that drags it.
 
 import { mdiDragVertical } from "@mdi/js";
 import type { Polygon, Position } from "geojson";
@@ -6,13 +6,13 @@ import { type Map as MapLibreMap, Marker } from "maplibre-gl";
 import { type BoxInteraction, coarsePointer } from "./box-interaction";
 import type { ScreenBox } from "./draft-labels";
 import { type Pixel, type ResizeTarget, resizeCursor } from "./edge-drag";
-import { type ChangeOrRefusal, type SideHandle, axisSides, edgeLengths, resizeChange, sideHandles, sideLabels } from "./plan";
+import { type ChangeOrRefusal, type SideHandle, axisSides, edgeLengths, isAxisRectangle, resizeChange, sideHandles, sideLabels } from "./plan";
 import type { LatticePoint, PlanFrame } from "./site-frame";
 import type { LatticeEdge } from "./snap";
 import { planPill, planPillHeld } from "./styles";
 import { type HassUnits, parseLength, typedLength } from "./units";
 
-/** The active axis rectangle whose sides get controls, with the frame and units they are built in. */
+/** The active shape whose sides get controls, an axis rectangle or the outline, with the frame and units they are built in. */
 export interface SideRoom {
   areaId: string;
   footprint: Polygon;
@@ -60,8 +60,10 @@ const pixelOn = (map: MapLibreMap, event: MouseEvent): Pixel => {
 const latticeCorners = (frame: PlanFrame, rectangle: Polygon): LatticePoint[] =>
   rectangle.coordinates[0].slice(0, -1).map((corner) => frame.toLattice(corner));
 
-const ariaLabel = (handle: SideHandle, length: string) =>
-  handle === "length" ? `${length} side: drag to stretch, or press to type a length` : `Side of ${length}: drag to stretch, or press to type a length`;
+const ariaLabel = (handle: SideHandle, length: string, typed: boolean) => {
+  if (!typed) return `${length} side: drag to move it`;
+  return handle === "length" ? `${length} side: drag to stretch, or press to type a length` : `Side of ${length}: drag to stretch, or press to type a length`;
+};
 
 // A built control: the element in the Marker; for a chip or grip the pill that shows it, and a chip's length.
 interface Control {
@@ -70,7 +72,11 @@ interface Control {
   length?: Text;
 }
 
-/** A Marker per side of the room: a length chip, a grip, or the length field for `editingSide`. */
+/**
+ * A Marker per side of the room: on a rectangle a length chip, a grip, or the length field for
+ * `editingSide`; on an outline of another shape a length chip on every side, which only drags, as a
+ * typed length has no rule for which corners move.
+ */
 export function showSideControls(
   map: MapLibreMap,
   interaction: BoxInteraction,
@@ -79,17 +85,19 @@ export function showSideControls(
   actions: SideActions,
 ): SideControls {
   const corners = latticeCorners(room.frame, room.footprint);
-  const handles = sideHandles(corners, room.roomEdges);
-  const places = axisSides(corners);
+  const rectangle = isAxisRectangle(room.frame, room.footprint);
+  const handles: SideHandle[] = rectangle ? sideHandles(corners, room.roomEdges) : corners.map(() => "length");
+  // A rectangle's draft may start its ring at another corner, so its sides match by place; any other shape keeps its corner order.
+  const places = rectangle ? axisSides(corners) : undefined;
   let field: HTMLInputElement | undefined;
   const controls: Control[] = [];
   const markers = sideLabels(room.frame, room.footprint, room.units).map(({ at, edgeIndex, text }) => {
-    if (edgeIndex === editingSide) {
+    if (edgeIndex === editingSide && rectangle) {
       field = lengthField(room, edgeIndex, actions);
       controls.push({ element: field });
     } else {
-      const across = places[edgeIndex] === "bottom" || places[edgeIndex] === "top";
-      controls.push(sideHandle(map, interaction, room, edgeIndex, handles[edgeIndex], text, across, actions));
+      const across = places?.[edgeIndex] === "bottom" || places?.[edgeIndex] === "top";
+      controls.push(sideHandle(map, interaction, room, edgeIndex, handles[edgeIndex], text, across, rectangle, actions));
     }
     const control = controls[edgeIndex].element;
     for (const type of MAP_EVENTS) control.addEventListener(type, (event) => event.stopPropagation());
@@ -100,17 +108,17 @@ export function showSideControls(
   field?.focus();
   field?.select();
   return {
-    // A side keeps its control through the drag, matched by place: the draft's ring may start at another corner.
+    // A side keeps its control through the drag.
     follow(draft, held) {
-      const draftPlaces = axisSides(latticeCorners(room.frame, draft));
+      const draftPlaces = places && axisSides(latticeCorners(room.frame, draft));
       const labels = sideLabels(room.frame, draft, room.units);
-      places.forEach((place, edgeIndex) => {
-        const { at, text } = labels[draftPlaces.indexOf(place)];
-        markers[edgeIndex].setLngLat(at as [number, number]);
+      markers.forEach((marker, edgeIndex) => {
+        const { at, text } = labels[draftPlaces && places ? draftPlaces.indexOf(places[edgeIndex]) : edgeIndex];
+        marker.setLngLat(at as [number, number]);
         const { element, face, length } = controls[edgeIndex];
         if (!face) return;
         if (length) length.data = text;
-        element.setAttribute("aria-label", ariaLabel(handles[edgeIndex], text));
+        element.setAttribute("aria-label", ariaLabel(handles[edgeIndex], text, rectangle));
         if (held.kind === "edge" && held.index === edgeIndex) Object.assign(face.style, planPillHeld);
       });
       const mapBox = map.getContainer().getBoundingClientRect();
@@ -119,20 +127,6 @@ export function showSideControls(
         return { centre: { x: left + width / 2 - mapBox.left, y: top + height / 2 - mapBox.top }, size: { width, height } };
       });
     },
-    remove() {
-      for (const marker of markers) marker.remove();
-    },
-  };
-}
-
-/** A plain length chip on every side of a shape that is no axis rectangle, which nothing can resize. */
-export function showSideLengths(map: MapLibreMap, frame: PlanFrame, footprint: Polygon, units: HassUnits): Pick<SideControls, "remove"> {
-  const markers = sideLabels(frame, footprint, units).map(({ at, text }) => {
-    const chip = Object.assign(document.createElement("span"), { className: "side-length", textContent: text });
-    chip.style.cssText = planPill;
-    return new Marker({ element: chip }).setLngLat(at as [number, number]).addTo(map);
-  });
-  return {
     remove() {
       for (const marker of markers) marker.remove();
     },
@@ -155,6 +149,7 @@ function lengthField({ areaId, footprint, frame, units }: SideRoom, edgeIndex: n
 
 // The chip or grip sits on its edge and covers part of it, so a press on it drags that edge through the
 // map's edge drag; mouse and finger alike, captured so the drag follows the pointer off the control.
+// Only a `typed` side opens its length field on a click.
 function sideHandle(
   map: MapLibreMap,
   interaction: BoxInteraction,
@@ -163,11 +158,12 @@ function sideHandle(
   handle: SideHandle,
   text: string,
   across: boolean,
+  typed: boolean,
   actions: SideActions,
 ): Control {
   const target: ResizeTarget = { kind: "edge", index: edgeIndex };
   const button = Object.assign(document.createElement("button"), { type: "button", className: handle === "length" ? "side-chip" : "side-grip" });
-  button.setAttribute("aria-label", ariaLabel(handle, text));
+  button.setAttribute("aria-label", ariaLabel(handle, text, typed));
   const length = handle === "length" ? document.createTextNode(text) : undefined;
   // A grip lies along its side; a chip's mark stands as it always did.
   const grip = () => {
@@ -210,7 +206,7 @@ function sideHandle(
   });
   // A click follows the release, also of a drag; Enter or Space on the focused control opens the field too.
   button.addEventListener("click", () => {
-    if (!dragged) actions.open(edgeIndex);
+    if (!dragged && typed) actions.open(edgeIndex);
   });
   return { element: button, face, length };
 }
