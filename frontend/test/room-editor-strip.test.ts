@@ -36,6 +36,11 @@ import {
   renameField,
   toolPressed,
   hoverFilter,
+  tapRoom,
+  handleCorners,
+  sideButtons,
+  buildingHighlight,
+  key,
 } from "./room-editor-fixture";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
@@ -254,4 +259,30 @@ test("two quick taps on New area create one area", async () => {
   chip(panel, "New area").click();
   await vi.waitFor(() => expect(renameField(panel)?.value).toBe("Room 1"));
   expect(sent(connection, "config/area_registry/create")).toHaveLength(1);
+});
+
+test("in Select a click on empty map deselects, a click inside the outline selects the Building, and Draw then takes the first area to draw", async () => {
+  const { panel, connection } = mountEditor();
+  await startSelecting(panel);
+  await tapRoom(panel, "kitchen");
+  expect(handleCorners()).toHaveLength(4);
+  expect(sideButtons()).not.toEqual([]);
+  queryRenderedFeatures.mockReturnValue([]);
+  handlers.click(mouse(300, 300));
+  await settle(panel);
+  expect(activeChip(panel)).toBeUndefined();
+  expect(handleCorners()).toEqual([]);
+  expect(sideButtons()).toEqual([]);
+  expect(buttonNamed(panel, "Remove shape")!.disabled).toBe(true);
+  key("keydown", "Delete");
+  handlers.click(mouse(50, 150));
+  await settle(panel);
+  expect(buildingHighlight()).toBe("visible");
+  handlers.click(mouse(300, 300));
+  await settle(panel);
+  buttonNamed(panel, "Draw")!.click();
+  await settle(panel);
+  expect(activeChip(panel)).toBe("Bath");
+  expect(saves(connection)).toEqual([]);
+  expect(toasts).toEqual([]);
 });

@@ -51,6 +51,7 @@ export interface BoxInteractionCallbacks {
   // draft; undefined when it ends. The draft shows only its area, so the side controls count the lengths;
   // the reply is where those controls now sit on screen, so the area label keeps clear of them.
   readonly onResizing: (resizing: { target: ResizeTarget; draft: Polygon } | undefined) => readonly ScreenBox[];
+  // A click in Select: the room's area id, the Building's inside the outline, or "" on empty map.
   readonly onPickRoom: (areaId: string) => void;
   // A click on the first corner closes the ring; false refuses it and keeps the ring open.
   readonly onRing: (corners: readonly LatticePoint[], frame: PlanFrame) => boolean;
@@ -587,8 +588,7 @@ export class BoxInteraction {
   private _click = (event: MapMouseEvent) => {
     if (event.defaultPrevented) return;
     if (this._toolOnFloor() === "select") {
-      const [room] = this._map.queryRenderedFeatures(event.point, { layers: ["areas-2d"] });
-      if (room) this._callbacks.onPickRoom(String(room.properties.area_id));
+      this._callbacks.onPickRoom(this._areaAt(event));
       return;
     }
     if (!this._canDraw() || this._spaceHeld || this._callbacks.snapshot().saving) return;
@@ -611,6 +611,14 @@ export class BoxInteraction {
     this._finish(start, this._cornerAt(event, start));
     this._highlight.clear();
   };
+
+  // The room under a click, else the Building when the click lies inside the stored outline, else "" for empty map.
+  private _areaAt(event: MapMouseEvent): string {
+    const [room] = this._map.queryRenderedFeatures(event.point, { layers: ["areas-2d"] });
+    if (room) return String(room.properties.area_id);
+    const outline = this._callbacks.snapshot().footprints.get(BUILDING);
+    return outline && booleanPointInPolygon(lngLatOf(event), outline) ? BUILDING : "";
+  }
 
   // A box under one grid step shows only its start, as a dot.
   private _draft({ corner, frame }: Start, end: LatticePoint) {

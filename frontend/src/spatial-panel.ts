@@ -682,7 +682,8 @@ class SpatialPanel extends LitElement {
 
   // Inside a building wins; else the one whose edge is nearest within a finger's or a mouse's reach. Too
   // far out, the click zooms in on itself instead. A click that picks is marked with preventDefault, so
-  // the editor neither starts a box with it nor Align takes it. Before Align a pick turns Align on.
+  // the editor neither starts a box with it nor Align takes it. Before Align a pick turns Align on, and
+  // a miss says so; after Align a miss is the editor's, which deselects in Select.
   private _clickBuilding(event: MapMouseEvent) {
     if (!this._picking || this._roomUnder(event)) return;
     const drawing = this._editor?.tool === "draw";
@@ -694,7 +695,7 @@ class SpatialPanel extends LitElement {
     }
     const building = this._pickableUnder(event, isTouch(event) ? PICK_TOLERANCE_PX.touch : PICK_TOLERANCE_PX.mouse);
     if (!building) {
-      if (!drawing) this._toast({ message: "No building here" });
+      if (!drawing && this._state.bearing === null) this._toast({ message: "No building here" });
       return;
     }
     event.preventDefault();
