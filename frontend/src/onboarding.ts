@@ -133,7 +133,7 @@ export function nextStep(plan: Plan): Step {
       return {
         kind: "outline-question",
         text: "Use the map's outline?",
-        detail: `${plan.outlineOffer} Or click another building.`,
+        detail: `${plan.outlineOffer}. Or click another building.`,
         buttons: [
           { control: "draw-myself", label: "Draw it myself" },
           { control: "use-outline", label: "Use outline" },
