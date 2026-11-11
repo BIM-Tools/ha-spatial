@@ -62,7 +62,7 @@ test.each<[string, Partial<Plan>, object]>([
     {
       kind: "outline-question",
       text: "Use the map's outline?",
-      detail: "9.70 × 7.70 m Or click another building.",
+      detail: "9.70 × 7.70 m. Or click another building.",
       buttons: [
         { control: "draw-myself", label: "Draw it myself" },
         { control: "use-outline", label: "Use outline" },
