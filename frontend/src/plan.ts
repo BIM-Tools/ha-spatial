@@ -372,10 +372,26 @@ export function closesRing(corners: readonly LatticePoint[], pointer: readonly [
 export function ringChange(frame: PlanFrame, areaId: string, corners: readonly LatticePoint[]): ChangeOrRefusal {
   if (corners.length < 3) return { refusal: "too_few_corners" };
   const ring = [...corners];
-  if (ring.some((corner, index) => edgeUnits(corner, ring[(index + 1) % ring.length]) < frame.unitsPerStep)) return { refusal: "too_small" };
-  if (!isSimpleRing(ring)) return { refusal: "crossing" };
+  const refusal = ringRefusal(frame, ring);
+  if (refusal) return { refusal };
   if (doubleArea(ring) < 0) ring.reverse();
   return { change: footprintChange(areaId, null, { type: "Polygon", coordinates: [ringToWgs84(frame, ring)] }) };
+}
+
+// Why a ring cannot be a shape: a side under one grid step, or sides that cross or touch.
+function ringRefusal(frame: PlanFrame, ring: Ring): Refusal | undefined {
+  if (ring.some((corner, index) => edgeUnits(corner, ring[(index + 1) % ring.length]) < frame.unitsPerStep)) return "too_small";
+  return isSimpleRing(ring) ? undefined : "crossing";
+}
+
+/**
+ * A dragged corner or edge reshapes the footprint; refused when its outer ring gets a side under one
+ * grid step or sides that cross or touch. A corner left on a straight line stays: the integration drops
+ * it when it stores the shape.
+ */
+export function reshapeChange(frame: PlanFrame, areaId: string, before: Polygon, after: Polygon): ChangeOrRefusal {
+  const refusal = ringRefusal(frame, outerCorners(frame, after));
+  return refusal ? { refusal } : { change: footprintChange(areaId, before, after) };
 }
 
 /** A typed side length resizes the rectangle; an unreadable length or one under a grid step is refused. */

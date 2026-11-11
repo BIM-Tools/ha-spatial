@@ -46,12 +46,12 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/styles.ts` | The floating card, pill buttons and phone bar shared by the controls, from Home Assistant's theme tokens |
 | `src/onboarding.ts` | `nextStep`: the guide line's one step and its lit control, derived from the plan every time |
 | `src/room-editor.ts` | The space editor controller: the area strip, what the guide reads of the plan, the map's outline offered to the Building, undo and redo, saving each action, area creation and rename |
-| `src/side-controls.ts` | A handle on each side of the active axis rectangle, a length chip on one side per axis (`sideHandles` in `plan.ts` picks it) and a grip on the other: dragged, it stretches the side through the edge drag; tapped, it opens the length field |
+| `src/side-controls.ts` | A handle on each side of the active axis rectangle, a length chip on one side per axis (`sideHandles` in `plan.ts` picks it) and a grip on the other: dragged, it stretches the side through the edge drag; tapped, it opens the length field. On an outline of another shape a length chip on every side that only drags |
 | `src/box-interaction.ts` | Pointer and keyboard drafting input on the map, snapped corners, moves, edge and corner drags, Alt to place freely, Space pan, draft preview |
 | `src/snap.ts` | The snap engine, pure and in lattice units: room corners, then room axis edges, then the outline, else the grid |
 | `src/wall-stop.ts` | Where the outline and the rooms beside it stop a moved room or a stretched side, pure and on lattice integers: a walk over the lattice offsets of the path up to the first one where the outline reaches inside the shape or the shape overlaps a neighbour |
 | `src/snap-highlight.ts` | The map layer that lights up what a point snaps to: a dot on a corner, a line on an edge; and `distinctSources`, which lights each up once |
-| `src/edge-drag.ts` | Edge and corner drag of an axis rectangle, pure and in lattice units: where the dragged edge or corner lands, stopped at the outline and the neighbours, which one a pointer grabs, and its resize cursor |
+| `src/edge-drag.ts` | Edge and corner drag of an axis rectangle, or of the outline in any shape, pure and in lattice units: where the dragged edge or corner lands (a rectangle stopped at the outline and the neighbours, an outline corner free and snapped, an outline edge along its normal), which one a pointer grabs, and its cursor |
 | `src/area-strip.ts` | The strip of pills, Building first: order, next area, new area names, rename field, long press, arrow keys |
 | `src/history.ts` | Session undo and redo of footprint changes, and `clearChange`, the change that removes a floor's room shapes |
 | `src/spatial-card.ts` | The card: wraps the panel element, without the header and tools; loads the panel bundle when created |
@@ -82,13 +82,18 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 - Plan geometry (boxes, side lengths, resizing, moving) works on lattice integers in the site frame
   that `spatial/site` publishes, rebuilt on every site load, so a unit system change reaches the
   next gesture; turf finds the wall bearing and joins a box to a footprint.
-- In Select a press on the active axis rectangle is hit-tested on its projected corners, then its
-  edges, within the snap radius, before a move, so it follows the room on a turned map. A side's
+- In Select a press on the active axis rectangle, or on the outline in any shape (`isResizable`), is
+  hit-tested on its projected corners, then its edges, within the snap radius, before a move, so it
+  follows the room on a turned map. An outline corner snaps as a drawn corner and to the axis lines
+  through the outline's corners that stay; a ring that would cross itself or get a side under one
+  grid step shows in the warning colour and is refused on release with `reshapeChange` in
+  `plan.ts`, the same ring rules as a ring of clicked corners. Straight corners stay in the write;
+  the integration drops them. A side's
   chip or grip drives the same edge drag with pointer events and pointer capture, for mouse and
   finger alike (`touch-action: none`); a release without a drag lets the click open the field. The
   controls are not rebuilt while one is pressed, as that would drop its capture. While a resize is
-  live they follow the draft instead: each to its side, matched by place as the draft's ring may
-  start at another corner, the chips counting the lengths and the held edge's handle primary. The
+  live they follow the draft instead: each to its side, on a rectangle matched by place as the
+  draft's ring may start at another corner, the chips counting the lengths and the held edge's handle primary. The
   room labels under the draft hide, as the draft shows the area, and undo, redo and Delete are
   ignored, as the save is made against the room as grabbed.
 - Every box, move, resize, removal, floor clear, undo and redo is one save, one at a time:
@@ -114,8 +119,8 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
   negative buffer (the shape minus a band along every edge and a square on every corner, with
   `@turf/difference`; the largest part stays, parts narrower than 300 mm disappear), corners
   rounded to the lattice, and no offer when nothing is left, an edge falls under one grid step
-  or the ring touches itself. In the length check after Use outline, a shape that is no axis
-  rectangle gets a plain length chip on every side (`showSideLengths` in `side-controls.ts`). While the Building pill
+  or the ring touches itself. In the length check after Use outline, as always in Select, a shape that
+  is no axis rectangle gets a length chip on every side (`showSideControls` in `side-controls.ts`). While the Building pill
   is active without an outline, the editor shows it dashed with the guide line's question and adds
   it as the outline to the snap candidates of a Building gesture only. Use outline saves it like a
   drawn box, in one write and one undo step; nothing about the map building is stored.

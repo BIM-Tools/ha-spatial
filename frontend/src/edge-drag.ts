@@ -1,9 +1,9 @@
-// Stretches a rectangular room by one of its edges or corners, snapped like a drawn box and stopped at the outline and its neighbours, so resizing needs no typing.
+// Stretches a rectangular room, or reshapes the outline, by one of its edges or corners, snapped like a drawn box, so resizing needs no typing.
 
 import type { Polygon, Position } from "geojson";
-import { boxFromCorners } from "./plan";
+import { boxFromCorners, isAxisRectangle } from "./plan";
 import type { LatticePoint, PlanFrame } from "./site-frame";
-import { type SnapCandidates, type SnapOptions, type SnapSource, snapLine, snapPoint } from "./snap";
+import { type LatticeEdge, type SnapCandidates, type SnapOptions, type SnapSource, snapLine, snapPoint } from "./snap";
 import { distinctSources } from "./snap-highlight";
 import { walkToWall } from "./wall-stop";
 
@@ -13,13 +13,13 @@ export interface Pixel {
   y: number;
 }
 
-/** An edge of a rectangle by its start corner, or one of its corners. */
+/** An edge of a shape's outer ring by its start corner, or one of its corners. */
 export interface ResizeTarget {
   kind: "edge" | "corner";
   index: number;
 }
 
-/** A resized rectangle, what lights up, and whether it differs from the rectangle it started as. */
+/** A resized shape, what lights up, and whether it differs from the shape it started as. */
 export interface Resized {
   shape: Polygon;
   sources: SnapSource[];
@@ -113,6 +113,105 @@ export function resizeRectangle(
   };
 }
 
+/**
+ * Whether the edges and corners of a shape can be dragged: an axis rectangle, or the outline in any
+ * shape of one ring; rooms of other shapes keep their shape.
+ */
+export function isResizable(frame: PlanFrame, shape: Polygon, isOutline: boolean): boolean {
+  return isAxisRectangle(frame, shape) || (isOutline && shape.coordinates.length === 1);
+}
+
+/**
+ * Custom. The candidates with the site axis lines through each corner of the ring that stays, as outline
+ * walls that reach across the ring and as far again beyond it, so a moved corner or edge lines up with
+ * any of them however far along it lies, as the other walls of a straight outline do.
+ */
+function alignedWithKept(candidates: SnapCandidates, ring: readonly LatticePoint[], kept: readonly LatticePoint[]): SnapCandidates {
+  const [left, right] = [Math.min(...ring.map(([x]) => x)), Math.max(...ring.map(([x]) => x))];
+  const [bottom, top] = [Math.min(...ring.map(([, y]) => y)), Math.max(...ring.map(([, y]) => y))];
+  const margin = Math.max(right - left, top - bottom);
+  const lines = kept.flatMap(([x, y]): LatticeEdge[] => [
+    [
+      [x, bottom - margin],
+      [x, top + margin],
+    ],
+    [
+      [left - margin, y],
+      [right + margin, y],
+    ],
+  ]);
+  return { ...candidates, outlineEdges: [...candidates.outlineEdges, ...lines] };
+}
+
+/**
+ * Custom. Drags corner `index` of a shape's outer ring to where `snapPoint` puts the pointer, so its two
+ * edges follow, or edge `index` (from that corner to the next) across itself: an edge along a site axis
+ * lands where `snapLine` puts it, any other moves along its normal by the pointer's distance from its
+ * line, rounded to the lattice, both corners by the same offset so it stays parallel. Besides the usual
+ * candidates, both snap in the outline's tier to the lines through the ring's corners that stay
+ * (`alignedWithKept`), so a slanted wall's corner lands on the line of the others. Nothing stops it, so
+ * the ring may come out crossing itself or with a short edge: the save refuses those (`reshapeChange`).
+ * Known limits: the outer ring only; a diagonal edge snaps to nothing.
+ */
+export function resizePolygon(
+  frame: PlanFrame,
+  shape: Polygon,
+  { kind, index }: ResizeTarget,
+  pointer: readonly [number, number],
+  candidates: SnapCandidates,
+  options: SnapOptions,
+): Resized {
+  const corners = shape.coordinates[0].slice(0, -1).map((corner) => frame.toLattice(corner));
+  const count = corners.length;
+  const at = (offset: number) => (index + offset + count) % count;
+  // The candidates with the lines through the corners that stay, from `first` on up to the moved ones.
+  const keptFrom = (first: number) =>
+    alignedWithKept(
+      candidates,
+      corners,
+      Array.from({ length: (index - first + count) % count }, (_, step) => corners[(first + step) % count]),
+    );
+  const moved = [...corners];
+  let sources: SnapSource[] = [];
+  let offset: LatticePoint = [0, 0];
+  if (kind === "corner") {
+    const snapped = snapPoint(pointer, keptFrom(at(1)), options);
+    offset = [snapped.point[0] - corners[index][0], snapped.point[1] - corners[index][1]];
+    moved[index] = snapped.point;
+    sources = snapped.sources;
+  } else {
+    const [start, end] = [corners[index], corners[at(1)]];
+    if (start[0] === end[0] || start[1] === end[1]) {
+      const axis = start[0] === end[0] ? 0 : 1;
+      const snapped = snapLine(pointer[axis], axis, keptFrom(at(2)), options, span(start[1 - axis], end[1 - axis]));
+      offset = axis === 0 ? [snapped.value - start[0], 0] : [0, snapped.value - start[1]];
+      sources = snapped.sources;
+    } else {
+      const length = Math.hypot(end[0] - start[0], end[1] - start[1]);
+      const normal = [(start[1] - end[1]) / length, (end[0] - start[0]) / length];
+      const distance = (pointer[0] - start[0]) * normal[0] + (pointer[1] - start[1]) * normal[1];
+      offset = [Math.round(distance * normal[0]) + 0, Math.round(distance * normal[1]) + 0];
+    }
+    moved[index] = [start[0] + offset[0], start[1] + offset[1]];
+    moved[at(1)] = [end[0] + offset[0], end[1] + offset[1]];
+  }
+  const ring = [...moved, moved[0]].map((corner) => frame.fromLattice(corner));
+  return { shape: { type: "Polygon", coordinates: [ring] }, sources, changed: offset[0] !== 0 || offset[1] !== 0 };
+}
+
+/** Resizes a shape `isResizable` allows: a rectangle as `resizeRectangle` does, any other shape as `resizePolygon`. */
+export function resizeShape(
+  frame: PlanFrame,
+  shape: Polygon,
+  target: ResizeTarget,
+  pointer: readonly [number, number],
+  candidates: SnapCandidates,
+  options: SnapOptions,
+): Resized {
+  const resize = isAxisRectangle(frame, shape) ? resizeRectangle : resizePolygon;
+  return resize(frame, shape, target, pointer, candidates, options);
+}
+
 // The distance from `pixel` to the segment between `from` and `to`.
 const toSegment = (pixel: Pixel, from: Pixel, to: Pixel) => {
   const [dx, dy] = [to.x - from.x, to.y - from.y];
@@ -130,28 +229,37 @@ const nearest = (distances: number[], radiusPx: number) => {
   return best;
 };
 
-/** The corner of the rectangle's outer ring nearest `pixel` on screen within `radiusPx`, else the nearest edge. */
-export function resizeTargetAt(pixel: Pixel, rectangle: Polygon, project: Project, radiusPx: number): ResizeTarget | undefined {
-  const corners = rectangle.coordinates[0].slice(0, 4).map(project);
+/** The corner of the shape's outer ring nearest `pixel` on screen within `radiusPx`, else the nearest edge. */
+export function resizeTargetAt(pixel: Pixel, shape: Polygon, project: Project, radiusPx: number): ResizeTarget | undefined {
+  const corners = shape.coordinates[0].slice(0, -1).map(project);
   const corner = nearest(
     corners.map(({ x, y }) => Math.hypot(pixel.x - x, pixel.y - y)),
     radiusPx,
   );
   if (corner !== undefined) return { kind: "corner", index: corner };
   const edge = nearest(
-    corners.map((from, index) => toSegment(pixel, from, corners[(index + 1) % 4])),
+    corners.map((from, index) => toSegment(pixel, from, corners[(index + 1) % corners.length])),
     radiusPx,
   );
   return edge === undefined ? undefined : { kind: "edge", index: edge };
 }
 
-/** The resize cursor for a target, from the rectangle's corners on screen: across an edge, or corner to corner. */
-export function resizeCursor({ kind, index }: ResizeTarget, corners: Pixel[]): string {
+// Across an edge that runs along the screen, at 45 degrees down to the right, down the screen, and at 135 degrees.
+const ACROSS_EDGE_CURSORS = ["ns-resize", "nesw-resize", "ew-resize", "nwse-resize"];
+
+/**
+ * The cursor for a target, from the shape's corners on screen: across an edge the resize arrow nearest
+ * its normal, a diagonal one for a slanted edge; corner to corner for a rectangle's corner, and the move
+ * cross for a corner that `cornerMovesFreely`, as on an outline of any shape.
+ */
+export function resizeCursor({ kind, index }: ResizeTarget, corners: Pixel[], cornerMovesFreely = false): string {
   const from = corners[index];
   if (kind === "edge") {
-    const to = corners[(index + 1) % 4];
-    return Math.abs(to.x - from.x) >= Math.abs(to.y - from.y) ? "ns-resize" : "ew-resize";
+    const to = corners[(index + 1) % corners.length];
+    const degrees = (Math.atan2(to.y - from.y, to.x - from.x) * 180) / Math.PI;
+    return ACROSS_EDGE_CURSORS[Math.round((degrees + 180) / 45) % 4];
   }
+  if (cornerMovesFreely) return "move";
   const opposite = corners[(index + 2) % 4];
   return (from.x - opposite.x) * (from.y - opposite.y) > 0 ? "nwse-resize" : "nesw-resize";
 }
