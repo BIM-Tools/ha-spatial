@@ -307,9 +307,9 @@ export class RoomEditor {
     return this.tool === "align" || this._footprints.has(BUILDING) ? undefined : this._mapOutline;
   }
 
-  // Dotted in Draw, unless the dashed offer shows the same line.
+  // Dotted wherever rooms snap to it, unless the dashed offer shows the same line.
   private _shownGuide(): Polygon | undefined {
-    return this.tool === "draw" && !this._offeredOutline() ? this._mapGuide() : undefined;
+    return this._offeredOutline() ? undefined : this._mapGuide();
   }
 
   private _showMapOutline() {

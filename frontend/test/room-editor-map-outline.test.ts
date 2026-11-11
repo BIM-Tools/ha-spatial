@@ -2,7 +2,7 @@
 // Checks the offer to copy the outline from the map's building after Align: the question, Use outline and Draw it myself.
 import type { MultiPolygon, Polygon } from "geojson";
 import { afterEach, expect, test, vi } from "vitest";
-import { buttonNamed, handlers, nextFrame, queryRenderedFeatures, resetFakes, settle, sources, toasts } from "./panel-harness";
+import { buttonNamed, chooseFromMenu, handlers, nextFrame, queryRenderedFeatures, resetFakes, settle, sources, toasts } from "./panel-harness";
 import { FRAME, activeChip, chip, mountEditor, mouse, pixelBox, siteSaves, snapHighlights, startDrawing, toolPressed } from "./room-editor-fixture";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
@@ -62,9 +62,7 @@ test("Use outline saves it as the outline in one undoable write, then asks to ch
   buttonNamed(panel, "Looks right")!.click();
   await settle(panel);
   expect(question(panel)).toBeNull();
-  // The stored outline is the guide from now on, so the map's building no longer shows in Draw.
-  buttonNamed(panel, "Draw")!.click();
-  await settle(panel);
+  // The stored outline is the guide from now on, so the map's building no longer shows.
   expect(guideLine()).toEqual({ type: "FeatureCollection", features: [] });
   buttonNamed(panel, "Undo")!.click();
   await vi.waitFor(() => expect(siteSaves(connection)).toHaveLength(2));
@@ -119,7 +117,7 @@ test("Undo of Use outline brings the question back with the pick kept", async ()
   await vi.waitFor(() => expect(guidePart(panel, ".detail")).toBe("5.70 × 7.70 m. Or click another building."));
 });
 
-test("Draw it myself keeps Draw on and the outline as a dotted snap guide for the Building and the rooms", async () => {
+test("Draw it myself keeps Draw on and the outline as a dotted snap guide in Draw and Select, not in Align", async () => {
   const { panel } = await offer(MAP_HOUSE);
   buttonNamed(panel, "Draw it myself")!.click();
   await settle(panel);
@@ -136,4 +134,10 @@ test("Draw it myself keeps Draw on and the outline as a dotted snap guide for th
   handlers.mousemove(mouse(3, -40));
   await nextFrame();
   expect(snapHighlights()).toEqual(["LineString"]);
+  buttonNamed(panel, "Select")!.click();
+  await settle(panel);
+  expect(latticeCorners(guideLine() as Polygon)).toEqual([[6, 6], [394, 6], [394, 314], [6, 314], [6, 6]]);
+  await chooseFromMenu(panel, "Change alignment");
+  await settle(panel);
+  expect(guideLine()).toEqual({ type: "FeatureCollection", features: [] });
 });
