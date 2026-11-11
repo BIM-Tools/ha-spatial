@@ -167,13 +167,12 @@ test("the panel follows changes through spatial/subscribe, open to non-admin use
 const stackKinds = () =>
   (sources.stack.data as { features: { properties: { kind: string } }[] }).features.map((f) => f.properties.kind);
 
-test("All draws the stack's slabs, rooms and walls from base_m to top_m instead of the ground outline, and a floor the other way round", async () => {
+test("All draws the stack's outline, rooms and walls from base_m to top_m instead of the ground outline, and a floor the other way round", async () => {
   const { panel } = mountPanel({ geojson: TWO_FLOORS, site: DONE_SITE });
   await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
   handlers["style.load"]();
   for (const [id, kind] of [
-    ["stack-slabs", "slab"],
-    ["stack-slab-edges", "slab-edge"],
+    ["stack-outline", "outline"],
     ["stack-rooms", "room"],
     ["stack-room-edges", "edge"],
   ]) {
@@ -185,13 +184,13 @@ test("All draws the stack's slabs, rooms and walls from base_m to top_m instead 
       paint: { "fill-extrusion-base": ["get", "base_m"], "fill-extrusion-height": ["get", "top_m"] },
     });
   }
-  expect(stackKinds().filter((kind) => kind === "slab")).toHaveLength(2);
+  expect(new Set(stackKinds())).toEqual(new Set(["outline", "room", "edge"]));
   const visibility = (id: string) => layers.find((layer) => layer.id === id)?.layout?.visibility;
   expect(visibility("spatial-outline")).toBe("none");
   await settle(panel);
   buttonNamed(panel, "No floor")!.click();
   await settle(panel);
-  expect(visibility("stack-slabs")).toBe("none");
+  expect(visibility("stack-outline")).toBe("none");
   expect(visibility("spatial-outline")).toBe("visible");
 });
 
@@ -231,7 +230,7 @@ const floorLabels = () =>
     .filter((marker) => marker.element.className === "floor-label")
     .map((marker) => [...marker.element.children].map((line) => line.textContent).join(", "));
 
-test("a fixed floor all shows a static stack from the front corner, each slab named by Home Assistant", async () => {
+test("a fixed floor all shows a static stack from the front corner, each floor named by Home Assistant", async () => {
   const { panel } = mountPanel({
     geojson: () => TWO_FLOORS,
     card: true,
