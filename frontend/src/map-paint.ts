@@ -71,6 +71,7 @@ const computeColor = (element: Element, token: string): Rgba | undefined => {
 /** Home Assistant's default theme, for a token the theme does not set. */
 const DEFAULTS: Record<string, [light: string, dark: string]> = {
   "--primary-color": ["#03a9f4", "#03a9f4"],
+  "--accent-color": ["#ff9800", "#ff9800"],
   "--warning-color": ["#ffa600", "#ffa600"],
   "--card-background-color": ["#ffffff", "#1c1c1c"],
   "--primary-text-color": ["#212121", "#e1e1e1"],
@@ -80,6 +81,8 @@ const DEFAULTS: Record<string, [light: string, dark: string]> = {
 /** The map's colours, as rgba() strings MapLibre parses. */
 export interface MapPaint {
   primary: string;
+  // What a point snaps to, set apart from the primary editing lines.
+  accent: string;
   roomFill: string;
   roomEdge: string;
   // Drawn over the room's own fill, so together they make the active fill.
@@ -121,6 +124,7 @@ export const readMapPaint = (element: Element, dark: boolean): MapPaint => {
   const ground = mix(color("--card-background-color"), color("--secondary-text-color"), dark ? 0.88 : 1);
   return {
     primary: rgba(primary),
+    accent: rgba(color("--accent-color")),
     roomFill: rgba(primary, roomOpacity),
     roomEdge: rgba(primary, dark ? 0.75 : 0.7),
     activeRoomFill: rgba(primary, 1 - (1 - activeOpacity) / (1 - roomOpacity)),
@@ -168,9 +172,9 @@ export const layerColours = (paint: MapPaint): LayerColours => ({
   "spatial-draft-fill": { "fill-color": apart(paint.apartFill, paint.draftFill) },
   "spatial-draft": { "line-color": apart(paint.apartEdge, paint.primary) },
   "spatial-draft-point": { "circle-color": paint.primary, "circle-stroke-color": paint.handleFill },
-  "spatial-snap-line": { "line-color": paint.primary },
-  "spatial-snap-point": { "circle-color": paint.primary, "circle-stroke-color": paint.handleFill },
-  "spatial-snap-marker": { "circle-color": paint.handleFill, "circle-stroke-color": paint.primary },
+  "spatial-snap-line": { "line-color": paint.accent },
+  "spatial-snap-point": { "circle-color": paint.accent, "circle-stroke-color": paint.handleFill },
+  "spatial-snap-marker": { "circle-color": paint.handleFill, "circle-stroke-color": paint.accent },
 });
 
 type PaintArguments = Parameters<MapLibreMap["setPaintProperty"]>;

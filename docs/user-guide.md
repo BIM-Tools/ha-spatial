@@ -212,7 +212,8 @@ Exactly one tool is active; **Select** is the default. The tools work on a floor
 - **Snap:** each direction snaps on its own. Across and down, a corner within 8 px (12 px on a
   touch screen) of a room wall on this floor that runs along the site direction lands on that
   wall, and one near a room corner lines up with it; the outline comes after the rooms, the
-  grid last. Near two walls that meet, it lands on both. What it snaps to lights up: a short
+  grid last. Near two walls that meet, it lands on both. What it snaps to lights up in the
+  theme's accent colour (orange by default), apart from the lines being edited: a short
   thick line on the wall around the snapped point, a short line on both walls and a dot at a
   corner, else a dot on the corner it lines up with. The active shape's own walls never light
   up. Before the first corner, a small ring under the pointer shows where a click would put it,
