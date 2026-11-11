@@ -2,6 +2,7 @@
 import type { Feature, Polygon } from "geojson";
 import { expect, test } from "vitest";
 import {
+  CARD_FIELD_OF_VIEW_DEG,
   FIT_MARGIN,
   FLOOR_SPACING_M,
   type StackPoint,
@@ -226,11 +227,11 @@ const HOUSE: StackPoint[] = [0, 5, 10, 10.3].flatMap((z) =>
 );
 
 test.each([
-  { name: "a wide card from the front corner", screen: { width: 800, height: 400 }, padding: { top: 0, right: 0, bottom: 0, left: 0 }, turn: -45 },
-  { name: "a phone with controls on top and bottom", screen: { width: 390, height: 700 }, padding: { top: 120, right: 0, bottom: 90, left: 0 }, turn: -45 },
-  { name: "a panel with labels on the right", screen: { width: 1440, height: 800 }, padding: { top: 80, right: 200, bottom: 100, left: 0 }, turn: 30 },
-])("fitStack fits the whole stack in the free space with its margin: $name", ({ screen, padding, turn }) => {
-  const full: StackScreen = { ...screen, fovDeg: 36.87, latitude: 52 };
+  { name: "a wide card from the front corner", screen: { width: 800, height: 400 }, padding: { top: 0, right: 0, bottom: 0, left: 0 }, turn: -45, fov: CARD_FIELD_OF_VIEW_DEG },
+  { name: "a phone with controls on top and bottom", screen: { width: 390, height: 700 }, padding: { top: 120, right: 0, bottom: 90, left: 0 }, turn: -45, fov: 36.87 },
+  { name: "a panel with labels on the right", screen: { width: 1440, height: 800 }, padding: { top: 80, right: 200, bottom: 100, left: 0 }, turn: 30, fov: 36.87 },
+])("fitStack fits the whole stack in the free space with its margin: $name", ({ screen, padding, turn, fov }) => {
+  const full: StackScreen = { ...screen, fovDeg: fov, latitude: 52 };
   const fit = fitStack(HOUSE, turn, 55, full, padding)!;
   const pixels = HOUSE.map((point) => projectPoint(point, { ...fit, turnDeg: turn, pitchDeg: 55 }, full)!);
   const xs = pixels.map(([x]) => x);

@@ -31,6 +31,7 @@ import {
   floorEntry,
   jumpTo,
   liveMarkers,
+  mapFieldOfViewNow,
   touchZoomRotate,
   SITE,
   sources,
@@ -40,6 +41,7 @@ import { US_UNIT_M, siteFrameData } from "./site-frame-fixture";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
 
+import { CARD_FIELD_OF_VIEW_DEG } from "../src/floor-stack";
 import { PlanFrame } from "../src/site-frame";
 import "../src/spatial-panel";
 
@@ -246,16 +248,18 @@ test("a fixed floor all shows a static stack from the front corner, each floor n
   expect(floorLabels()).toEqual(["Ground floor, 1 room", "First floor, 1 room"]);
 });
 
-test("the card neither turns nor tilts; the panel's All view may", async () => {
+test("the card neither turns nor tilts and looks from afar; the panel's All view may orbit in MapLibre's perspective", async () => {
   mountPanel({ card: true });
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
   expect(mapCreated.mock.calls[0][0]).toMatchObject({ dragRotate: false, touchPitch: false });
   expect(touchZoomRotate.isRotationEnabled()).toBe(false);
+  expect(mapFieldOfViewNow).toBe(CARD_FIELD_OF_VIEW_DEG);
   resetFakes();
   mountPanel();
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
   expect(mapCreated.mock.calls[0][0]).toMatchObject({ dragRotate: true, touchPitch: true });
   expect(touchZoomRotate.isRotationEnabled()).toBe(true);
+  expect(mapFieldOfViewNow).toBe(36.87);
 });
 
 test("leaving All lays the plan flat with the wall horizontal and drops the floor labels; the compass in All returns to the front corner", async () => {

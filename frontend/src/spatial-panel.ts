@@ -19,6 +19,7 @@ import { type Place, cameraFor, homeQuestion, homeUnknown } from "./address";
 import "./address-search";
 import "./editor-toolbar";
 import {
+  CARD_FIELD_OF_VIEW_DEG,
   type FloorStack,
   FloorLabels,
   VIEW_PITCH_DEG,
@@ -958,7 +959,11 @@ class SpatialPanel extends LitElement {
       dragRotate: !this.card,
       touchPitch: !this.card,
     });
-    if (this.card) map.touchZoomRotate.disableRotation();
+    if (this.card) {
+      map.touchZoomRotate.disableRotation();
+      // The admin panel keeps MapLibre's own perspective, which helps while orbiting the stack.
+      map.setVerticalFieldOfView(CARD_FIELD_OF_VIEW_DEG);
+    }
     this._map = map;
     this._labels = new RoomLabels(map, !this.card, () => this.hass!, () => this._buildingName());
     this._floorLabels = new FloorLabels(map);

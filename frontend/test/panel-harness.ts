@@ -31,6 +31,8 @@ export let layers: {
   paint?: Record<string, unknown>;
 }[] = [];
 export let mapBearingNow = 0;
+// MapLibre's default vertical field of view, until the panel sets another.
+export let mapFieldOfViewNow = 36.87;
 // The canvas of the latest map, whose style carries the cursor.
 export let mapCanvas = document.createElement("canvas");
 
@@ -146,6 +148,7 @@ export const fakeMapLibre = {
       sources = {};
       layers = [];
       mapBearingNow = options.bearing ?? 0;
+      mapFieldOfViewNow = 36.87;
     }
     listeners: Record<string, ((event?: object) => void)[]> = {};
     on(event: string, handler: (event?: object) => void) {
@@ -241,7 +244,10 @@ export const fakeMapLibre = {
       return 0;
     }
     getVerticalFieldOfView() {
-      return 36.87;
+      return mapFieldOfViewNow;
+    }
+    setVerticalFieldOfView(fov: number) {
+      mapFieldOfViewNow = fov;
     }
     zoomIn() {
       zoomIn();

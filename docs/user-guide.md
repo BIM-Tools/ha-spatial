@@ -338,7 +338,7 @@ show icon and name without the area.
 | `floor` | Shows |
 | --- | --- |
 | not set | Floor buttons for the floors with rooms; pan and zoom |
-| `all` | All floors' rooms stacked from the front corner, fixed |
+| `all` | All floors' rooms stacked from the front corner, fixed, every floor at the same scale like an axonometric drawing |
 | a `floor_id` | That floor as a plan, fixed |
 
 | `show_map` | Shows |

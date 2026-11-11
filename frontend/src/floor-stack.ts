@@ -24,6 +24,15 @@ export const ROOM_EDGE_PX = 1.2;
 /** The default view: 45 degrees off the front facade, which runs down to the right, and 35 degrees above the horizon. */
 export const VIEW_TURN_DEG = -45;
 export const VIEW_PITCH_DEG = 55;
+/**
+ * The card's vertical field of view, in degrees: so narrow that the camera stands far off and every
+ * floor shows at nearly one scale, like an axonometric drawing. MapLibre's near plane stays at a
+ * fiftieth of the map's height, so the depth buffer's step grows with the square of the distance:
+ * at 2 degrees it passes the raises above a slab and rooms break up in stripes, at 6 it stays under
+ * them on a card up to about 1200 pixels high. The scale then changes by about a tenth from the
+ * front of the stack to its back, where MapLibre's default of about 37 degrees nearly doubles it.
+ */
+export const CARD_FIELD_OF_VIEW_DEG = 6;
 /** Room around the stack, as a share of its size on screen. */
 export const FIT_MARGIN = 0.15;
 
