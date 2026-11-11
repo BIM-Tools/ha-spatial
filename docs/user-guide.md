@@ -111,9 +111,10 @@ nothing is asked. This needs an administrator, like the panel.
      **Looks right** moves on to the first room.
    - **Draw it myself** keeps Draw on, and the shape stays as a thin dotted line.
 
-   Until an outline is saved, that dotted line shows whenever Draw is on, and the outline and
-   the rooms snap to it after other rooms, lighting it up like any other wall. It never stops a
-   move, as the map is only roughly right; once the outline is saved, the outline is the guide.
+   Until an outline is saved, that dotted line shows in Draw and in Select, and the outline and
+   the rooms snap to it after other rooms while drawn, moved or resized, lighting it up like any
+   other wall. It never stops a move, as the map is only roughly right; once the outline is
+   saved, the outline is the guide.
 
    To draw it, put it on the middle of the exterior walls, with the building on the map as a
    guide, and click each corner in turn; the line says "Click each corner; click the first
