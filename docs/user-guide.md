@@ -92,7 +92,7 @@ nothing is asked. This needs an administrator, like the panel.
    is picked, its own shape shows dashed, 150 mm inside the map's line (the map shows the outer
    face of the walls, the outline is their axis), with walls within 3 degrees of the site
    direction, or at most one unit of the map tiles (about 40 cm) across it, straightened onto it and diagonal walls kept. The line at the top asks "Use the
-   map's outline?" with its size along the site direction, for example "9.80 × 7.60 m Or click
+   map's outline?" with its size along the site direction, for example "9.80 × 7.60 m. Or click
    another building.", or "9.80 × 7.60 m overall" for any shape but a rectangle. A part
    narrower than about 30 cm disappears when the shape moves inward; when that splits the
    building, the largest piece is offered. Only when nothing usable is left (a building under
