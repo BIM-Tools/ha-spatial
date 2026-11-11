@@ -92,12 +92,9 @@ export interface MapPaint {
   apartEdge: string;
   apartFill: string;
   handleFill: string;
-  // The stack of all floors: opaque, since an extrusion's opacity is one value for its whole layer.
-  slab: string;
-  // The slab darkened a little, so its edge reads as the outline of a thin sheet.
-  slabEdge: string;
-  slabRoom: string;
-  slabRoomEdge: string;
+  // The rooms in the stack of all floors: opaque, since an extrusion's opacity is one value for its whole layer.
+  stackRoom: string;
+  stackRoomEdge: string;
 }
 
 const rgba = ([r, g, b, a]: Rgba, opacity = 1) => `rgba(${r},${g},${b},${Math.round(a * opacity * 1000) / 1000})`;
@@ -120,7 +117,8 @@ export const readMapPaint = (element: Element, dark: boolean): MapPaint => {
   const roomOpacity = dark ? 0.12 : 0.1;
   const activeOpacity = dark ? 0.3 : 0.24;
   const tintOpacity = dark ? 0.22 : 0.18;
-  const slab = mix(color("--card-background-color"), color("--secondary-text-color"), dark ? 0.88 : 1);
+  // What a see-through room fill would show through: the card, a little lighter in the dark theme.
+  const ground = mix(color("--card-background-color"), color("--secondary-text-color"), dark ? 0.88 : 1);
   return {
     primary: rgba(primary),
     roomFill: rgba(primary, roomOpacity),
@@ -134,10 +132,8 @@ export const readMapPaint = (element: Element, dark: boolean): MapPaint => {
     apartEdge: rgba(warning),
     apartFill: rgba(warning, 0.16),
     handleFill: rgba(color("--card-background-color")),
-    slab: rgba(slab),
-    slabEdge: rgba(mix(slab, color("--secondary-text-color"), 0.7)),
-    slabRoom: rgba(mix(primary, slab, dark ? 0.14 : 0.12)),
-    slabRoomEdge: rgba(mix(primary, slab, dark ? 0.75 : 0.7)),
+    stackRoom: rgba(mix(primary, ground, dark ? 0.14 : 0.12)),
+    stackRoomEdge: rgba(mix(primary, ground, dark ? 0.75 : 0.7)),
   };
 };
 
@@ -148,10 +144,9 @@ export type LayerColours = Record<string, Record<string, unknown>>;
 
 /** The colour paint of every layer the panel adds, by layer id; widths and dashes stay with each layer. */
 export const layerColours = (paint: MapPaint): LayerColours => ({
-  "stack-slabs": { "fill-extrusion-color": paint.slab },
-  "stack-slab-edges": { "fill-extrusion-color": paint.slabEdge },
-  "stack-rooms": { "fill-extrusion-color": paint.slabRoom },
-  "stack-room-edges": { "fill-extrusion-color": paint.slabRoomEdge },
+  "stack-outline": { "fill-extrusion-color": paint.building },
+  "stack-rooms": { "fill-extrusion-color": paint.stackRoom },
+  "stack-room-edges": { "fill-extrusion-color": paint.stackRoomEdge },
   "areas-2d": { "fill-color": paint.roomFill },
   "areas-outline": { "line-color": paint.roomEdge },
   "spatial-outline": { "line-color": paint.building },

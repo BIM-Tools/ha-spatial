@@ -19,6 +19,7 @@ import { type Place, cameraFor, homeQuestion, homeUnknown } from "./address";
 import "./address-search";
 import "./editor-toolbar";
 import {
+  CARD_FIELD_OF_VIEW_DEG,
   type FloorStack,
   FloorLabels,
   VIEW_PITCH_DEG,
@@ -70,8 +71,7 @@ interface Hass extends HassUnits {
 const WALL_OFFSET_SHARE = 0.3;
 // The stack's layers, bottom up: id and feature kind.
 const STACK_LAYERS: [string, string][] = [
-  ["stack-slabs", "slab"],
-  ["stack-slab-edges", "slab-edge"],
+  ["stack-outline", "outline"],
   ["stack-rooms", "room"],
   ["stack-room-edges", "edge"],
 ];
@@ -393,7 +393,7 @@ class SpatialPanel extends LitElement {
   private _unsubscribe?: () => void;
   private _labels?: RoomLabels;
   private _floorLabels?: FloorLabels;
-  // All floors as slabs, built again with every load of the rooms.
+  // All floors as a stack of their rooms, built again with every load of the rooms.
   private _stack?: FloorStack;
   // Only the admin panel edits; the card stays read-only.
   private _editor?: RoomEditor;
@@ -439,7 +439,7 @@ class SpatialPanel extends LitElement {
     return darkModeOf(this.hass!, window.matchMedia(DARK_QUERY).matches);
   }
 
-  // The card's show_map option; without it a card of all floors shows the slabs on plain ground and one of a floor keeps the map.
+  // The card's show_map option; without it a card of all floors shows the stack on plain ground and one of a floor keeps the map.
   private get _mapVisible() {
     if (this.card) return this.showMap ?? this.floor !== "all";
     return this._mapShown || this._aligning;
@@ -959,7 +959,11 @@ class SpatialPanel extends LitElement {
       dragRotate: !this.card,
       touchPitch: !this.card,
     });
-    if (this.card) map.touchZoomRotate.disableRotation();
+    if (this.card) {
+      map.touchZoomRotate.disableRotation();
+      // The admin panel keeps MapLibre's own perspective, which helps while orbiting the stack.
+      map.setVerticalFieldOfView(CARD_FIELD_OF_VIEW_DEG);
+    }
     this._map = map;
     this._labels = new RoomLabels(map, !this.card, () => this.hass!, () => this._buildingName());
     this._floorLabels = new FloorLabels(map);
@@ -1027,7 +1031,7 @@ class SpatialPanel extends LitElement {
     return mapBearing(this._state.axisDeg + (this._state.floor === "all" ? VIEW_TURN_DEG : 0));
   }
 
-  // The edges are strips a pixel or so wide and every raise above a slab is under a pixel at this zoom, so they are built again after a zoom.
+  // The edges are strips a pixel or so wide and every raise above a floor is under a pixel at this zoom, so they are built again after a zoom.
   private _buildStack(zoom = this._map?.getZoom() ?? START_ZOOM) {
     const frame = this._state.frame;
     if (!frame) return;
@@ -1046,10 +1050,10 @@ class SpatialPanel extends LitElement {
     this._showFloorLabels();
   }
 
-  // Each slab is named while All is on screen.
+  // Each floor in the stack is named while All is on screen.
   private _showFloorLabels() {
-    const slabs = this._state.floor === "all" ? (this._stack?.slabs ?? []) : [];
-    this._floorLabels?.show(slabs, this._state.frame, (floorId) => this._floorName(floorId));
+    const floors = this._state.floor === "all" ? (this._stack?.floors ?? []) : [];
+    this._floorLabels?.show(floors, this._state.frame, (floorId) => this._floorName(floorId));
   }
 
   // The whole stack in view from the front corner, clear of the floating controls and the floor labels.
@@ -1084,7 +1088,7 @@ class SpatialPanel extends LitElement {
     };
   }
 
-  // "All" stacks the floors as slabs; one floor is a flat plan with room outlines.
+  // "All" stacks the floors' rooms; one floor is a flat plan with room outlines.
   private _addAreas() {
     const map = this._map!;
     const colours = layerColours(this._readPaint());
@@ -1421,7 +1425,7 @@ class SpatialPanel extends LitElement {
     const map = this._map!;
     const flat = this._state.floor !== "all";
     for (const [id] of STACK_LAYERS) map.setLayoutProperty(id, "visibility", flat ? "none" : "visible");
-    // The slabs carry the outline in All; on the ground it would cross them.
+    // The stack carries the outline in All, under the ground floor's rooms; a flat line would cross them.
     map.setLayoutProperty("spatial-outline", "visibility", flat ? "visible" : "none");
     for (const id of ["areas-2d", "areas-outline"]) {
       map.setLayoutProperty(id, "visibility", flat ? "visible" : "none");
@@ -1439,7 +1443,7 @@ class SpatialPanel extends LitElement {
     this._showLabels();
     this._showFloorLabels();
     // Before the style has loaded, `_addAreas` applies the floor.
-    if (this._map?.getLayer("stack-slabs")) this._applyFloor();
+    if (this._map?.getLayer("stack-outline")) this._applyFloor();
     // Drawing needs the plan flat with the picked wall horizontal again.
     if (floor === "all") this._viewStack(true);
     else if (previous === "all") this._map?.easeTo({ pitch: 0, bearing: mapBearing(this._state.axisDeg) });

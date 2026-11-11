@@ -1,4 +1,4 @@
-// All floors at a glance: an exploded stack of flat floor sheets and the camera that frames it, worked out without a map so both can be tested.
+// All floors at a glance: an exploded stack of each floor's rooms over the building outline and the camera that frames it, worked out without a map so both can be tested.
 
 import type { Feature, FeatureCollection, Polygon, Position } from "geojson";
 import { css } from "lit";
@@ -9,21 +9,30 @@ import type { PlanFrame } from "./site-frame";
 /** A point in the site frame, in metres: x along the site bearing, y to its left, z up. */
 export type StackPoint = [number, number, number];
 
-/** From one slab to the next: a little more than a storey, so each floor shows between the ones above and below it. */
-export const SLAB_SPACING_M = 3.2;
-// The slab is a flat sheet with no height; its edge, the rooms' fill and their edges rise above it
-// and each other by a share of a screen pixel, so the depth test never has to choose between two
-// equal heights, while no side face grows to a visible band at any zoom.
-const SLAB_EDGE_RAISE_PX = 0.3;
+/** From one floor to the next: a little more than a storey, so each floor shows between the ones above and below it. */
+export const FLOOR_SPACING_M = 3.2;
+// The outline, the rooms' fill and their edges rise above their floor and each other by a share of
+// a screen pixel, so the depth test never has to choose between two equal heights, while no side
+// face grows to a visible band at any zoom.
+const OUTLINE_RAISE_PX = 0.3;
 const ROOM_FILL_RAISE_PX = 0.6;
 const ROOM_EDGE_RAISE_PX = 0.9;
-/** On-screen widths of the slab's edge and of the rooms' edges, in pixels. */
-export const SLAB_EDGE_PX = 1.5;
+/** On-screen widths of the outline and of the rooms' edges, in pixels. */
+export const OUTLINE_PX = 1.5;
 export const ROOM_EDGE_PX = 1.2;
 
 /** The default view: 45 degrees off the front facade, which runs down to the right, and 35 degrees above the horizon. */
 export const VIEW_TURN_DEG = -45;
 export const VIEW_PITCH_DEG = 55;
+/**
+ * The card's vertical field of view, in degrees: so narrow that the camera stands far off and every
+ * floor shows at nearly one scale, like an axonometric drawing. MapLibre's near plane stays at a
+ * fiftieth of the map's height, so the depth buffer's step grows with the square of the distance:
+ * at 2 degrees it passes the raises above a slab and rooms break up in stripes, at 6 it stays under
+ * them on a card up to about 1200 pixels high. The scale then changes by about a tenth from the
+ * front of the stack to its back, where MapLibre's default of about 37 degrees nearly doubles it.
+ */
+export const CARD_FIELD_OF_VIEW_DEG = 6;
 /** Room around the stack, as a share of its size on screen. */
 export const FIT_MARGIN = 0.15;
 
@@ -39,8 +48,8 @@ const floorsOf = (room: Feature): (string | null)[] => {
 };
 
 /**
- * The floors that get a slab, lowest first: every floor a room lies on or reaches into, by level.
- * No floor gets none; its rooms lie on the ground.
+ * The floors in the stack, lowest first: every floor a room lies on or reaches into, by level.
+ * No floor is not one of them; its rooms lie on the ground.
  */
 export const stackFloors = (rooms: Feature[], levelOf: (floorId: string) => number | null): string[] => {
   const floorIds = new Set<string>();
@@ -51,21 +60,21 @@ export const stackFloors = (rooms: Feature[], levelOf: (floorId: string) => numb
     .map((floor) => floor.floor_id);
 };
 
-/** The height of the slab at this place in the stack, in metres; the lowest floor lies on the ground. */
-export const slabBase = (index: number): number => index * SLAB_SPACING_M;
+/** The height of the floor at this place in the stack, in metres; the lowest floor lies on the ground. */
+export const floorBase = (index: number): number => index * FLOOR_SPACING_M;
 
-/** A floor's slab: its floor, how many rooms lie on it, and the corners of its sheet, for the floor's label. */
-export interface Slab {
+/** A floor in the stack, for its label: its floor, how many rooms lie on it, and the corners drawn on it. */
+export interface StackFloor {
   floorId: string;
   rooms: number;
-  top: StackPoint[];
+  corners: StackPoint[];
 }
 
 export interface FloorStack {
-  /** Slabs and their edges, rooms and their edges as `kind` with `base_m` and `top_m`, for MapLibre's fill-extrusion. */
+  /** The outline, rooms and their edges as `kind` with `base_m` and `top_m`, for MapLibre's fill-extrusion. */
   features: FeatureCollection<Polygon>;
-  slabs: Slab[];
-  /** Every corner of the slabs and rooms, for framing the stack. */
+  floors: StackFloor[];
+  /** Every corner of the outline and rooms, for framing the stack. */
   corners: StackPoint[];
 }
 
@@ -83,7 +92,7 @@ export const metresForPixels = (pixels: number, zoom: number, latitude: number):
 
 /**
  * Custom: one thin rectangle `widthM` wide along every edge of the rings, a little longer than the
- * edge, so the edges meet at the corners. MapLibre cannot raise a line, so an edge on a raised slab
+ * edge, so the edges meet at the corners. MapLibre cannot raise a line, so an edge on a raised floor
  * is drawn as a low extrusion.
  */
 export const edgeStrips = (polygon: Polygon, frame: PlanFrame, widthM: number): Polygon[] =>
@@ -107,10 +116,10 @@ export const edgeStrips = (polygon: Polygon, frame: PlanFrame, widthM: number): 
   );
 
 /**
- * The stack: a slab per floor in `floors`, under the building outline or, without one, under that
- * floor's rooms, with its edge; each room as a fill with its edge on every slab it occupies. Rooms
- * on No floor lie on the ground without a slab. `pixelM` is the size of a screen pixel in metres,
- * which keeps the edges thin lines and every raise above a slab below a pixel.
+ * The stack: each room as a fill with its edge on every floor in `floors` it occupies, and the
+ * building outline as a line on the ground, under the lowest floor's rooms. Rooms on No floor lie on
+ * the ground too. `pixelM` is the size of a screen pixel in metres, which keeps the edges thin lines
+ * and every raise above a floor below a pixel.
  */
 export const floorStack = (
   rooms: Feature<Polygon>[],
@@ -121,41 +130,38 @@ export const floorStack = (
 ): FloorStack => {
   const features: Feature<Polygon>[] = [];
   const corners: StackPoint[] = [];
+  const cornersOnFloor = new Map<string | null, StackPoint[]>(floors.map((floorId) => [floorId, []]));
   const add = (kind: string, geometry: Polygon, base: number, top: number) =>
     features.push({ type: "Feature", geometry, properties: { kind, base_m: base, top_m: top } });
-  const addCorners = (geometry: Polygon, heights: number[]) => {
-    for (const position of geometry.coordinates[0]) {
-      const [x, y] = toMetres(frame, position);
-      for (const z of heights) corners.push([x, y, z]);
+  const addCorners = (geometry: Polygon, floorId: string | null, z: number) => {
+    // GeoJSON allows an empty polygon, without rings.
+    for (const position of geometry.coordinates[0] ?? []) {
+      const corner: StackPoint = [...toMetres(frame, position), z];
+      corners.push(corner);
+      cornersOnFloor.get(floorId)?.push(corner);
     }
   };
-  const slabs = floors.map((floorId, index) => {
-    const base = slabBase(index);
-    const footprints = outline
-      ? [outline]
-      : rooms.filter((room) => floorsOf(room).includes(floorId)).map((room) => room.geometry);
-    const topCorners: StackPoint[] = [];
-    for (const footprint of footprints) {
-      add("slab", footprint, base, base);
-      for (const strip of edgeStrips(footprint, frame, SLAB_EDGE_PX * pixelM)) add("slab-edge", strip, base, base + SLAB_EDGE_RAISE_PX * pixelM);
-      addCorners(footprint, [base]);
-      for (const position of footprint.coordinates[0]) topCorners.push([...toMetres(frame, position), base]);
-    }
-    const roomCount = rooms.filter((room) => floorsOf(room).includes(floorId)).length;
-    return { floorId, rooms: roomCount, top: topCorners };
-  });
+  if (outline) {
+    for (const strip of edgeStrips(outline, frame, OUTLINE_PX * pixelM)) add("outline", strip, 0, OUTLINE_RAISE_PX * pixelM);
+    addCorners(outline, floors[0] ?? null, 0);
+  }
   for (const room of rooms) {
     for (const floorId of floorsOf(room)) {
       const index = floorId === null ? -1 : floors.indexOf(floorId);
-      const floorTop = index < 0 ? 0 : slabBase(index);
-      add("room", room.geometry, floorTop, floorTop + ROOM_FILL_RAISE_PX * pixelM);
+      const base = index < 0 ? 0 : floorBase(index);
+      add("room", room.geometry, base, base + ROOM_FILL_RAISE_PX * pixelM);
       for (const strip of edgeStrips(room.geometry, frame, ROOM_EDGE_PX * pixelM)) {
-        add("edge", strip, floorTop, floorTop + ROOM_EDGE_RAISE_PX * pixelM);
+        add("edge", strip, base, base + ROOM_EDGE_RAISE_PX * pixelM);
       }
-      addCorners(room.geometry, [floorTop]);
+      addCorners(room.geometry, floorId, base);
     }
   }
-  return { features: { type: "FeatureCollection", features }, slabs, corners };
+  const floorsWithCorners = floors.map((floorId) => ({
+    floorId,
+    rooms: rooms.filter((room) => floorsOf(room).includes(floorId)).length,
+    corners: cornersOnFloor.get(floorId)!,
+  }));
+  return { features: { type: "FeatureCollection", features }, floors: floorsWithCorners, corners };
 };
 
 /** A camera on the stack: its centre on the ground in the site frame, MapLibre's zoom and pitch, and its turn from the frame's x-axis. */
@@ -264,13 +270,13 @@ export const fitStack = (
   return { centre, zoom };
 };
 
-/** Where a floor's label starts: just right of its slab's rightmost top corner on screen. */
+/** Where a floor's label starts: just right of the rightmost corner drawn on that floor, on screen. */
 export const labelAnchor = (
-  top: StackPoint[],
+  corners: StackPoint[],
   camera: StackCamera,
   screen: StackScreen,
 ): [number, number] | undefined => {
-  const pixels = top.map((corner) => projectPoint(corner, camera, screen));
+  const pixels = corners.map((corner) => projectPoint(corner, camera, screen));
   if (!pixels.length || pixels.some((pixel) => !pixel)) return undefined;
   return pixels.reduce((rightmost, pixel) => (pixel![0] > rightmost![0] ? pixel : rightmost))!;
 };
@@ -314,9 +320,9 @@ const cameraOf = (map: MapLibreMap, frame: PlanFrame): { camera: StackCamera; sc
   };
 };
 
-/** Names each slab with its Home Assistant floor, right of the slab, placed again on every camera move. */
+/** Names each floor in the stack with its Home Assistant floor, right of its rooms, placed again on every camera move. */
 export class FloorLabels {
-  private _slabs: { slab: Slab; marker: Marker }[] = [];
+  private _floors: { floor: StackFloor; marker: Marker }[] = [];
   private _frame?: PlanFrame;
 
   constructor(private readonly _map: MapLibreMap) {
@@ -330,31 +336,31 @@ export class FloorLabels {
     this.show([], undefined, () => "");
   }
 
-  /** The slabs to name, none outside All, in the frame they were built in. */
-  show(slabs: Slab[], frame: PlanFrame | undefined, floorName: (floorId: string) => string) {
-    for (const { marker } of this._slabs) marker.remove();
+  /** The floors to name, none outside All, in the frame they were built in. */
+  show(floors: StackFloor[], frame: PlanFrame | undefined, floorName: (floorId: string) => string) {
+    for (const { marker } of this._floors) marker.remove();
     this._frame = frame;
-    this._slabs = slabs.map((slab) => {
+    this._floors = floors.map((floor) => {
       const element = Object.assign(document.createElement("div"), { className: "floor-label" });
       const line = (className: string, text: string) =>
         Object.assign(document.createElement("span"), { className, textContent: text });
-      element.append(line("name", floorName(slab.floorId)), line("count", roomCount(slab.rooms)));
-      return { slab, marker: new Marker({ element, anchor: "left" }).setLngLat([0, 0]).addTo(this._map) };
+      element.append(line("name", floorName(floor.floorId)), line("count", roomCount(floor.rooms)));
+      return { floor, marker: new Marker({ element, anchor: "left" }).setLngLat([0, 0]).addTo(this._map) };
     });
     this.update();
   }
 
   /** The widest label in pixels, which the stack leaves room for on its right. */
   get width(): number {
-    return Math.max(0, ...this._slabs.map(({ marker }) => marker.getElement().offsetWidth));
+    return Math.max(0, ...this._floors.map(({ marker }) => marker.getElement().offsetWidth));
   }
 
   update = () => {
     const frame = this._frame;
-    if (!frame || !this._slabs.length) return;
+    if (!frame || !this._floors.length) return;
     const { camera, screen } = cameraOf(this._map, frame);
-    for (const { slab, marker } of this._slabs) {
-      const anchor = labelAnchor(slab.top, camera, screen);
+    for (const { floor, marker } of this._floors) {
+      const anchor = labelAnchor(floor.corners, camera, screen);
       marker.getElement().hidden = !anchor;
       if (anchor) marker.setLngLat(this._map.unproject(anchor));
     }

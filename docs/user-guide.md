@@ -137,7 +137,7 @@ nothing is asked. This needs an administrator, like the panel.
 4. **Next floor.** When every area of the floor has a shape, the line says "Ground floor done"
    with **Next floor** lit, which opens the next floor with an area to draw; the outline shows
    on every floor as a guide.
-5. **All.** Press **All** to see the floors as a stack of slabs, seen from the front corner of
+5. **All.** Press **All** to see the floors' rooms stacked above the outline, seen from the front corner of
    the house; the line says "Choose a floor to edit its rooms".
 
    ![All floors stacked in 3D; the strip shows only Building](images/all.png)
@@ -162,7 +162,7 @@ The menu closes with Escape or a click elsewhere.
 
 | Button | Shows |
 | --- | --- |
-| All | Every floor as a slab with its rooms, stacked with a gap between floors and seen from the front corner of the house, each slab named on its right with its number of rooms. Turn it with the right mouse button or two fingers; the compass returns to the view from the front corner. A view only: the tools, Undo and Redo are off, the strip shows only the Building pill, and the line at the top says "Choose a floor to edit its rooms" |
+| All | Every floor's rooms, stacked with a gap between floors over the building outline on the ground and seen from the front corner of the house, each floor named right of its rooms with its number of rooms. Turn it with the right mouse button or two fingers; the compass returns to the view from the front corner. A view only: the tools, Undo and Redo are off, the strip shows only the Building pill, and the line at the top says "Choose a floor to edit its rooms" |
 | A floor | That floor as a flat plan; every floor of Home Assistant is listed, ordered by level, also an empty one |
 | No floor | Areas without a floor |
 
@@ -338,7 +338,7 @@ show icon and name without the area.
 | `floor` | Shows |
 | --- | --- |
 | not set | Floor buttons for the floors with rooms; pan and zoom |
-| `all` | All floors as a stack of slabs from the front corner, fixed |
+| `all` | All floors' rooms stacked from the front corner, fixed, every floor at the same scale like an axonometric drawing |
 | a `floor_id` | That floor as a plan, fixed |
 
 | `show_map` | Shows |
@@ -365,7 +365,7 @@ cards:
 | On the facade: a room sharing the outline | The API (`on_facade`) |
 | Outdoor: a room outside the outline | The API (`is_external`) |
 | Room at a point | The API (`spatial/query_point`) |
-| Stack: a slab per floor in floor order, each room on the slab of every floor it occupies | All, and the card |
+| Stack: the floors in floor order, each room on every floor it occupies, the outline on the ground | All, and the card |
 
 The sizes shown while drawing are previews; the saved net area comes from the integration. The
 exact rules, and where they are approximate, are in the
@@ -379,8 +379,8 @@ each one means, and the [importer](../tools/README.md) sets floor heights.
 
 | Setting | In the panel |
 | --- | --- |
-| Floor elevation and height (`spatial/floor/update`) | Not shown; the slabs in All lie evenly apart in floor order |
-| `floors_up` | The room counts on each of those floors for neighbours, and lies on each of their slabs in All |
+| Floor elevation and height (`spatial/floor/update`) | Not shown; the floors in All lie evenly apart in floor order |
+| `floors_up` | The room counts on each of those floors for neighbours, and lies on each of those floors in All |
 | `on_facade_override` | Not shown |
 | Grid origin (the site's `origin`) | Where the 10 cm (4 in) drawing grid starts; only Align on an empty plan sets it from the panel |
 
@@ -407,6 +407,6 @@ each one means, and the [importer](../tools/README.md) sets floor heights.
   clicked wall; with the map hidden it is not offered. The map's buildings are about 0.4 m accurate, so check one length.
 - Undo covers this session only, and overwrites changes made elsewhere in the meantime. An undo
   for an area deleted in Home Assistant keeps failing; reload the panel to clear the history.
-- The slabs in All lie evenly apart in floor order, whatever elevation a floor has.
+- The floors in All lie evenly apart in floor order, whatever elevation a floor has.
 - A search result shows the house number after the street, also where addresses are written the
   other way round, and its second line may start with a neighbourhood rather than the town.
