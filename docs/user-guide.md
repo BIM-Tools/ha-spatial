@@ -92,7 +92,7 @@ nothing is asked. This needs an administrator, like the panel.
    is picked, its own shape shows dashed, 150 mm inside the map's line (the map shows the outer
    face of the walls, the outline is their axis), with walls within 3 degrees of the site
    direction, or at most one unit of the map tiles (about 40 cm) across it, straightened onto it and diagonal walls kept. The line at the top asks "Use the
-   map's outline?" with its size along the site direction, for example "9.80 × 7.60 m Or click
+   map's outline?" with its size along the site direction, for example "9.80 × 7.60 m. Or click
    another building.", or "9.80 × 7.60 m overall" for any shape but a rectangle. A part
    narrower than about 30 cm disappears when the shape moves inward; when that splits the
    building, the largest piece is offered. Only when nothing usable is left (a building under
@@ -180,7 +180,7 @@ Exactly one tool is active; **Select** is the default. The tools work on a floor
 | --- | --- |
 | Align | In the toolbar until the first Align, then in the header menu as Change alignment. One click on a building on the map, near a wall, saves that wall's direction as the site direction. Without a building under the click a toast says "No building here"; when Spatial refuses the new direction, the toast gives its reason. On an empty plan, with no room and no outline drawn, it also puts the grid origin on the left end of that wall. The map stays on while Align is active |
 | Draw | Draws boxes along the site direction (north up before any Align) for the highlighted pill; the building without an outline is drawn corner by corner instead. Corners snap to nearby room corners and walls on this floor and to the outline, else land on the 10 cm (4 in) grid; with Alt held they land on the 2.5 cm (1 in) lattice without snapping. While a side is shorter than one grid step only the start dot shows, and such a box is not drawn |
-| Select | A tap on a room makes it active: it is filled, edged and gets round handles on its corners. Drag the active room to move it, or a side or corner of a rectangle to resize it. Type exact side lengths (below) |
+| Select | A tap on a room makes it active: it is filled, edged and gets round handles on its corners. Drag the active room to move it, or a side or corner of a rectangle, or of the building outline in any shape, to resize it. Type exact side lengths of a rectangle (below) |
 
 ### The area strip
 
@@ -264,6 +264,18 @@ Exactly one tool is active; **Select** is the default. The tools work on a floor
   handle held turns the theme's primary colour. A click or tap without a drag opens the length
   field. On a touch screen, where the thin edge is hard to hit with a finger, a length also
   carries a grip mark, and every handle takes a fingertip-sized touch around it.
+- **Correct the outline:** when the building outline is not a rectangle, as when it came from the
+  map with a slanted wall, every side shows its length on a button, and its corners and sides can
+  be dragged with the **Building** pill active in Select. A corner moves freely and its two sides
+  follow: it snaps like a drawn corner, and also to the lines through the outline's other corners
+  across and down the site direction, so a crooked corner drops straight onto the line of the
+  walls around it. A side moves straight out or in, both its corners by the same amount: one along
+  the site direction snaps as above, a slanted one stays parallel and lands on the 2.5 cm (1 in)
+  lattice. The pointer is a move cross over a corner and a resize arrow across a side, a diagonal
+  one on a slanted side. A shape whose sides would cross, or with a side under one grid step,
+  shows in the warning colour and is not saved: a toast gives the reason. An outline that would
+  leave a room outside it is refused by Spatial with its reason. Each drag is one save and one
+  undo step. Its side lengths cannot be typed.
 - A stretched side or dragged corner is one save and one undo step; one that ends where it
   started saves nothing.
 - Lengths and areas follow Home Assistant's unit system and number format. Metric lengths show
@@ -339,7 +351,7 @@ show icon and name without the area.
 | `floor` | Shows |
 | --- | --- |
 | not set | Floor buttons for the floors with rooms; pan and zoom |
-| `all` | All floors' rooms stacked from the front corner, fixed |
+| `all` | All floors' rooms stacked from the front corner, fixed, every floor at the same scale like an axonometric drawing |
 | a `floor_id` | That floor as a plan, fixed |
 
 | `show_map` | Shows |
@@ -388,8 +400,9 @@ each one means, and the [importer](../tools/README.md) sets floor heights.
 ## Known limits
 
 - Boxes follow the site direction; walls at other angles cannot be drawn.
-- Side lengths can only be typed, and sides and corners only dragged, for a rectangle along the
-  site direction. A change arriving from elsewhere while a side field is open resets the field.
+- Side lengths can only be typed for a rectangle along the site direction, and sides and corners
+  only dragged for such a rectangle or the building outline; a room of another shape keeps its
+  shape. A change arriving from elsewhere while a side field is open resets the field.
 - A moved room, dragged side or corner cannot take space from another room; shrink that room
   first. A moved room travels in a straight line from where it was picked up, so a drag around a
   corner of the outline or of a room stops at that corner.
