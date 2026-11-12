@@ -124,8 +124,10 @@ nothing is asked. This needs an administrator, like the panel.
    direction, however far away, so the walls come out straight and the outline closes square.
    A line runs from the last corner to the pointer.
    Clicking the first corner again (within the snap reach, where the ring under the pointer
-   jumps onto it) saves the outline in one save and one undo step, and the next area is
-   highlighted. Escape, Undo or Ctrl+Z takes back the last corner; Escape on the only corner
+   jumps onto it) saves the outline in one save and one undo step. The outline then stays
+   active in Select, where you can drag its corners and sides to correct it, and the line says
+   "Check one length you know", as after **Use outline**; **Looks right** moves on to the first
+   room. Escape, Undo or Ctrl+Z takes back the last corner; Escape on the only corner
    ends the outline. An outline with fewer than three corners, a side shorter than one grid step
    or sides that cross is not saved: a toast gives the reason and the corners stay. Once the
    outline is saved, a box drawn with the building's pill against it joins it, as for rooms.
@@ -305,13 +307,16 @@ Exactly one tool is active; **Select** is the default. The tools work on a floor
   the Building outline included, at once and as one undo step. It is off while the active space
   has no shape.
 - Undo restores footprints only: an area created with New area stays in Home Assistant.
-- Saving is silent. Refusals and failures use Home Assistant's toast. "Could not save" stays with
-  **Retry**. A room that already had a shape keeps showing it as saved; a first box that failed
-  stays on the map until it saves or the next box replaces it.
+- Saving is silent. Refusals and failures use Home Assistant's toast. When the connection drops,
+  "Could not save" stays with **Retry**. A room that already had a shape keeps showing it as saved;
+  a first box that failed stays on the map until it saves or the next box replaces it.
 - Right after Home Assistant restarts, a save can come before Spatial has loaded; the toast then
   says "Spatial is still starting, try again in a moment", also with **Retry**.
-- Spatial refuses an indoor room that would extend beyond the outline, or a shape with no net
-  area left; in the panel that save ends as "Could not save".
+- A save Spatial refuses says why, without **Retry**, as the same save would be refused again:
+  "Rooms must stay inside the outline" for an indoor room that would extend beyond it, "Too small:
+  no floor is left inside the walls" for a shape with no net area left, "Changed elsewhere
+  meanwhile" or "This room was removed meanwhile" when the plan changed in another window, and
+  Spatial's own reason for a shape it cannot store.
 
 ### Help
 

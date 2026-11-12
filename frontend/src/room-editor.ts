@@ -16,7 +16,7 @@ import type { ScreenBox } from "./draft-labels";
 import { type SideControls, showSideControls } from "./side-controls";
 import type { LatticePoint, PlanFrame } from "./site-frame";
 import { snapCandidatesFor } from "./snap";
-import { type HassUnits, formatSize, refusalMessage, saveFailureMessage } from "./units";
+import { type HassUnits, formatSize, refusalMessage, saveFailure } from "./units";
 
 interface Connection {
   sendMessagePromise<T>(message: { type: string; [key: string]: unknown }): Promise<T>;
@@ -85,7 +85,7 @@ export class RoomEditor {
   private _mapOutline?: Polygon;
   // Draw it myself answers the offer for this visit.
   private _mapOutlineDeclined = false;
-  // After Use outline the guide asks to check one length, until Looks right.
+  // After a new outline the guide asks to check one length, until Looks right.
   private _checkingLength = false;
   // Counts acknowledged saves and started refreshes, so an older refresh cannot undo a newer save.
   private _changes = 0;
@@ -130,7 +130,7 @@ export class RoomEditor {
 
   /**
    * What the guide reads of the plan: every floor with its areas and which have a shape, the active pill,
-   * and the outline with its open question, the map's offer or the length to check after Use outline.
+   * and the outline with its open question, the map's offer or the length to check after a new outline.
    */
   plan(floorName: (floor: string | null) => string): Pick<
     Plan,
@@ -323,10 +323,16 @@ export class RoomEditor {
     if (!outline) return;
     this._whileSaving(async () => {
       await this._apply({ before: { [BUILDING]: null }, after: { [BUILDING]: outline } });
-      this._checkingLength = true;
-      this._host.selectTool("select");
+      this._checkOutline();
     });
   };
+
+  // A new outline stays active in Select, where its corners and sides can be corrected, and the guide
+  // asks to check one length until Looks right.
+  private _checkOutline() {
+    this._checkingLength = true;
+    this._host.selectTool("select");
+  }
 
   /** Answers the map's offer for this visit: Draw on, with the map's outline as a dotted snap guide. */
   drawOutlineMyself = () => {
@@ -590,7 +596,10 @@ export class RoomEditor {
       this._host.toast({ message: refusalMessage(drawn.refusal, this._host.units()) });
       return false;
     }
-    void this._saveDrawn(drawn.change, drawn.change.after[BUILDING] ?? undefined);
+    void this._whileSaving(async () => {
+      await this._apply(drawn.change);
+      this._checkOutline();
+    }, drawn.change.after[BUILDING] ?? undefined);
     return true;
   }
 
@@ -628,7 +637,7 @@ export class RoomEditor {
   }
 
   // One action at a time: a second one before the first settles would build on a stale footprint.
-  // A failed action offers to run again. A failed first shape stays on the map until it saves or the user draws
+  // A failed action offers to run again, unless it was refused and would fail the same way. A failed first shape stays on the map until it saves or the user draws
   // on; a room with a stored shape shows only that one, as a second outline reads as a second room.
   private async _whileSaving(action: () => Promise<void>, shape?: Polygon) {
     if (this._saving) return;
@@ -660,13 +669,12 @@ export class RoomEditor {
 
   private _saveFailed(error: unknown, retry: () => void) {
     this._saveFailedShown = true;
-    this._host.toast({
-      id: SAVE_FAILED_ID,
-      message: saveFailureMessage(error),
-      action: { text: "Retry", action: retry },
-      duration: -1,
-      dismissable: true,
-    });
+    const failure = saveFailure(error);
+    this._host.toast(
+      failure.retry
+        ? { id: SAVE_FAILED_ID, message: failure.message, action: { text: "Retry", action: retry }, duration: -1, dismissable: true }
+        : { id: SAVE_FAILED_ID, message: failure.message },
+    );
   }
 
   private _saveSucceeded() {
