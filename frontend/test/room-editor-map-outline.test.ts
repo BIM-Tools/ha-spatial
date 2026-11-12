@@ -2,8 +2,8 @@
 // Checks the offer to copy the outline from the map's building after Align: the question, Use outline and Draw it myself.
 import type { MultiPolygon, Polygon } from "geojson";
 import { afterEach, expect, test, vi } from "vitest";
-import { buttonNamed, chooseFromMenu, handlers, nextFrame, queryRenderedFeatures, resetFakes, settle, sources } from "./panel-harness";
-import { FRAME, chip, mountEditor, mouse, pixelBox, siteSaves, snapHighlights, startDrawing, toolPressed } from "./room-editor-fixture";
+import { buttonNamed, chooseFromMenu, handlers, nextFrame, queryRenderedFeatures, resetFakes, settle, sources, toasts } from "./panel-harness";
+import { FRAME, activeChip, chip, mountEditor, mouse, pixelBox, siteSaves, snapHighlights, startDrawing, toolPressed } from "./room-editor-fixture";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
 
@@ -82,6 +82,18 @@ test("in Select a click on another building picks it, and the offered outline fo
   await repick(panel);
   expect(guidePart(panel, ".detail")).toBe("5.70 × 7.70 m. Or click another building.");
   expect(latticeCorners(preview() as Polygon)).toEqual([[806, 6], [1034, 6], [1034, 314], [806, 314], [806, 6]]);
+});
+
+test("after Align a click on empty map in Select says nothing and deselects, and the question stays", async () => {
+  const { panel } = await offer(MAP_HOUSE);
+  buttonNamed(panel, "Select")!.click();
+  await settle(panel);
+  handlers.click(mouse(600, -40));
+  await settle(panel);
+  expect(toasts).toEqual([]);
+  expect(activeChip(panel)).toBeUndefined();
+  expect(guidePart(panel, ".text")).toBe("Use the map's outline?");
+  expect(latticeCorners(preview() as Polygon)).toEqual([[6, 6], [394, 6], [394, 314], [6, 314], [6, 6]]);
 });
 
 test("in Draw a click on another building picks it instead of starting a box", async () => {

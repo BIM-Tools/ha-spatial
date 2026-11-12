@@ -69,6 +69,7 @@ export class RoomEditor {
   private _areas: AreaEntry[] = [];
   private _footprints = new Map<string, Polygon>();
   private _floor: string | null | "all" = "all";
+  // "" after a click on empty map in Select: nothing is active, so nothing shows handles or side chips.
   private _active = BUILDING;
   // The area whose pill is a name field, or "".
   private _renaming = "";
@@ -153,8 +154,13 @@ export class RoomEditor {
       outlineIsBox: Boolean(outline && frame && isAxisRectangle(frame, outline)),
       floors,
       tool: this.tool,
-      active: this._active,
+      active: this._target(),
     };
+  }
+
+  // The active area, or with nothing active the one Draw would take, so the guide and the map's offer lead on.
+  private _target() {
+    return this._active || firstToDraw(this._order(), this._linked());
   }
 
   attach(map: MapLibreMap) {
@@ -260,7 +266,7 @@ export class RoomEditor {
     this._showHandles();
     this._showMapOutline();
     const order = this._order();
-    if (![BUILDING, ...order.map((area) => area.area_id)].includes(this._active)) {
+    if (this._active && ![BUILDING, ...order.map((area) => area.area_id)].includes(this._active)) {
       this._setActive(order[0]?.area_id ?? BUILDING);
     }
     this._showSides();
@@ -273,10 +279,11 @@ export class RoomEditor {
     this._select(firstToDraw(this._order(), this._linked()));
   }
 
+  // Draw draws for an area, so with nothing active it takes the first to draw.
   setTool(tool: Tool) {
     this.tool = tool;
     this._interaction?.toolChanged();
-    this._select(this._active);
+    this._select(tool === "draw" ? this._target() : this._active);
   }
 
   /** The outline the map's building offers in the current site frame, or undefined when there is none. */
@@ -290,7 +297,7 @@ export class RoomEditor {
   // While the Building on a floor has no outline and the offer is open, the map's outline offers
   // itself, dashed, as the guide's question.
   private _offeredOutline(): Polygon | undefined {
-    if (this._mapOutlineDeclined || this.tool === "align" || this._floor === "all" || this._active !== BUILDING) return undefined;
+    if (this._mapOutlineDeclined || this.tool === "align" || this._floor === "all" || this._target() !== BUILDING) return undefined;
     return this._mapGuide();
   }
 

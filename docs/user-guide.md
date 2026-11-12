@@ -99,7 +99,8 @@ nothing is asked. This needs an administrator, like the panel.
    about 40 cm across, or a side shorter than 10 cm), nothing is offered and the line says
    "Draw the outline of your home ... Or click another building.". Until an outline is saved,
    the picked building stays as a thin line, buildings light up under the pointer, and a click
-   picks another one, whose shape and size are then offered. In Draw that holds for a click
+   picks another one, whose shape and size are then offered; a click beside every building
+   says nothing. In Draw that holds for a click
    inside another building, away from the picked one and before the first corner; any other
    click places a corner. The site direction stays; for a house
    at another angle use **Change alignment**.
@@ -237,8 +238,13 @@ Exactly one tool is active; **Select** is the default. The tools work on a floor
 
 ![Select on the ground floor: the living room active, with its corners and side lengths](images/hero.png)
 
-- Tap a room on the map, or its pill, to make it active. The **Building** pill makes the outline
-  active.
+- Tap a room on the map, or its pill, to make it active. The **Building** pill, or a tap inside
+  the outline away from the rooms, makes the outline active.
+- Tap the map outside the outline and the rooms to deselect: no pill is highlighted, and no
+  shape has handles or side lengths until you tap a room, a pill or the outline. **Draw** then
+  takes the area the line at the top names: the outline while there is none, else the next
+  area without a shape, else the outline. After Align such a tap says nothing; only while you
+  pick your home does a tap beside every building say "No building here".
 - When the active room is a rectangle along the site direction, its width and depth each show
   once, on a button on one of the two sides they measure: on the side that is not a wall shared
   with another room, else on the bottom for the width and the left for the depth. The other two
