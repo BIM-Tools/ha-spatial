@@ -85,7 +85,7 @@ export class RoomEditor {
   private _mapOutline?: Polygon;
   // Draw it myself answers the offer for this visit.
   private _mapOutlineDeclined = false;
-  // After Use outline the guide asks to check one length, until Looks right.
+  // After a new outline the guide asks to check one length, until Looks right.
   private _checkingLength = false;
   // Counts acknowledged saves and started refreshes, so an older refresh cannot undo a newer save.
   private _changes = 0;
@@ -130,7 +130,7 @@ export class RoomEditor {
 
   /**
    * What the guide reads of the plan: every floor with its areas and which have a shape, the active pill,
-   * and the outline with its open question, the map's offer or the length to check after Use outline.
+   * and the outline with its open question, the map's offer or the length to check after a new outline.
    */
   plan(floorName: (floor: string | null) => string): Pick<
     Plan,
@@ -323,10 +323,16 @@ export class RoomEditor {
     if (!outline) return;
     this._whileSaving(async () => {
       await this._apply({ before: { [BUILDING]: null }, after: { [BUILDING]: outline } });
-      this._checkingLength = true;
-      this._host.selectTool("select");
+      this._checkOutline();
     });
   };
+
+  // A new outline stays active in Select, where its corners and sides can be corrected, and the guide
+  // asks to check one length until Looks right.
+  private _checkOutline() {
+    this._checkingLength = true;
+    this._host.selectTool("select");
+  }
 
   /** Answers the map's offer for this visit: Draw on, with the map's outline as a dotted snap guide. */
   drawOutlineMyself = () => {
@@ -590,7 +596,10 @@ export class RoomEditor {
       this._host.toast({ message: refusalMessage(drawn.refusal, this._host.units()) });
       return false;
     }
-    void this._saveDrawn(drawn.change, drawn.change.after[BUILDING] ?? undefined);
+    void this._whileSaving(async () => {
+      await this._apply(drawn.change);
+      this._checkOutline();
+    }, drawn.change.after[BUILDING] ?? undefined);
     return true;
   }
 

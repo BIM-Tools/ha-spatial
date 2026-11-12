@@ -33,7 +33,7 @@ export interface Plan {
   outlineStored: boolean;
   // The overall size of the outline the map's building offers, while that question is open.
   outlineOffer: string | undefined;
-  // After Use outline, until Looks right.
+  // After Use outline or a closed outline, until Looks right.
   checkingLength: boolean;
   // The stored outline is a rectangle along the site axes, whose sides take a typed length.
   outlineIsBox: boolean;
@@ -94,7 +94,7 @@ const nextFloor = (floors: PlanFloor[], current: Floor): PlanFloor | undefined =
  * Custom. The one step the plan is at, in this order: find the home when Home Assistant has none or
  * the map draws no building there; pick the home's building in any tool but Align, with Align lit once
  * one is picked (a pick turns Align on); on All, which floor to open; align, with Pick another building
- * before the first Align once a building is picked; check one length after Use outline; the outline, as
+ * before the first Align once a building is picked; check one length after a new outline; the outline, as
  * the map's question or drawn by hand; the active area while it has no shape; the floor done with Next
  * floor; done. An area the user picked to edit, while others wait, says nothing. While the building is
  * still to be picked and the map is too far out, the detail says to zoom in.

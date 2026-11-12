@@ -122,8 +122,10 @@ nothing is asked. This needs an administrator, like the panel.
    corner to finish. Or click another building.". Each corner snaps like a box corner, also to
    the corners and sides placed so far, and a line runs from the last corner to the pointer.
    Clicking the first corner again (within the snap reach, where the ring under the pointer
-   jumps onto it) saves the outline in one save and one undo step, and the next area is
-   highlighted. Escape, Undo or Ctrl+Z takes back the last corner; Escape on the only corner
+   jumps onto it) saves the outline in one save and one undo step. The outline then stays
+   active in Select, where you can drag its corners and sides to correct it, and the line says
+   "Check one length you know", as after **Use outline**; **Looks right** moves on to the first
+   room. Escape, Undo or Ctrl+Z takes back the last corner; Escape on the only corner
    ends the outline. An outline with fewer than three corners, a side shorter than one grid step
    or sides that cross is not saved: a toast gives the reason and the corners stay. Once the
    outline is saved, a box drawn with the building's pill against it joins it, as for rooms.
