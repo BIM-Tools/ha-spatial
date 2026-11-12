@@ -25,6 +25,7 @@ import {
   pixelShape,
   sideButtons,
   sideField,
+  toolPressed,
 } from "./room-editor-fixture";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
@@ -45,7 +46,9 @@ const L_CORNERS: [number, number][] = [
 ];
 const placeCorners = (corners: [number, number][]) => corners.forEach(([x, y]) => tap(x, y));
 
-test("without an outline the Building pill is active; clicking the first corner again saves the outline, then the first unlinked area is active", async () => {
+const guideText = (panel: HTMLElement) => panel.shadowRoot!.querySelector(".guide .text")?.textContent?.trim();
+
+test("without an outline the Building pill is active; clicking the first corner again saves the outline, which stays active in Select to check", async () => {
   const { panel, connection } = mountEditor(undefined, null);
   await startDrawing(panel);
   await vi.waitFor(() => expect(chipNames(panel)).toEqual(["Building", "Kitchen", "Bath", "Hall", "New area"]));
@@ -60,7 +63,9 @@ test("without an outline the Building pill is active; clicking the first corner 
   expect(saved.outline!.coordinates[0]).toHaveLength(7);
   expect(area(saved.outline!)).toBeCloseTo(10, 1);
   expect(saves(connection)).toEqual([]);
-  await vi.waitFor(() => expect(activeChip(panel)).toBe("Bath"));
+  await vi.waitFor(() => expect(guideText(panel)).toBe("Check one length you know"));
+  expect(toolPressed(panel, "Select")).toBe("true");
+  expect(activeChip(panel)).toBe("Building");
   expect(chip(panel, "Building").getAttribute("data-linked")).toBe("true");
 });
 
