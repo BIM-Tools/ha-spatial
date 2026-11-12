@@ -45,8 +45,9 @@ const projectOnto = (edge: LatticeEdge, length: number, point: LatticePoint) => 
  * the whole wall of a room. Of each wall in `sources`, the stretch within `halfLength` either side of
  * the snapped point on it, clamped to the wall's ends; the snapped point is the one of `points`
  * nearest the wall, on a tie the one nearest `pointer`. Where that point is a wall's end, its corner
- * gets a dot too; so does a corner source. The walls and corners of the `own` rings, the active shape,
- * never light up.
+ * gets a dot too; so does a corner source. An axis line lights whole, from its corner, which gets a dot,
+ * to the snapped point, so the person sees what the point lines up with. The walls and corners of the
+ * `own` rings, the active shape, never light up.
  */
 export function snapMarks(
   sources: readonly SnapSource[],
@@ -65,6 +66,11 @@ export function snapMarks(
   for (const source of sources) {
     if (source.kind === "corner") {
       if (!ownCorners.some((corner) => samePoint(corner, source.at))) addDot(source.at);
+      continue;
+    }
+    if (source.kind === "aligned") {
+      walls.push(source.edge);
+      addDot(source.edge[0]);
       continue;
     }
     const { edge } = source;

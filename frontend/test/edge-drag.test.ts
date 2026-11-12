@@ -10,7 +10,7 @@ import { siteFrameData } from "./site-frame-fixture";
 const FRAME = PlanFrame.fromSite(siteFrameData([5, 52], 20));
 const OPTIONS = { radius: 3, gridUnits: 4, free: false };
 const FREE = { ...OPTIONS, free: true };
-const NONE: SnapCandidates = { roomCorners: [], roomEdges: [], outlineCorners: [], outlineEdges: [], guideCorners: [], guideEdges: [], roomRings: [] };
+const NONE: SnapCandidates = { roomCorners: [], roomEdges: [], outlineCorners: [], outlineEdges: [], lineCorners: [], guideCorners: [], guideEdges: [], roomRings: [] };
 
 const shapeOf = (...corners: LatticePoint[]): Polygon => ({
   type: "Polygon",
@@ -77,14 +77,14 @@ test.each<[ResizeTarget, [number, number], typeof OPTIONS, boolean]>([
 // An outline copied from a map, with one slanted wall: edge 1 from [81, 0] to [83, 41].
 const SLANTED = shapeOf([0, 0], [81, 0], [83, 41], [0, 41]);
 const EDGE_0: ResizeTarget = { kind: "edge", index: 0 };
-// The lines through the corners that stay when corner 2 moves, reaching the ring's size beyond it.
+// The axis lines through the corners that stay when corner 2 moves, from each corner to where it lands.
 const LINE_X_81: LatticeEdge = [
-  [81, -83],
-  [81, 124],
+  [81, 0],
+  [81, 41],
 ];
 const LINE_Y_41: LatticeEdge = [
-  [-83, 41],
-  [166, 41],
+  [0, 41],
+  [81, 41],
 ];
 const ROOM_WALL: LatticeEdge = [
   [-10, -6],
@@ -92,7 +92,7 @@ const ROOM_WALL: LatticeEdge = [
 ];
 
 test.each<[string, ResizeTarget, [number, number], SnapCandidates, typeof OPTIONS, number[][], SnapSource[], boolean]>([
-  ["a corner lands on the lines of the corners that stay, however far along", CORNER_2, [81.8, 40.3], NONE, OPTIONS, [[0, 0], [81, 0], [81, 41], [0, 41]], [{ kind: "edge", edge: LINE_X_81 }, { kind: "edge", edge: LINE_Y_41 }], true],
+  ["a corner lands on the lines of the corners that stay, however far along", CORNER_2, [81.8, 40.3], NONE, OPTIONS, [[0, 0], [81, 0], [81, 41], [0, 41]], [{ kind: "aligned", edge: LINE_X_81 }, { kind: "aligned", edge: LINE_Y_41 }], true],
   ["a corner away from every line lands on the grid", CORNER_2, [90.6, 50.9], NONE, OPTIONS, [[0, 0], [81, 0], [92, 52], [0, 41]], [], true],
   ["a corner snaps to a room corner before the outline's own lines", CORNER_2, [81.8, 40.3], { ...NONE, roomCorners: [[82, 40]] }, OPTIONS, [[0, 0], [81, 0], [82, 40], [0, 41]], [{ kind: "corner", at: [82, 40] }], true],
   ["a corner with Alt lands on the lattice", CORNER_2, [81.8, 40.3], NONE, FREE, [[0, 0], [81, 0], [82, 40], [0, 41]], [], true],

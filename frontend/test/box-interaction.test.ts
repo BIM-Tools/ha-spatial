@@ -214,13 +214,20 @@ test("a moved room snaps its corner to a neighbour's corner", () => {
 test("the radius is 12 px on a coarse pointer and 8 px on a fine one", async () => {
   const query = pointer(false);
   mountInteraction("draw", undefined, true, { neighbours: [NEIGHBOUR] });
-  await hoverAt(60, 0);
+  // 10 px from the neighbour's corner and from the lines through its corners.
+  await hoverAt(60, 10);
   expect(highlighted()).toEqual([]);
   query.mockRestore();
   pointer(true);
-  await hoverAt(60, 0);
+  await hoverAt(60, 10);
   expect(highlightedTypes()).toEqual(CORNER_SNAP);
   vi.restoreAllMocks();
+});
+
+test("a drawn corner far along the line through a neighbour's corner lines up with it, lit from that corner", async () => {
+  mountInteraction("draw", undefined, true, { neighbours: [NEIGHBOUR] });
+  await hoverAt(150, 2);
+  expect(highlightedTypes()).toEqual(["LineString", "Point"]);
 });
 
 test("on a coarse pointer two taps each snap, and the highlight shows after the first tap", () => {

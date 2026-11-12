@@ -12,7 +12,7 @@ import { mapBearing } from "./map-view";
 import { addCorner, areaLabel, boxChange, boxFromCorners, centreOf, closesRing, isAxisRectangle, movePolygon, reshapeChange, sideLabels } from "./plan";
 import type { Tool } from "./room-editor";
 import type { LatticePoint, PlanFrame } from "./site-frame";
-import { type SnapCandidates, type SnapOptions, type SnapSource, snapCandidatesFor, snapMove, snapPoint, withOpenRing } from "./snap";
+import { type SnapCandidates, type SnapOptions, type SnapSource, snapCandidatesFor, snapMove, snapPoint, withAxisLinesThrough, withOpenRing } from "./snap";
 import { SnapHighlight, snapMarks } from "./snap-highlight";
 import { planPill } from "./styles";
 import type { HassUnits } from "./units";
@@ -298,7 +298,7 @@ export class BoxInteraction {
     const grabbed = room && booleanPointInPolygon(at, room.footprint) ? room : undefined;
     if (!grabbed && !this._canDraw()) return;
     // A moved shape does not snap to itself.
-    const snapping = this._snapping(frame, grabbed?.areaId);
+    const snapping = grabbed ? this._snapping(frame, grabbed.areaId) : this._drawSnapping(frame);
     this._stopHover();
     this._grab = grabbed && { ...snapping, room: grabbed, from: at };
     this._press = event.point;
@@ -408,7 +408,8 @@ export class BoxInteraction {
     const [anchorX, anchorY] = frame.toLattice(room.footprint.coordinates[0][target.index]);
     const [x, y] = this._latticeAt(pixel, frame);
     this._resize = {
-      ...this._snapping(frame, room.areaId),
+      // The outline's corners line up with the rooms' corners as drawn corners do; a room's resize keeps to its walls.
+      ...(room.areaId === BUILDING ? this._drawSnapping(frame, room.areaId) : this._snapping(frame, room.areaId)),
       room,
       target,
       offset: [anchorX - x, anchorY - y],
@@ -509,7 +510,7 @@ export class BoxInteraction {
     if (!event || !frame || !this._canDraw() || this._spaceHeld) return;
     const ring = this._ring;
     if (ring) this._drawRing(ring, this._ringCornerAt(event, ring, true).point);
-    else if (!this.gesture) this._cornerAt(event, this._snapping(frame), true);
+    else if (!this.gesture) this._cornerAt(event, this._drawSnapping(frame), true);
   };
 
   // Where a click on an open ring lands: on its first corner within the snap radius, which closes it;
@@ -531,7 +532,7 @@ export class BoxInteraction {
   }
 
   private _clickCorner(event: MapMouseEvent, frame: PlanFrame) {
-    const ring = this._ring ?? { ...this._snapping(frame), corners: [] };
+    const ring = this._ring ?? { ...this._drawSnapping(frame), corners: [] };
     const { point, closes } = this._ringCornerAt(event, ring);
     if (closes) {
       if (!this._callbacks.onRing(ring.corners, ring.frame)) return;
@@ -548,6 +549,13 @@ export class BoxInteraction {
   private _snapping(frame: PlanFrame, exclude?: string): Snapping {
     const { floorAreaIds, footprints, mapGuide } = this._callbacks.snapshot();
     return { frame, candidates: snapCandidatesFor(frame, floorAreaIds, footprints, BUILDING, exclude, mapGuide), radiusPx: snapRadiusPx() };
+  }
+
+  // A drawn corner also lines up with the corners of the floor's rooms and the outline, however far along.
+  private _drawSnapping(frame: PlanFrame, exclude?: string): Snapping {
+    const snapping = this._snapping(frame, exclude);
+    const { roomCorners, outlineCorners } = snapping.candidates;
+    return { ...snapping, candidates: withAxisLinesThrough(snapping.candidates, [...roomCorners, ...outlineCorners]) };
   }
 
   // The pixel radius in lattice units at the pointer, which differ with zoom; Alt places freely.
@@ -602,7 +610,7 @@ export class BoxInteraction {
     if (!start) {
       const frame = this._callbacks.snapshot().siteFrame;
       if (!frame) return;
-      const snapping = this._snapping(frame);
+      const snapping = this._drawSnapping(frame);
       this._corner = { ...snapping, corner: this._cornerAt(event, snapping) };
       this._draft(this._corner, this._corner.corner);
       return;
