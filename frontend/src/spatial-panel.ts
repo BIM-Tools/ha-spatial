@@ -47,7 +47,7 @@ import { BUILDING } from "./area-strip";
 import { RoomEditor, type Toast, type Tool } from "./room-editor";
 import { type AreaInfo, RoomLabels, roomLabelStyles } from "./room-labels";
 import { floatingSurface, litControl, phoneBar } from "./styles";
-import { type HassUnits, formatDistance, isStillStarting, saveFailureMessage } from "./units";
+import { type HassUnits, formatDistance, saveFailure } from "./units";
 
 // The parts of Home Assistant's `hass` object this panel uses.
 interface Hass extends HassUnits {
@@ -758,7 +758,7 @@ class SpatialPanel extends LitElement {
       await this.hass!.connection.sendMessagePromise({ type: "config/core/update", ...location });
       return true;
     } catch (err) {
-      this._toast({ message: saveFailureMessage(err) });
+      this._toast({ message: saveFailure(err).message });
       return false;
     }
   }
@@ -1401,7 +1401,7 @@ class SpatialPanel extends LitElement {
     this._showPick();
   }
 
-  // A failed save turns the view back. A refusal shows Spatial's reason, as trying again would not
+  // A failed save turns the view back. A refusal says why, as trying again would not
   // help; otherwise Retry turns the view to the picked wall again and saves the same fields once more.
   private _saveBearing(fields: AlignFields, previousBearing: number | null, saved: () => void) {
     const newBearing = fields.bearing_deg;
@@ -1410,15 +1410,16 @@ class SpatialPanel extends LitElement {
       console.error(err);
       this._state.bearing = previousBearing;
       this._map?.easeTo({ bearing: mapBearing(this._state.axisDeg) });
-      if (typeof err?.code === "string" && typeof err.message === "string" && !isStillStarting(err)) {
-        this._toast({ message: err.message });
+      const failure = saveFailure(err);
+      if (!failure.retry) {
+        this._toast({ message: failure.message });
         return;
       }
       const retry = () => {
         this._map?.easeTo({ bearing: mapBearing(newBearing) });
         this._saveBearing(fields, previousBearing, saved);
       };
-      this._toast({ message: saveFailureMessage(err), action: { text: "Retry", action: retry }, duration: -1, dismissable: true });
+      this._toast({ message: failure.message, action: { text: "Retry", action: retry }, duration: -1, dismissable: true });
     });
   }
 

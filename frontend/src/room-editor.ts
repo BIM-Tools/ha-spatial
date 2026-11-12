@@ -16,7 +16,7 @@ import type { ScreenBox } from "./draft-labels";
 import { type SideControls, showSideControls } from "./side-controls";
 import type { LatticePoint, PlanFrame } from "./site-frame";
 import { snapCandidatesFor } from "./snap";
-import { type HassUnits, formatSize, refusalMessage, saveFailureMessage } from "./units";
+import { type HassUnits, formatSize, refusalMessage, saveFailure } from "./units";
 
 interface Connection {
   sendMessagePromise<T>(message: { type: string; [key: string]: unknown }): Promise<T>;
@@ -628,7 +628,7 @@ export class RoomEditor {
   }
 
   // One action at a time: a second one before the first settles would build on a stale footprint.
-  // A failed action offers to run again. A failed first shape stays on the map until it saves or the user draws
+  // A failed action offers to run again, unless it was refused and would fail the same way. A failed first shape stays on the map until it saves or the user draws
   // on; a room with a stored shape shows only that one, as a second outline reads as a second room.
   private async _whileSaving(action: () => Promise<void>, shape?: Polygon) {
     if (this._saving) return;
@@ -660,13 +660,12 @@ export class RoomEditor {
 
   private _saveFailed(error: unknown, retry: () => void) {
     this._saveFailedShown = true;
-    this._host.toast({
-      id: SAVE_FAILED_ID,
-      message: saveFailureMessage(error),
-      action: { text: "Retry", action: retry },
-      duration: -1,
-      dismissable: true,
-    });
+    const failure = saveFailure(error);
+    this._host.toast(
+      failure.retry
+        ? { id: SAVE_FAILED_ID, message: failure.message, action: { text: "Retry", action: retry }, duration: -1, dismissable: true }
+        : { id: SAVE_FAILED_ID, message: failure.message },
+    );
   }
 
   private _saveSucceeded() {

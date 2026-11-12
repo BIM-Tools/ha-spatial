@@ -550,7 +550,7 @@ test("in Align a save Spatial refuses turns the map back and shows its reason, w
   vi.spyOn(console, "error").mockImplementationOnce(() => {});
   await startAligning(panel);
   click();
-  await vi.waitFor(() => expect(toastMessages()).toEqual([refusal.message]));
+  await vi.waitFor(() => expect(toastMessages()).toEqual(["Rooms must stay inside the outline"]));
   expect(toasts[0].action).toBeUndefined();
   expect(easeTo).toHaveBeenLastCalledWith({ bearing: 270 });
 });
