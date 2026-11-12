@@ -301,13 +301,16 @@ Exactly one tool is active; **Select** is the default. The tools work on a floor
   the Building outline included, at once and as one undo step. It is off while the active space
   has no shape.
 - Undo restores footprints only: an area created with New area stays in Home Assistant.
-- Saving is silent. Refusals and failures use Home Assistant's toast. "Could not save" stays with
-  **Retry**. A room that already had a shape keeps showing it as saved; a first box that failed
-  stays on the map until it saves or the next box replaces it.
+- Saving is silent. Refusals and failures use Home Assistant's toast. When the connection drops,
+  "Could not save" stays with **Retry**. A room that already had a shape keeps showing it as saved;
+  a first box that failed stays on the map until it saves or the next box replaces it.
 - Right after Home Assistant restarts, a save can come before Spatial has loaded; the toast then
   says "Spatial is still starting, try again in a moment", also with **Retry**.
-- Spatial refuses an indoor room that would extend beyond the outline, or a shape with no net
-  area left; in the panel that save ends as "Could not save".
+- A save Spatial refuses says why, without **Retry**, as the same save would be refused again:
+  "Rooms must stay inside the outline" for an indoor room that would extend beyond it, "Too small:
+  no floor is left inside the walls" for a shape with no net area left, "Changed elsewhere
+  meanwhile" or "This room was removed meanwhile" when the plan changed in another window, and
+  Spatial's own reason for a shape it cannot store.
 
 ### Help
 
