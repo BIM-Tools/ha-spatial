@@ -8,7 +8,7 @@ import { type LatticeEdge, type SnapCandidates, type SnapSource, candidatesOf } 
 import { siteFrameData } from "./site-frame-fixture";
 
 const FRAME = PlanFrame.fromSite(siteFrameData([5, 52], 20));
-const NONE: SnapCandidates = { roomCorners: [], roomEdges: [], outlineCorners: [], outlineEdges: [], guideCorners: [], guideEdges: [], roomRings: [] };
+const NONE: SnapCandidates = { roomCorners: [], roomEdges: [], outlineCorners: [], outlineEdges: [], lineCorners: [], guideCorners: [], guideEdges: [], roomRings: [] };
 
 const shapeOf = (ring: LatticePoint[]): Polygon => ({
   type: "Polygon",

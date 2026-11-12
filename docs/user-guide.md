@@ -120,7 +120,9 @@ nothing is asked. This needs an administrator, like the panel.
    To draw it, put it on the middle of the exterior walls, with the building on the map as a
    guide, and click each corner in turn; the line says "Click each corner; click the first
    corner to finish. Or click another building.". Each corner snaps like a box corner, also to
-   the corners and sides placed so far, and a line runs from the last corner to the pointer.
+   the corners and sides placed so far and to the lines through them across and down the site
+   direction, however far away, so the walls come out straight and the outline closes square.
+   A line runs from the last corner to the pointer.
    Clicking the first corner again (within the snap reach, where the ring under the pointer
    jumps onto it) saves the outline in one save and one undo step. The outline then stays
    active in Select, where you can drag its corners and sides to correct it, and the line says
@@ -215,11 +217,15 @@ Exactly one tool is active; **Select** is the default. The tools work on a floor
   adding a box to it.
 - **Snap:** each direction snaps on its own. Across and down, a corner within 8 px (12 px on a
   touch screen) of a room wall on this floor that runs along the site direction lands on that
-  wall, and one near a room corner lines up with it; the outline comes after the rooms, the
-  grid last. Near two walls that meet, it lands on both. What it snaps to lights up in the
+  wall, and one near a room corner lines up with it; the outline comes after the rooms. A
+  corner of a box also lines up with any corner of the rooms on this floor or of the outline
+  across or down the site direction, however far away, like the guides of a drawing program;
+  walls and corners nearby come first, the map's building after, the grid last. Near two walls
+  that meet, it lands on both. What it snaps to lights up in the
   theme's accent colour (orange by default), apart from the lines being edited: a short
   thick line on the wall around the snapped point, a short line on both walls and a dot at a
-  corner, else a dot on the corner it lines up with. The active shape's own walls never light
+  corner, else a dot on the corner it lines up with; a corner far away gets a dot and a
+  line to the point that lines up with it. The active shape's own walls never light
   up. Before the first corner, a small ring under the pointer shows where a click would put it,
   with what it snaps to lit up. So rooms drawn
   side by side share their wall and count as adjacent. Walls at other angles do not snap, their
@@ -276,9 +282,9 @@ Exactly one tool is active; **Select** is the default. The tools work on a floor
 - **Correct the outline:** when the building outline is not a rectangle, as when it came from the
   map with a slanted wall, every side shows its length on a button, and its corners and sides can
   be dragged with the **Building** pill active in Select. A corner moves freely and its two sides
-  follow: it snaps like a drawn corner, and also to the lines through the outline's other corners
-  across and down the site direction, so a crooked corner drops straight onto the line of the
-  walls around it. A side moves straight out or in, both its corners by the same amount: one along
+  follow: it snaps like a drawn corner, so also to the lines through the outline's other corners
+  and the rooms' corners across and down the site direction, and a crooked corner drops straight
+  onto the line of the walls around it. A side moves straight out or in, both its corners by the same amount: one along
   the site direction snaps as above, a slanted one stays parallel and lands on the 2.5 cm (1 in)
   lattice. The pointer is a move cross over a corner and a resize arrow across a side, a diagonal
   one on a slanted side. A shape whose sides would cross, or with a side under one grid step,
@@ -420,7 +426,8 @@ each one means, and the [importer](../tools/README.md) sets floor heights.
   corner of the outline or of a room stops at that corner.
 - Snapping uses the rooms on this floor and the outline: not the floor below, diagonal walls or
   buildings on the map, except the map's dashed outline while the building has no outline. A moved room lines up its corners with others, not its walls with their
-  corners.
+  corners. Only drawn corners and the outline's dragged corners line up with corners far away;
+  a moved room and a dragged room side or corner do not.
 - After the first room or the outline, a new Align keeps the grid origin, so the grid turns
   around the old origin.
 - Align needs a building in the map tiles. A building cut by a tile border gives only the part

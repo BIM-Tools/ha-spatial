@@ -125,13 +125,13 @@ test("Draw it myself keeps Draw on and the outline as a dotted snap guide in Dra
   expect(toolPressed(panel, "Draw")).toBe("true");
   expect(preview()).toEqual({ type: "FeatureCollection", features: [] });
   expect(latticeCorners(guideLine() as Polygon)).toEqual([[6, 6], [394, 6], [394, 314], [6, 314], [6, 6]]);
-  // 1.5 px right of the guide's left side, which lies 6 lattice units, 1.5 px, in.
-  handlers.mousemove(mouse(3, -40));
+  // 1.5 px left of the guide's right side, which lies 6 lattice units, 1.5 px, in; away from the lines through the kitchen's corners.
+  handlers.mousemove(mouse(97, -40));
   await nextFrame();
   expect(snapHighlights()).toEqual(["LineString"]);
   chip(panel, "Bath").click();
   await settle(panel);
-  handlers.mousemove(mouse(3, -40));
+  handlers.mousemove(mouse(97, -40));
   await nextFrame();
   expect(snapHighlights()).toEqual(["LineString"]);
   buttonNamed(panel, "Select")!.click();

@@ -12,19 +12,24 @@ export type LatticeEdge = readonly [LatticePoint, LatticePoint];
  * Room and guide edges run along a site axis; outline edges are all of them. `roomRings` are the rooms
  * that stop a move, each whole; snapping does not read them. The guide, the map's building while no
  * outline is stored, only snaps and never stops a move, as the map is only about 0.4 m accurate.
+ * `lineCorners` are the corners whose site axis lines snap however far along (`withAxisLinesThrough`).
  */
 export interface SnapCandidates {
   roomCorners: LatticePoint[];
   roomEdges: LatticeEdge[];
   outlineCorners: LatticePoint[];
   outlineEdges: LatticeEdge[];
+  lineCorners: LatticePoint[];
   guideCorners: LatticePoint[];
   guideEdges: LatticeEdge[];
   roomRings: Rings[];
 }
 
-/** What a snap lights up: a corner as a dot, a wall as a line. The grid and the lattice light up nothing. */
-export type SnapSource = { kind: "corner"; at: LatticePoint } | { kind: "edge"; edge: LatticeEdge };
+/**
+ * What a snap lights up: a corner as a dot, a wall as a line, and a site axis line through a corner
+ * as the line from that corner (`edge[0]`) to the snapped point. The grid and the lattice light up nothing.
+ */
+export type SnapSource = { kind: "corner"; at: LatticePoint } | { kind: "edge"; edge: LatticeEdge } | { kind: "aligned"; edge: LatticeEdge };
 
 /** `radius` in lattice units; `free` places on the lattice without snapping. */
 export interface SnapOptions {
@@ -33,12 +38,11 @@ export interface SnapOptions {
   free: boolean;
 }
 
-/** A wall or a corner across an axis that a coordinate can land on, within the radius of `reach` along the other axis. */
-interface Guide {
-  value: number;
-  reach: readonly [number, number];
-  source: SnapSource;
-}
+/**
+ * A wall or a corner across an axis that a coordinate can land on, within the radius of `reach` along
+ * the other axis; or the axis line `through` a corner, which reaches everywhere along it.
+ */
+type Guide = { value: number; reach: readonly [number, number]; source: SnapSource } | { value: number; through: LatticePoint };
 
 /** A coordinate looking for a guide, and the span it covers along the other axis. */
 interface Probe {
@@ -54,6 +58,18 @@ const spanAt = (value: number): [number, number] => [value, value];
 const isAxisEdge = ([from, to]: LatticeEdge) => from[0] === to[0] || from[1] === to[1];
 // How far apart two spans lie, 0 when they overlap.
 const gapBetween = (a: readonly [number, number], b: readonly [number, number]) => Math.max(0, a[0] - b[1], b[0] - a[1]);
+// The point at `value` across `axis` and `along` on the other axis.
+const pointAt = (axis: 0 | 1, value: number, along: number): LatticePoint => (axis === 0 ? [value, along] : [along, value]);
+
+/**
+ * What a guide across `axis` lights up when a line spanning `along` on the other axis lands on it: a
+ * wall or a corner itself, an axis line from its corner to the nearest point of that line.
+ */
+function sourceOf(guide: Guide, axis: 0 | 1, along: readonly [number, number]): SnapSource {
+  if ("source" in guide) return guide.source;
+  const nearest = Math.min(Math.max(guide.through[otherAxis(axis)], along[0]), along[1]);
+  return { kind: "aligned", edge: [guide.through, pointAt(axis, guide.value, nearest)] };
+}
 
 /**
  * Every corner of every ring, outer and inner; of rooms only the edges that run along a site axis,
@@ -79,6 +95,7 @@ export function candidatesOf(frame: PlanFrame, rooms: Polygon[], outline: Polygo
     roomEdges: room.edges.filter(isAxisEdge),
     outlineCorners: building.corners,
     outlineEdges: building.edges,
+    lineCorners: [],
     guideCorners: map.corners,
     guideEdges: map.edges.filter(isAxisEdge),
     roomRings: rooms.map(ringsOf),
@@ -105,17 +122,34 @@ export function snapCandidatesFor(
 }
 
 /**
- * The candidates while the outline is drawn by its corners: the corners placed so far and the sides
- * between them snap in the outline's tier, as the outline is not stored yet.
+ * Custom, like the smart guides of drawing programs. The candidates with the site axis lines through
+ * each of `corners`, so a point lines up with a corner however far along the line it lies, and walls
+ * drawn by corners far apart come out straight. The lines snap after the walls and corners of the
+ * rooms and the outline, which lie where the shape touches them, and before the map's building, which
+ * is less accurate than a corner on the plan; they never stop a move. Known limits: lines run along the
+ * site axes only, not along a slanted wall; with many corners nearly every point lies near one of them.
  */
-export function withOpenRing(candidates: SnapCandidates, corners: readonly LatticePoint[]): SnapCandidates {
-  const sides = corners.slice(1).map((corner, index): LatticeEdge => [corners[index], corner]);
-  return { ...candidates, outlineCorners: [...candidates.outlineCorners, ...corners], outlineEdges: [...candidates.outlineEdges, ...sides] };
+export function withAxisLinesThrough(candidates: SnapCandidates, corners: readonly LatticePoint[]): SnapCandidates {
+  return { ...candidates, lineCorners: [...candidates.lineCorners, ...corners] };
 }
 
 /**
- * The guides across `axis` in tiers, rooms, then the outline, then the map's building: each wall that runs across `axis` and
- * each corner. Walls list first, so on a tie with their own end corner the wall lights up.
+ * The candidates while the outline is drawn by its corners: the corners placed so far and the sides
+ * between them snap in the outline's tier, as the outline is not stored yet, and the axis lines
+ * through each corner (`withAxisLinesThrough`), so the walls come out straight and the ring closes square.
+ */
+export function withOpenRing(candidates: SnapCandidates, corners: readonly LatticePoint[]): SnapCandidates {
+  const sides = corners.slice(1).map((corner, index): LatticeEdge => [corners[index], corner]);
+  return withAxisLinesThrough(
+    { ...candidates, outlineCorners: [...candidates.outlineCorners, ...corners], outlineEdges: [...candidates.outlineEdges, ...sides] },
+    corners,
+  );
+}
+
+/**
+ * The guides across `axis` in tiers, rooms, then the outline, then the axis lines through corners, then
+ * the map's building: each wall that runs across `axis` and each corner. Walls list first, so on a tie
+ * with their own end corner the wall lights up.
  */
 function guidesAcross(axis: 0 | 1, candidates: SnapCandidates): Guide[][] {
   const along = otherAxis(axis);
@@ -131,6 +165,7 @@ function guidesAcross(axis: 0 | 1, candidates: SnapCandidates): Guide[][] {
   return [
     [...walls(candidates.roomEdges), ...corners(candidates.roomCorners)],
     [...walls(candidates.outlineEdges), ...corners(candidates.outlineCorners)],
+    candidates.lineCorners.map((through): Guide => ({ value: through[axis], through })),
     [...walls(candidates.guideEdges), ...corners(candidates.guideCorners)],
   ];
 }
@@ -138,16 +173,17 @@ function guidesAcross(axis: 0 | 1, candidates: SnapCandidates): Guide[][] {
 /**
  * Custom. In the first tier that has one, the guide nearest any of `probes` across, within `radius`
  * across and along, then nearest along, so the corner nearest the pointer lights up; a tie keeps the
- * earlier guide and probe. `probe` is the index of the probe it snaps.
+ * earlier guide and probe. An axis line counts however far along, and ranks by its corner's distance
+ * along, so the nearest corner on it lights up. `probe` is the index of the probe it snaps.
  */
-function nearestGuide(tiers: Guide[][], probes: readonly Probe[], radius: number): { guide: Guide; probe: number } | undefined {
+function nearestGuide(tiers: Guide[][], axis: 0 | 1, probes: readonly Probe[], radius: number): { guide: Guide; probe: number } | undefined {
   for (const guides of tiers) {
     let best: { guide: Guide; probe: number; across: number; along: number } | undefined;
     probes.forEach(({ value, along: span }, probe) => {
       for (const guide of guides) {
         const across = Math.abs(value - guide.value);
-        const along = gapBetween(guide.reach, span);
-        if (across > radius || along > radius) continue;
+        const along = gapBetween("reach" in guide ? guide.reach : spanAt(guide.through[otherAxis(axis)]), span);
+        if (across > radius || ("reach" in guide && along > radius)) continue;
         if (!best || across < best.across || (across === best.across && along < best.along)) best = { guide, probe, across, along };
       }
     });
@@ -169,9 +205,10 @@ export function snapPoint(
   candidates: SnapCandidates,
   options: SnapOptions,
 ): { point: LatticePoint; sources: SnapSource[] } {
-  const x = snapLine(pointer[0], 0, candidates, options, spanAt(pointer[1]));
-  const y = snapLine(pointer[1], 1, candidates, options, spanAt(pointer[0]));
-  return { point: [x.value, y.value], sources: distinctSources([...x.sources, ...y.sources]) };
+  const x = landOn(pointer[0], 0, candidates, options, spanAt(pointer[1]));
+  const y = landOn(pointer[1], 1, candidates, options, spanAt(pointer[0]));
+  const sources = [x.guide && sourceOf(x.guide, 0, spanAt(y.value)), y.guide && sourceOf(y.guide, 1, spanAt(x.value))];
+  return { point: [x.value, y.value], sources: distinctSources(sources) };
 }
 
 /**
@@ -201,23 +238,39 @@ function alignMove(
   if (options.free) return { delta: [whole(delta[0]), whole(delta[1])], sources: [] };
   const corners = rings.flat();
   const moved: [number, number] = [0, 0];
-  const sources: SnapSource[] = [];
-  for (const axis of [0, 1] as const) {
+  const hits = ([0, 1] as const).map((axis) => {
     const along = otherAxis(axis);
     const probes = corners.map((corner) => ({ value: corner[axis] + delta[axis], along: spanAt(corner[along] + delta[along]) }));
-    const hit = nearestGuide(guidesAcross(axis, candidates), probes, options.radius);
+    const hit = nearestGuide(guidesAcross(axis, candidates), axis, probes, options.radius);
     moved[axis] = hit ? hit.guide.value - corners[hit.probe][axis] + 0 : toGrid(delta[axis], options.gridUnits);
-    if (hit) sources.push(hit.guide.source);
-  }
+    return hit;
+  });
+  const sources = hits.map((hit, axis) => {
+    const along = otherAxis(axis as 0 | 1);
+    return hit && sourceOf(hit.guide, axis as 0 | 1, spanAt(corners[hit.probe][along] + moved[along]));
+  });
   return { delta: moved, sources: distinctSources(sources) };
+}
+
+// Where a line across `axis` lands, as `snapLine` says, and the guide it lands on.
+function landOn(
+  value: number,
+  axis: 0 | 1,
+  candidates: SnapCandidates,
+  options: SnapOptions,
+  along: readonly [number, number],
+): { value: number; guide?: Guide } {
+  if (options.free) return { value: whole(value) };
+  const hit = nearestGuide(guidesAcross(axis, candidates), axis, [{ value, along }], options.radius);
+  return hit ? { value: hit.guide.value, guide: hit.guide } : { value: toGrid(value, options.gridUnits) };
 }
 
 /**
  * Custom. Where a line across `axis` at `value`, spanning `along` on the other axis, lands: on the
- * nearest guide within `radius` (`guidesAcross`), a room's before the outline's before the map
- * building's; a wall or corner counts only where it comes within `radius` of `along`. Else on a grid line; with `free` on the
- * lattice. Walls at other angles never count, their corners do. Known limit: a corner further along
- * the line does not align it; that waits for a drawn guide line.
+ * nearest guide within `radius` (`guidesAcross`), a room's before the outline's before an axis line's
+ * (`withAxisLinesThrough`) before the map building's; a wall or corner counts only where it comes within
+ * `radius` of `along`, an axis line however far along. Else on a grid line; with `free` on the lattice.
+ * Walls at other angles never count, their corners do.
  */
 export function snapLine(
   value: number,
@@ -226,7 +279,6 @@ export function snapLine(
   options: SnapOptions,
   along: readonly [number, number],
 ): { value: number; sources: SnapSource[] } {
-  if (options.free) return { value: whole(value), sources: [] };
-  const hit = nearestGuide(guidesAcross(axis, candidates), [{ value, along }], options.radius);
-  return hit ? { value: hit.guide.value, sources: [hit.guide.source] } : { value: toGrid(value, options.gridUnits), sources: [] };
+  const landed = landOn(value, axis, candidates, options, along);
+  return { value: landed.value, sources: landed.guide ? [sourceOf(landed.guide, axis, along)] : [] };
 }

@@ -3,7 +3,7 @@
 import type { Polygon, Position } from "geojson";
 import { boxFromCorners, isAxisRectangle } from "./plan";
 import type { LatticePoint, PlanFrame } from "./site-frame";
-import { type LatticeEdge, type SnapCandidates, type SnapOptions, type SnapSource, snapLine, snapPoint } from "./snap";
+import { type SnapCandidates, type SnapOptions, type SnapSource, snapLine, snapPoint, withAxisLinesThrough } from "./snap";
 import { distinctSources } from "./snap-highlight";
 import { walkToWall } from "./wall-stop";
 
@@ -98,8 +98,8 @@ export function resizeRectangle(
     sources = moveSide(axis, snapped.value, snapped.sources);
   } else {
     const snapped = snapPoint(pointer, candidates, options);
-    // The walls the snapped point rests on across `axis`.
-    const wallsAcross = (axis: 0 | 1) => snapped.sources.filter((source) => source.kind === "edge" && source.edge[0][axis] === source.edge[1][axis]);
+    // The walls and axis lines the snapped point rests on across `axis`.
+    const wallsAcross = (axis: 0 | 1) => snapped.sources.filter((source) => source.kind !== "corner" && source.edge[0][axis] === source.edge[1][axis]);
     const across = moveSide(0, snapped.point[0], wallsAcross(0));
     const down = moveSide(1, snapped.point[1], wallsAcross(1));
     const kept = corner[0] === snapped.point[0] && corner[1] === snapped.point[1];
@@ -122,34 +122,12 @@ export function isResizable(frame: PlanFrame, shape: Polygon, isOutline: boolean
 }
 
 /**
- * Custom. The candidates with the site axis lines through each corner of the ring that stays, as outline
- * walls that reach across the ring and as far again beyond it, so a moved corner or edge lines up with
- * any of them however far along it lies, as the other walls of a straight outline do.
- */
-function alignedWithKept(candidates: SnapCandidates, ring: readonly LatticePoint[], kept: readonly LatticePoint[]): SnapCandidates {
-  const [left, right] = [Math.min(...ring.map(([x]) => x)), Math.max(...ring.map(([x]) => x))];
-  const [bottom, top] = [Math.min(...ring.map(([, y]) => y)), Math.max(...ring.map(([, y]) => y))];
-  const margin = Math.max(right - left, top - bottom);
-  const lines = kept.flatMap(([x, y]): LatticeEdge[] => [
-    [
-      [x, bottom - margin],
-      [x, top + margin],
-    ],
-    [
-      [left - margin, y],
-      [right + margin, y],
-    ],
-  ]);
-  return { ...candidates, outlineEdges: [...candidates.outlineEdges, ...lines] };
-}
-
-/**
  * Custom. Drags corner `index` of a shape's outer ring to where `snapPoint` puts the pointer, so its two
  * edges follow, or edge `index` (from that corner to the next) across itself: an edge along a site axis
  * lands where `snapLine` puts it, any other moves along its normal by the pointer's distance from its
  * line, rounded to the lattice, both corners by the same offset so it stays parallel. Besides the usual
- * candidates, both snap in the outline's tier to the lines through the ring's corners that stay
- * (`alignedWithKept`), so a slanted wall's corner lands on the line of the others. Nothing stops it, so
+ * candidates, both snap to the site axis lines through the ring's corners that stay
+ * (`withAxisLinesThrough`), so a slanted wall's corner lands on the line of the others. Nothing stops it, so
  * the ring may come out crossing itself or with a short edge: the save refuses those (`reshapeChange`).
  * Known limits: the outer ring only; a diagonal edge snaps to nothing.
  */
@@ -166,9 +144,8 @@ export function resizePolygon(
   const at = (offset: number) => (index + offset + count) % count;
   // The candidates with the lines through the corners that stay, from `first` on up to the moved ones.
   const keptFrom = (first: number) =>
-    alignedWithKept(
+    withAxisLinesThrough(
       candidates,
-      corners,
       Array.from({ length: (index - first + count) % count }, (_, step) => corners[(first + step) % count]),
     );
   const moved = [...corners];
