@@ -39,7 +39,8 @@ is, north up, centred on your home location, and the line at the top says only t
 one control it needs is lit with a ring. Nothing about the steps is stored: what is already
 there is skipped, so a home on a building skips the search, a site with a direction skips
 clicking your home and Align, a stored outline skips the outline, and leaving and coming back resumes at the first
-unfinished step. Once every area has a shape, the panel opens on **All** and says nothing.
+unfinished step. Once every area has a shape, the panel opens on **All** and the line says only
+"Choose a floor to edit its rooms".
 
 **Find your home.** When Home Assistant has no home location yet, or the map draws no building
 there, the card **Find your home** opens (on the globe when there is no home location and
@@ -142,7 +143,7 @@ nothing is asked. This needs an administrator, like the panel.
 
 4. **Next floor.** When every area of the floor has a shape, the line says "Ground floor done"
    with **Next floor** lit, which opens the next floor with an area to draw; the outline shows
-   on every floor as a guide.
+   on every floor as a guide. A floor without areas says "No areas on" and its name.
 5. **All.** Press **All** to see the floors' rooms stacked above the outline, seen from the front corner of
    the house; the line says "Choose a floor to edit its rooms".
 
@@ -185,7 +186,7 @@ Exactly one tool is active; **Select** is the default. The tools work on a floor
 | Tool | Does |
 | --- | --- |
 | Align | In the toolbar until the first Align, then in the header menu as Change alignment. One click on a building on the map, near a wall, saves that wall's direction as the site direction. Without a building under the click a toast says "No building here"; when Spatial refuses the new direction, the toast gives its reason. On an empty plan, with no room and no outline drawn, it also puts the grid origin on the left end of that wall. The map stays on while Align is active |
-| Draw | Draws boxes along the site direction (north up before any Align) for the highlighted pill; the building without an outline is drawn corner by corner instead. Corners snap to nearby room corners and walls on this floor and to the outline, else land on the 10 cm (4 in) grid; with Alt held they land on the 2.5 cm (1 in) lattice without snapping. While a side is shorter than one grid step only the start dot shows, and such a box is not drawn |
+| Draw | Draws boxes along the site direction (north up before any Align) for the highlighted pill; the building without an outline is drawn corner by corner instead. Corners snap to nearby room corners and walls on this floor, to the outline and to the lines through corners (see Snap below), else land on the 10 cm (4 in) grid; with Alt held they land on the 2.5 cm (1 in) lattice without snapping. While a side is shorter than one grid step only the start dot shows, and such a box is not drawn |
 | Select | A tap on a room makes it active: it is filled, edged and gets round handles on its corners. Drag the active room to move it, or a side or corner of a rectangle, or of the building outline in any shape, to resize it. Type exact side lengths of a rectangle (below) |
 
 ### The area strip
@@ -316,9 +317,9 @@ Exactly one tool is active; **Select** is the default. The tools work on a floor
   says "Spatial is still starting, try again in a moment", also with **Retry**.
 - A save Spatial refuses says why, without **Retry**, as the same save would be refused again:
   "Rooms must stay inside the outline" for an indoor room that would extend beyond it, "Too small:
-  no floor is left inside the walls" for a shape with no net area left, "Changed elsewhere
-  meanwhile" or "This room was removed meanwhile" when the plan changed in another window, and
-  Spatial's own reason for a shape it cannot store.
+  no floor is left inside the walls" for a shape with no net area left, "This room was removed
+  meanwhile" when its area was deleted in Home Assistant, and Spatial's own reason for a shape it
+  cannot store.
 
 ### Help
 
@@ -366,7 +367,7 @@ At 600 px wide or less:
 Add a card with `type: custom:spatial-map-card`, best in a view of type Panel, so the map fills
 it; elsewhere the card is 400 px high. Everyone who can see the dashboard sees the map, also
 users who are not an administrator. The card has no tools, and its labels
-show icon and name without the area.
+show icon and name without the area. Without rooms it says "No rooms yet".
 
 | `floor` | Shows |
 | --- | --- |
@@ -427,15 +428,14 @@ each one means, and the [importer](../tools/README.md) sets floor heights.
   first. A moved room travels in a straight line from where it was picked up, so a drag around a
   corner of the outline or of a room stops at that corner.
 - Snapping uses the rooms on this floor and the outline: not the floor below, diagonal walls or
-  buildings on the map, except the map's dashed outline while the building has no outline. A moved room lines up its corners with others, not its walls with their
-  corners. Only drawn corners and the outline's dragged corners line up with corners far away;
+  buildings on the map, except the map's dotted outline while the building has no outline. A
+  moved room lines up its corners with others, not its walls with their corners. Only drawn corners and the outline's dragged corners line up with corners far away;
   a moved room and a dragged room side or corner do not.
 - After the first room or the outline, a new Align keeps the grid origin, so the grid turns
   around the old origin.
 - Align needs a building in the map tiles.
 - The map's outline follows the map's shape: slanted walls, small steps and neighbouring houses
-  are treated as in [Precision](#precision). On any shape but a rectangle its side lengths only
-  show, they cannot be typed.
+  are treated as in [Precision](#precision).
 - The outline is offered for the building picked in this visit, else, after leaving and coming
   back, for the building the map shows at the grid origin, which Align on an empty plan puts on
   the clicked wall. With the map hidden it is not offered.

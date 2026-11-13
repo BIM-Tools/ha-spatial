@@ -215,8 +215,9 @@ What is and is not checked automatically:
 - On every push and pull request to `main`: `CI Tests` (tests, line coverage with a 99% floor,
   mypy strict), `Validate` (hassfest, HACS, ruff, no-`CLAUDE.md` check) and `Frontend` (tsc,
   vitest, a build, `sync_frontend_versions.py --check`).
-- `E2E` runs on the same triggers but is not a required check yet: it covers one room drawn with
-  the mouse in the panel of a fresh Home Assistant, and nothing else of the panel.
+- `E2E` runs on the same triggers but is not a required check yet: it covers two rooms drawn
+  with the mouse in the panel of a fresh Home Assistant, the second snapped to the first, and one
+  edge and one corner drag, and nothing else of the panel.
 - On a pushed `v*` tag: `Release` builds the panel and `spatial.zip` (the integration with the
   bundle and licences, version taken from the tag), then creates the release with the zip and
   the tag message as notes. The release-event version ran for v0.1.0 and its zip was checked;
@@ -248,6 +249,10 @@ What is and is not checked automatically:
 - The frontend's `dev` branch is ahead of what Home Assistant ships; read the release tag.
 - The `buildings` layer in Home Assistant's map tiles is one MultiPolygon without attributes
   per tile; each part is one building.
+- Home Assistant's map tiles cut buildings at the tile edge plus a buffer of 8 of 4096 units, so
+  the parts of one building overlap across a seam.
+- MapLibre's rendered building features carry the zoom of the tiles it renders at the view's
+  zoom (z18 at the panel's start), not the source's maximum zoom 14.
 - Home Assistant's shipped map style uses root-relative sprite and glyph URLs; MapLibre
   needs them absolute.
 - hassfest needs the repository root mounted, not the integration folder.
