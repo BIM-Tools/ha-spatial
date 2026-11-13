@@ -8,6 +8,7 @@ import {
   handlers,
   jumpTo,
   liveMarkers,
+  nextFrame,
   toasts,
   onUpdateOf,
   panMap,
@@ -155,23 +156,28 @@ test("rooms on other floors are not candidates, rooms on this floor and the outl
     { type: "Feature", id: "attic", geometry: pixelBox(200, 0, 250, 50), properties: { floor_id: "loft", level: 1 } },
   ]);
   await startDrawing(panel);
-  // Near a corner the two walls that meet there light up, and the corner.
-  handlers.mousemove(mouse(203, 2));
+  // Near a corner the two walls that meet there light up, and the corner; the attic's wall, away
+  // from the lines through the kitchen's corners, lights up nothing.
+  handlers.mousemove(mouse(203, 22));
+  await nextFrame();
   expect(snapHighlights()).toEqual([]);
   handlers.mousemove(mouse(53, 2));
+  await nextFrame();
   expect(snapHighlights()).toEqual(["LineString", "LineString", "Point"]);
   handlers.mousemove(mouse(103, 102));
+  await nextFrame();
   expect(snapHighlights()).toEqual(["LineString", "LineString", "Point"]);
 });
 
 test("a drag starting inside a room that is not active draws a box", async () => {
   const { panel, connection } = mountEditor();
   await startDrawing(panel);
-  drag([25, 25], [65, 55]);
+  // The end lies more than the snap radius from the lines through the kitchen's and the outline's corners.
+  drag([25, 25], [65, 61]);
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
   const [{ areas }] = saves(connection);
   expect(Object.keys(areas)).toEqual(["bath"]);
-  expect(area(areas.bath)).toBeCloseTo(12, 1);
+  expect(area(areas.bath)).toBeCloseTo(14.4, 1);
 });
 
 test("boxes while a save is in flight are ignored", async () => {

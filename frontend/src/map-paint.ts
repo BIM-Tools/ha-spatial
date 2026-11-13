@@ -71,6 +71,7 @@ const computeColor = (element: Element, token: string): Rgba | undefined => {
 /** Home Assistant's default theme, for a token the theme does not set. */
 const DEFAULTS: Record<string, [light: string, dark: string]> = {
   "--primary-color": ["#03a9f4", "#03a9f4"],
+  "--accent-color": ["#ff9800", "#ff9800"],
   "--warning-color": ["#ffa600", "#ffa600"],
   "--card-background-color": ["#ffffff", "#1c1c1c"],
   "--primary-text-color": ["#212121", "#e1e1e1"],
@@ -80,23 +81,23 @@ const DEFAULTS: Record<string, [light: string, dark: string]> = {
 /** The map's colours, as rgba() strings MapLibre parses. */
 export interface MapPaint {
   primary: string;
+  // What a point snaps to, set apart from the primary editing lines.
+  accent: string;
   roomFill: string;
   roomEdge: string;
   // Drawn over the room's own fill, so together they make the active fill.
   activeRoomFill: string;
   building: string;
   activeBuildingFill: string;
+  // Under a building the pointer is on while the home is to be picked.
+  pickHoverFill: string;
   draftFill: string;
   apartEdge: string;
   apartFill: string;
   handleFill: string;
-  // The stack of all floors: opaque, since an extrusion's opacity is one value for its whole layer.
-  slab: string;
-  // The slab darkened a little, so its edge reads as a thin sheet and the shadow gives the depth.
-  slabEdge: string;
-  slabRoom: string;
-  slabRoomEdge: string;
-  slabShadow: string;
+  // The rooms in the stack of all floors: opaque, since an extrusion's opacity is one value for its whole layer.
+  stackRoom: string;
+  stackRoomEdge: string;
 }
 
 const rgba = ([r, g, b, a]: Rgba, opacity = 1) => `rgba(${r},${g},${b},${Math.round(a * opacity * 1000) / 1000})`;
@@ -119,24 +120,24 @@ export const readMapPaint = (element: Element, dark: boolean): MapPaint => {
   const roomOpacity = dark ? 0.12 : 0.1;
   const activeOpacity = dark ? 0.3 : 0.24;
   const tintOpacity = dark ? 0.22 : 0.18;
-  const slab = mix(color("--card-background-color"), color("--secondary-text-color"), dark ? 0.88 : 1);
+  // What a see-through room fill would show through: the card, a little lighter in the dark theme.
+  const ground = mix(color("--card-background-color"), color("--secondary-text-color"), dark ? 0.88 : 1);
   return {
     primary: rgba(primary),
+    accent: rgba(color("--accent-color")),
     roomFill: rgba(primary, roomOpacity),
     roomEdge: rgba(primary, dark ? 0.75 : 0.7),
     activeRoomFill: rgba(primary, 1 - (1 - activeOpacity) / (1 - roomOpacity)),
     // A neutral grey between the two text colours: #5a5a5a on the light default, #bebebe on the dark one.
     building: rgba(mix(color("--primary-text-color"), color("--secondary-text-color"), dark ? 0.5 : 0.3)),
     activeBuildingFill: rgba(primary, tintOpacity),
+    pickHoverFill: rgba(primary, 0.12),
     draftFill: rgba(primary, tintOpacity),
     apartEdge: rgba(warning),
     apartFill: rgba(warning, 0.16),
     handleFill: rgba(color("--card-background-color")),
-    slab: rgba(slab),
-    slabEdge: rgba(mix(slab, color("--secondary-text-color"), 0.7)),
-    slabRoom: rgba(mix(primary, slab, dark ? 0.14 : 0.12)),
-    slabRoomEdge: rgba(mix(primary, slab, dark ? 0.75 : 0.7)),
-    slabShadow: "rgba(0,0,0,1)",
+    stackRoom: rgba(mix(primary, ground, dark ? 0.14 : 0.12)),
+    stackRoomEdge: rgba(mix(primary, ground, dark ? 0.75 : 0.7)),
   };
 };
 
@@ -147,11 +148,9 @@ export type LayerColours = Record<string, Record<string, unknown>>;
 
 /** The colour paint of every layer the panel adds, by layer id; widths and dashes stay with each layer. */
 export const layerColours = (paint: MapPaint): LayerColours => ({
-  "stack-shadow": { "fill-extrusion-color": paint.slabShadow },
-  "stack-slabs": { "fill-extrusion-color": paint.slab },
-  "stack-slab-edges": { "fill-extrusion-color": paint.slabEdge },
-  "stack-rooms": { "fill-extrusion-color": paint.slabRoom },
-  "stack-room-edges": { "fill-extrusion-color": paint.slabRoomEdge },
+  "stack-outline": { "fill-extrusion-color": paint.building },
+  "stack-rooms": { "fill-extrusion-color": paint.stackRoom },
+  "stack-room-edges": { "fill-extrusion-color": paint.stackRoomEdge },
   "areas-2d": { "fill-color": paint.roomFill },
   "areas-outline": { "line-color": paint.roomEdge },
   "spatial-outline": { "line-color": paint.building },
@@ -163,12 +162,19 @@ export const layerColours = (paint: MapPaint): LayerColours => ({
   "spatial-hover": { "line-color": paint.primary },
   "spatial-hover-building": { "line-color": paint.primary },
   "spatial-map-outline": { "line-color": paint.primary },
+  "spatial-map-guide": { "line-color": paint.primary },
+  "spatial-pick": { "line-color": paint.primary },
+  "spatial-pick-aligned": { "line-color": paint.primary },
+  "spatial-pick-hover": { "line-color": paint.primary },
+  "spatial-pick-hover-fill": { "fill-color": paint.pickHoverFill },
+  "spatial-place": { "circle-color": paint.primary, "circle-stroke-color": paint.handleFill },
   "spatial-handles": { "circle-color": paint.handleFill, "circle-stroke-color": paint.primary },
   "spatial-draft-fill": { "fill-color": apart(paint.apartFill, paint.draftFill) },
   "spatial-draft": { "line-color": apart(paint.apartEdge, paint.primary) },
   "spatial-draft-point": { "circle-color": paint.primary, "circle-stroke-color": paint.handleFill },
-  "spatial-snap-line": { "line-color": paint.primary },
-  "spatial-snap-point": { "circle-color": paint.primary, "circle-stroke-color": paint.handleFill },
+  "spatial-snap-line": { "line-color": paint.accent },
+  "spatial-snap-point": { "circle-color": paint.accent, "circle-stroke-color": paint.handleFill },
+  "spatial-snap-marker": { "circle-color": paint.handleFill, "circle-stroke-color": paint.accent },
 });
 
 type PaintArguments = Parameters<MapLibreMap["setPaintProperty"]>;

@@ -18,6 +18,8 @@ export const zoomIn = vi.fn();
 export const zoomOut = vi.fn();
 export const setStyle = vi.fn();
 export const queryRenderedFeatures = vi.fn((): object[] => []);
+// Whether a flight lands at once; a test that holds it fires `moveend` itself.
+export const camera = { lands: true };
 export let handlers: Record<string, (event?: object) => void> = {};
 export let sources: Record<string, { data: unknown }> = {};
 export let layers: {
@@ -29,6 +31,8 @@ export let layers: {
   paint?: Record<string, unknown>;
 }[] = [];
 export let mapBearingNow = 0;
+// MapLibre's default vertical field of view, until the panel sets another.
+export let mapFieldOfViewNow = 36.87;
 // The canvas of the latest map, whose style carries the cursor.
 export let mapCanvas = document.createElement("canvas");
 
@@ -74,6 +78,35 @@ const projectLngLat = ({ lng, lat }: { lng: number; lat: number }) => {
   return { x: pixels * Math.sin(turn) - panned.x, y: -pixels * Math.cos(turn) - panned.y };
 };
 
+// MapLibre tells each rendered feature the tile it came from; here that is the zoom 14 tile of the
+// feature's first position, unless the test names one.
+const TILE_ZOOM = 14;
+const withTile = (feature: object) => {
+  const geometry = (feature as { geometry?: { coordinates: unknown } }).geometry;
+  if (!geometry || "_z" in feature) return feature;
+  const [lng, lat] = (geometry.coordinates as unknown[]).flat(3) as number[];
+  const phi = (lat * Math.PI) / 180;
+  const x = Math.floor(((lng + 180) / 360) * 2 ** TILE_ZOOM);
+  const y = Math.floor(((1 - Math.log(Math.tan(phi) + 1 / Math.cos(phi)) / Math.PI) / 2) * 2 ** TILE_ZOOM);
+  return { ...feature, _z: TILE_ZOOM, _x: x, _y: y };
+};
+
+// MapLibre hands every listener the same event, whose preventDefault the later listeners read; a
+// test's own preventDefault spy is still called.
+const mapEvent = (event?: object) => {
+  if (!event) return event;
+  const own = (event as { preventDefault?: () => void }).preventDefault;
+  const shared = {
+    ...event,
+    defaultPrevented: false,
+    preventDefault: () => {
+      shared.defaultPrevented = true;
+      own?.();
+    },
+  };
+  return shared;
+};
+
 // MapLibre needs WebGL; the panel's own behaviour does not.
 export const fakeMapLibre = {
   setWorkerUrl: vi.fn(),
@@ -115,11 +148,22 @@ export const fakeMapLibre = {
       sources = {};
       layers = [];
       mapBearingNow = options.bearing ?? 0;
+      mapFieldOfViewNow = 36.87;
     }
     listeners: Record<string, ((event?: object) => void)[]> = {};
     on(event: string, handler: (event?: object) => void) {
       (this.listeners[event] ??= []).push(handler);
-      handlers[event] = (e) => this.listeners[event].forEach((listener) => listener(e));
+      handlers[event] = (e) => {
+        const shared = mapEvent(e);
+        this.listeners[event].forEach((listener) => listener(shared));
+      };
+    }
+    once(event: string, handler: (event?: object) => void) {
+      const once = (e?: object) => {
+        this.off(event, once);
+        handler(e);
+      };
+      this.on(event, once);
     }
     off(event: string, handler: (event?: object) => void) {
       this.listeners[event] = this.listeners[event].filter((listener) => listener !== handler);
@@ -165,7 +209,7 @@ export const fakeMapLibre = {
       };
     }
     queryRenderedFeatures(...args: unknown[]) {
-      return (queryRenderedFeatures as (...a: unknown[]) => object[])(...args);
+      return (queryRenderedFeatures as (...a: unknown[]) => object[])(...args).map(withTile);
     }
     setBearing(bearing: number) {
       mapBearingNow = bearing;
@@ -181,9 +225,11 @@ export const fakeMapLibre = {
     }
     flyTo(...args: unknown[]) {
       flyTo(...args);
+      if (camera.lands) handlers.moveend?.();
     }
     fitBounds(...args: unknown[]) {
       fitBounds(...args);
+      if (camera.lands) handlers.moveend?.();
     }
     getBearing() {
       return mapBearingNow;
@@ -198,7 +244,10 @@ export const fakeMapLibre = {
       return 0;
     }
     getVerticalFieldOfView() {
-      return 36.87;
+      return mapFieldOfViewNow;
+    }
+    setVerticalFieldOfView(fov: number) {
+      mapFieldOfViewNow = fov;
     }
     zoomIn() {
       zoomIn();
@@ -347,6 +396,7 @@ export const resetFakes = () => {
   localStorage.clear();
   queryRenderedFeatures.mockReset();
   queryRenderedFeatures.mockReturnValue([]);
+  camera.lands = true;
   handlers = {};
   markers = [];
   panned = { x: 0, y: 0 };
@@ -392,9 +442,11 @@ export const floorButtonNames =(panel: HTMLElement) =>
     (button) => button.textContent?.trim(),
   );
 
-/** The text of each part of the guide line, one space apart. */
+/** The guide's lines and buttons, one space apart; "" without a guide. */
 export const guideText = (panel: HTMLElement) =>
-  [...(panel.shadowRoot?.querySelector(".guide")?.children ?? [])].map((part) => part.textContent).join(" ");
+  [...(panel.shadowRoot?.querySelector(".guide")?.querySelectorAll(".text, .detail, button") ?? [])]
+    .map((part) => part.textContent?.trim())
+    .join(" ");
 
 /** The text of each part of an element's shadow root, one space apart. */
 export const partsText = (element: Element) =>
@@ -417,6 +469,9 @@ export const toastMessages = () => toasts.map((toast) => toast.message);
 type Updating = Element & { updateComplete?: Promise<boolean> };
 
 /** Waits for the panel and the elements it renders to finish rendering. */
+/** Resolves after the next animation frame, once what the panel read in that frame is shown. */
+export const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
+
 export const settle = async (panel: HTMLElement) => {
   await (panel as Updating).updateComplete;
   for (const element of panel.shadowRoot?.querySelectorAll<Updating>("*") ?? []) await element.updateComplete;

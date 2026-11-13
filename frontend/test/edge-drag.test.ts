@@ -1,8 +1,8 @@
-// Checks where a dragged edge or corner of an axis rectangle lands, and which edge or corner a pointer grabs.
+// Checks where a dragged edge or corner of an axis rectangle or an outline of any shape lands, and which edge or corner a pointer grabs.
 
 import type { Polygon, Position } from "geojson";
 import { expect, test } from "vitest";
-import { type Pixel, type ResizeTarget, resizeCursor, resizeRectangle, resizeTargetAt } from "../src/edge-drag";
+import { type Pixel, type ResizeTarget, isResizable, resizeCursor, resizePolygon, resizeRectangle, resizeTargetAt } from "../src/edge-drag";
 import { PlanFrame, type LatticePoint } from "../src/site-frame";
 import type { LatticeEdge, SnapCandidates, SnapSource } from "../src/snap";
 import { siteFrameData } from "./site-frame-fixture";
@@ -10,7 +10,7 @@ import { siteFrameData } from "./site-frame-fixture";
 const FRAME = PlanFrame.fromSite(siteFrameData([5, 52], 20));
 const OPTIONS = { radius: 3, gridUnits: 4, free: false };
 const FREE = { ...OPTIONS, free: true };
-const NONE: SnapCandidates = { roomCorners: [], roomEdges: [], outlineCorners: [], outlineEdges: [], roomRings: [] };
+const NONE: SnapCandidates = { roomCorners: [], roomEdges: [], outlineCorners: [], outlineEdges: [], lineCorners: [], guideCorners: [], guideEdges: [], roomRings: [] };
 
 const shapeOf = (...corners: LatticePoint[]): Polygon => ({
   type: "Polygon",
@@ -74,33 +74,94 @@ test.each<[ResizeTarget, [number, number], typeof OPTIONS, boolean]>([
   expect(resizeRectangle(FRAME, SQUARE, target, pointer, NONE, options).changed).toBe(changed);
 });
 
+// An outline copied from a map, with one slanted wall: edge 1 from [81, 0] to [83, 41].
+const SLANTED = shapeOf([0, 0], [81, 0], [83, 41], [0, 41]);
+const EDGE_0: ResizeTarget = { kind: "edge", index: 0 };
+// The axis lines through the corners that stay when corner 2 moves, from each corner to where it lands.
+const LINE_X_81: LatticeEdge = [
+  [81, 0],
+  [81, 41],
+];
+const LINE_Y_41: LatticeEdge = [
+  [0, 41],
+  [81, 41],
+];
+const ROOM_WALL: LatticeEdge = [
+  [-10, -6],
+  [90, -6],
+];
+
+test.each<[string, ResizeTarget, [number, number], SnapCandidates, typeof OPTIONS, number[][], SnapSource[], boolean]>([
+  ["a corner lands on the lines of the corners that stay, however far along", CORNER_2, [81.8, 40.3], NONE, OPTIONS, [[0, 0], [81, 0], [81, 41], [0, 41]], [{ kind: "aligned", edge: LINE_X_81 }, { kind: "aligned", edge: LINE_Y_41 }], true],
+  ["a corner away from every line lands on the grid", CORNER_2, [90.6, 50.9], NONE, OPTIONS, [[0, 0], [81, 0], [92, 52], [0, 41]], [], true],
+  ["a corner snaps to a room corner before the outline's own lines", CORNER_2, [81.8, 40.3], { ...NONE, roomCorners: [[82, 40]] }, OPTIONS, [[0, 0], [81, 0], [82, 40], [0, 41]], [{ kind: "corner", at: [82, 40] }], true],
+  ["a corner with Alt lands on the lattice", CORNER_2, [81.8, 40.3], NONE, FREE, [[0, 0], [81, 0], [82, 40], [0, 41]], [], true],
+  ["a corner dropped on its own place is unchanged", CORNER_2, [83.2, 40.8], NONE, FREE, [[0, 0], [81, 0], [83, 41], [0, 41]], [], false],
+  ["an edge along an axis moves across onto the grid, its neighbours follow", EDGE_0, [40, -5.2], NONE, OPTIONS, [[0, -4], [81, -4], [83, 41], [0, 41]], [], true],
+  ["an edge along an axis rests on a parallel room wall", EDGE_0, [40, -5.2], { ...NONE, roomEdges: [ROOM_WALL] }, OPTIONS, [[0, -6], [81, -6], [83, 41], [0, 41]], [{ kind: "edge", edge: ROOM_WALL }], true],
+  ["a slanted edge moves along its normal, rounded to the lattice, and stays parallel", EDGE_1, [91, 20], NONE, OPTIONS, [[0, 0], [90, 0], [92, 41], [0, 41]], [], true],
+])("on an outline of any shape %s", (_, target, pointer, candidates, options, expected, sources, changed) => {
+  const resized = resizePolygon(FRAME, SLANTED, target, pointer, candidates, options);
+  expect(cornersOf(resized.shape)).toEqual(expected);
+  expect(resized.sources).toEqual(sources);
+  expect(resized.changed).toBe(changed);
+});
+
+test.each<[string, Polygon, boolean, boolean]>([
+  ["a rectangle room", SQUARE, false, true],
+  ["a room of another shape", SLANTED, false, false],
+  ["an outline of any shape", SLANTED, true, true],
+  ["an outline with a hole", { type: "Polygon", coordinates: [...SQUARE.coordinates, ...shapeOf([10, 10], [10, 20], [20, 20]).coordinates] }, true, false],
+])("isResizable: %s", (_, shape, isOutline, resizable) => {
+  expect(isResizable(FRAME, shape, isOutline)).toBe(resizable);
+});
+
 // Screen pixels are lattice units with y down.
 const project = (position: Position) => {
   const [x, y] = FRAME.toLatticeUnits(position);
   return { x, y: -y };
 };
 
-test.each<[Pixel, ResizeTarget | undefined]>([
-  [{ x: 42, y: -20 }, { kind: "edge", index: 1 }],
-  [{ x: 20, y: -1 }, { kind: "edge", index: 0 }],
-  [{ x: 38, y: -1.5 }, { kind: "corner", index: 1 }],
-  [{ x: 41, y: -41 }, { kind: "corner", index: 2 }],
-  [{ x: -1, y: 1 }, { kind: "corner", index: 0 }],
-  [{ x: 44, y: -44 }, undefined],
-  [{ x: 50, y: -20 }, undefined],
-  [{ x: 20, y: -20 }, undefined],
-])("a pointer at %o within 3 px grabs %o, a corner before its edges", (pixel, target) => {
-  expect(resizeTargetAt(pixel, SQUARE, project, 3)).toEqual(target);
+test.each<[string, Polygon, Pixel, ResizeTarget | undefined]>([
+  ["the square", SQUARE, { x: 42, y: -20 }, { kind: "edge", index: 1 }],
+  ["the square", SQUARE, { x: 20, y: -1 }, { kind: "edge", index: 0 }],
+  ["the square", SQUARE, { x: 38, y: -1.5 }, { kind: "corner", index: 1 }],
+  ["the square", SQUARE, { x: 41, y: -41 }, { kind: "corner", index: 2 }],
+  ["the square", SQUARE, { x: -1, y: 1 }, { kind: "corner", index: 0 }],
+  ["the square", SQUARE, { x: 44, y: -44 }, undefined],
+  ["the square", SQUARE, { x: 50, y: -20 }, undefined],
+  ["the square", SQUARE, { x: 20, y: -20 }, undefined],
+  ["the slanted outline", SLANTED, { x: 83, y: -20.5 }, { kind: "edge", index: 1 }],
+  ["the slanted outline", SLANTED, { x: 82, y: -42 }, { kind: "corner", index: 2 }],
+  ["the slanted outline", SLANTED, { x: 40, y: -42 }, { kind: "edge", index: 2 }],
+])("a pointer on %s at %o within 3 px grabs %o, a corner before its edges", (_, shape, pixel, target) => {
+  expect(resizeTargetAt(pixel, shape, project, 3)).toEqual(target);
 });
 
 // SQUARE on screen: corner 0 bottom left, corner 2 top right.
 const ON_SCREEN = cornersOf(SQUARE).map(([x, y]) => ({ x, y: -y }));
+// A triangle on screen whose edge 1 runs down to the left and edge 2 up the left side.
+const TRIANGLE: Pixel[] = [
+  { x: 0, y: 0 },
+  { x: 40, y: 0 },
+  { x: 0, y: 40 },
+];
+// A triangle on screen whose edge 0 runs down to the right.
+const FALLING: Pixel[] = [
+  { x: 0, y: 0 },
+  { x: 40, y: 40 },
+  { x: 0, y: 40 },
+];
 
-test.each<[ResizeTarget, string]>([
-  [{ kind: "edge", index: 0 }, "ns-resize"],
-  [{ kind: "edge", index: 1 }, "ew-resize"],
-  [{ kind: "corner", index: 0 }, "nesw-resize"],
-  [{ kind: "corner", index: 1 }, "nwse-resize"],
-])("%o shows the %s cursor", (target, cursor) => {
-  expect(resizeCursor(target, ON_SCREEN)).toBe(cursor);
+test.each<[ResizeTarget, Pixel[], boolean, string]>([
+  [{ kind: "edge", index: 0 }, ON_SCREEN, false, "ns-resize"],
+  [{ kind: "edge", index: 1 }, ON_SCREEN, false, "ew-resize"],
+  [{ kind: "corner", index: 0 }, ON_SCREEN, false, "nesw-resize"],
+  [{ kind: "corner", index: 1 }, ON_SCREEN, false, "nwse-resize"],
+  [{ kind: "edge", index: 1 }, TRIANGLE, true, "nwse-resize"],
+  [{ kind: "edge", index: 2 }, TRIANGLE, true, "ew-resize"],
+  [{ kind: "edge", index: 0 }, FALLING, true, "nesw-resize"],
+  [{ kind: "corner", index: 1 }, TRIANGLE, true, "move"],
+])("%o on %j, corners moving freely: %s, shows the %s cursor", (target, corners, cornerMovesFreely, cursor) => {
+  expect(resizeCursor(target, corners, cornerMovesFreely)).toBe(cursor);
 });

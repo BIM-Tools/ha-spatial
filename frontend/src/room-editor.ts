@@ -6,16 +6,17 @@ import { html } from "lit";
 import type { GeoJSONSource, Map as MapLibreMap } from "maplibre-gl";
 import { type AreaEntry, BUILDING, firstToDraw, newAreaName, stripOrder } from "./area-strip";
 import { type ActiveRoom, BoxInteraction, type EditorSnapshot } from "./box-interaction";
-import type { ResizeTarget } from "./edge-drag";
-import { type Change, type FootprintBatch, History, clearChange } from "./history";
+import { type ResizeTarget, isResizable } from "./edge-drag";
+import { type Change, History, type SiteFields, clearChange, startOverChange } from "./history";
 import type { LayerColours } from "./map-paint";
 import { byLevel } from "./map-view";
-import { type ChangeOrRefusal, boxChange, edgeLengths, isAxisRectangle } from "./plan";
+import type { Plan } from "./onboarding";
+import { type ChangeOrRefusal, boxChange, isAxisRectangle, overallSize, reshapeChange, ringChange } from "./plan";
 import type { ScreenBox } from "./draft-labels";
 import { type SideControls, showSideControls } from "./side-controls";
-import type { PlanFrame } from "./site-frame";
+import type { LatticePoint, PlanFrame } from "./site-frame";
 import { snapCandidatesFor } from "./snap";
-import { type HassUnits, formatSize, refusalMessage, saveFailureMessage } from "./units";
+import { type HassUnits, formatSize, refusalMessage, saveFailure } from "./units";
 
 interface Connection {
   sendMessagePromise<T>(message: { type: string; [key: string]: unknown }): Promise<T>;
@@ -40,21 +41,6 @@ export interface Toast {
   id?: string;
 }
 
-/** A button on the guide line; the lit one is the step the guide suggests. */
-export interface GuideAction {
-  label: string;
-  lit?: boolean;
-  run: () => void;
-}
-
-/** One line on the map that says what to do next, with a second line and buttons when it asks something. */
-export interface Guide {
-  text: string;
-  step?: string;
-  detail?: string;
-  actions?: GuideAction[];
-}
-
 /** What the editor needs from the panel that holds it. */
 export interface EditorHost {
   requestUpdate(): void;
@@ -68,6 +54,8 @@ export interface EditorHost {
   canRenameBuilding(): boolean;
   // The rooms whose labels hide while a resize draft over them shows its lengths and area.
   hideLabels(areaIds: string[]): void;
+  // The plan was emptied, back to picking the home's building.
+  startedOver(): void;
 }
 
 // A later save that succeeds closes the failure toast through this id.
@@ -81,6 +69,7 @@ export class RoomEditor {
   private _areas: AreaEntry[] = [];
   private _footprints = new Map<string, Polygon>();
   private _floor: string | null | "all" = "all";
+  // "" after a click on empty map in Select: nothing is active, so nothing shows handles or side chips.
   private _active = BUILDING;
   // The area whose pill is a name field, or "".
   private _renaming = "";
@@ -96,7 +85,7 @@ export class RoomEditor {
   private _mapOutline?: Polygon;
   // Draw it myself answers the offer for this visit.
   private _mapOutlineDeclined = false;
-  // After Use outline the guide asks to check one length, until Looks right.
+  // After a new outline the guide asks to check one length, until Looks right.
   private _checkingLength = false;
   // Counts acknowledged saves and started refreshes, so an older refresh cannot undo a newer save.
   private _changes = 0;
@@ -107,7 +96,7 @@ export class RoomEditor {
   ) {}
 
   get canUndo() {
-    return !this._saving && this._history.canUndo;
+    return !this._saving && (this._history.canUndo || Boolean(this._interaction?.ringOpen));
   }
 
   get canRedo() {
@@ -124,42 +113,54 @@ export class RoomEditor {
     return !this._saving && this._floorClear() !== undefined;
   }
 
+  /** A box is being drawn, or a shape pressed, moved or resized. */
+  get gesture() {
+    return this._interaction?.gesture ?? false;
+  }
+
+  /** What the pointer is on, for the map's cursor. */
+  get hover() {
+    return this._interaction?.hover ?? { resize: undefined, onShape: false };
+  }
+
   /** Any room footprint on any floor, or the outline. */
   get hasShapes() {
     return this._footprints.size > 0;
   }
 
   /**
-   * While aligning, what to click; after Use outline, to check one length; while the map offers an
-   * outline, whether to use it; with an area without a shape active, that it is next and how far the floor is.
+   * What the guide reads of the plan: every floor with its areas and which have a shape, the active pill,
+   * and the outline with its open question, the map's offer or the length to check after a new outline.
    */
-  get guide(): Guide | undefined {
-    if (this.tool === "align") return { text: "Click the wall your rooms follow" };
-    if (this._checkingLength && this._floor !== "all" && this._active === BUILDING && this._footprints.has(BUILDING)) {
-      return {
-        text: "Check one length you know",
-        detail: "For example the front of the house. Tap it to type the real size.",
-        actions: [{ label: "Looks right", lit: true, run: this._lengthChecked }],
-      };
-    }
+  plan(floorName: (floor: string | null) => string): Pick<
+    Plan,
+    "outlineStored" | "outlineOffer" | "checkingLength" | "outlineIsBox" | "floors" | "tool" | "active"
+  > {
     const offered = this._offeredOutline();
     const frame = this._host.siteFrame();
-    if (offered && frame && !this._mapOutlineDeclined) {
-      const [width, depth] = edgeLengths(frame, offered);
-      return {
-        text: "Use the map's outline?",
-        detail: formatSize(width, depth, this._host.units()),
-        actions: [
-          { label: "Draw it myself", run: this._drawOutlineMyself },
-          { label: "Use outline", lit: true, run: this._useMapOutline },
-        ],
-      };
-    }
-    const order = this._order();
-    const active = order.find((area) => area.area_id === this._active);
-    if (!active || this._footprints.has(active.area_id)) return undefined;
-    const shaped = order.filter((area) => this._footprints.has(area.area_id)).length;
-    return { text: `Draw ${active.name}`, step: `${shaped + 1} of ${order.length}` };
+    const outline = this._footprints.get(BUILDING);
+    // Along the site axes; for any shape but a rectangle that is its overall extent.
+    const size = offered && frame ? formatSize(...overallSize(frame, offered), this._host.units()) : undefined;
+    const overall = offered && frame && !isAxisRectangle(frame, offered) ? " overall" : "";
+    const floors = [...this.floors.map((entry) => entry.floor_id), null].map((floor) => ({
+      floor,
+      name: floorName(floor),
+      areas: stripOrder(this._areas, floor).map(({ area_id, name }) => ({ area_id, name, shaped: this._footprints.has(area_id) })),
+    }));
+    return {
+      outlineStored: this._footprints.has(BUILDING),
+      outlineOffer: size && `${size}${overall}`,
+      checkingLength: this._checkingLength && this._active === BUILDING && this._footprints.has(BUILDING),
+      outlineIsBox: Boolean(outline && frame && isAxisRectangle(frame, outline)),
+      floors,
+      tool: this.tool,
+      active: this._target(),
+    };
+  }
+
+  // The active area, or with nothing active the one Draw would take, so the guide and the map's offer lead on.
+  private _target() {
+    return this._active || firstToDraw(this._order(), this._linked());
   }
 
   attach(map: MapLibreMap) {
@@ -168,9 +169,11 @@ export class RoomEditor {
       snapshot: () => this._snapshot(),
       onBox: (box, frame) => this._finishBox(box, frame),
       onMove: (room, moved) => this._saveShape(room, moved),
-      onResize: (room, resized) => this._saveShape(room, resized),
+      onResize: (room, resized, frame) => this._resize(reshapeChange(frame, room.areaId, room.footprint, resized)),
       onResizing: (resizing) => this._resizing(resizing),
       onPickRoom: (areaId) => this._select(areaId),
+      onRing: (corners, frame) => this._closeRing(corners, frame),
+      onCornersChanged: () => this._host.requestUpdate(),
     });
     window.addEventListener("keydown", this._keys);
     this._showSides();
@@ -212,6 +215,13 @@ export class RoomEditor {
       type: "line",
       source: "spatial-map-outline",
       paint: { ...colours["spatial-map-outline"], "line-width": 2, "line-dasharray": [2, 1] },
+    });
+    map.addSource("spatial-map-guide", { type: "geojson", data: this._shownGuide() ?? NOTHING });
+    map.addLayer({
+      id: "spatial-map-guide",
+      type: "line",
+      source: "spatial-map-guide",
+      paint: { ...colours["spatial-map-guide"], "line-width": 1, "line-dasharray": [1, 2] },
     });
     map.addSource("spatial-handles", { type: "geojson", data: this._handles() });
     map.addLayer({
@@ -256,7 +266,7 @@ export class RoomEditor {
     this._showHandles();
     this._showMapOutline();
     const order = this._order();
-    if (![BUILDING, ...order.map((area) => area.area_id)].includes(this._active)) {
+    if (this._active && ![BUILDING, ...order.map((area) => area.area_id)].includes(this._active)) {
       this._setActive(order[0]?.area_id ?? BUILDING);
     }
     this._showSides();
@@ -269,10 +279,11 @@ export class RoomEditor {
     this._select(firstToDraw(this._order(), this._linked()));
   }
 
+  // Draw draws for an area, so with nothing active it takes the first to draw.
   setTool(tool: Tool) {
     this.tool = tool;
     this._interaction?.toolChanged();
-    this._select(this._active);
+    this._select(tool === "draw" ? this._target() : this._active);
   }
 
   /** The outline the map's building offers in the current site frame, or undefined when there is none. */
@@ -283,65 +294,86 @@ export class RoomEditor {
     this._host.requestUpdate();
   }
 
-  // While the Building on a floor has no outline, the map's offers itself: dashed, as the guide's
-  // question, and as what drawing the Building snaps to. Rooms never see it.
+  // While the Building on a floor has no outline and the offer is open, the map's outline offers
+  // itself, dashed, as the guide's question.
   private _offeredOutline(): Polygon | undefined {
-    if (this.tool === "align" || this._floor === "all" || this._active !== BUILDING || this._footprints.has(BUILDING)) {
-      return undefined;
-    }
-    return this._mapOutline;
+    if (this._mapOutlineDeclined || this.tool === "align" || this._floor === "all" || this._target() !== BUILDING) return undefined;
+    return this._mapGuide();
+  }
+
+  // Until an outline is stored, the map's outline is what the Building and the rooms snap to after
+  // the rooms; it never stops a move, as the map is only roughly right. Once stored, the outline guides.
+  private _mapGuide(): Polygon | undefined {
+    return this.tool === "align" || this._footprints.has(BUILDING) ? undefined : this._mapOutline;
+  }
+
+  // Dotted wherever rooms snap to it, unless the dashed offer shows the same line.
+  private _shownGuide(): Polygon | undefined {
+    return this._offeredOutline() ? undefined : this._mapGuide();
   }
 
   private _showMapOutline() {
     this._map?.getSource<GeoJSONSource>("spatial-map-outline")?.setData(this._offeredOutline() ?? NOTHING);
+    this._map?.getSource<GeoJSONSource>("spatial-map-guide")?.setData(this._shownGuide() ?? NOTHING);
   }
 
-  // One write and one undo step; then the outline is active in Select, where its side chips take a typed length.
-  private _useMapOutline = () => {
+  /** One write and one undo step; then the outline is active in Select, where its side chips take a typed length. */
+  useMapOutline = () => {
     const outline = this._offeredOutline();
     if (!outline) return;
     this._whileSaving(async () => {
       await this._apply({ before: { [BUILDING]: null }, after: { [BUILDING]: outline } });
-      this._checkingLength = true;
-      this._host.selectTool("select");
+      this._checkOutline();
     });
   };
 
-  private _drawOutlineMyself = () => {
+  // A new outline stays active in Select, where its corners and sides can be corrected, and the guide
+  // asks to check one length until Looks right.
+  private _checkOutline() {
+    this._checkingLength = true;
+    this._host.selectTool("select");
+  }
+
+  /** Answers the map's offer for this visit: Draw on, with the map's outline as a dotted snap guide. */
+  drawOutlineMyself = () => {
     this._mapOutlineDeclined = true;
+    this._showMapOutline();
     this._host.selectTool("draw");
     this._host.requestUpdate();
   };
 
-  private _lengthChecked = () => {
+  /** Ends the length check and moves on to the first area to draw. */
+  lengthChecked = () => {
     this._checkingLength = false;
-    this._host.requestUpdate();
+    this._select(firstToDraw(this._order(), this._linked()));
   };
 
-  // An empty history saves nothing, so it must not count as a save that supersedes a failed one.
-  undo = () =>
-    this._history.canUndo &&
-    this._whileSaving(async () => {
+  // An empty history saves nothing, so it must not count as a save that supersedes a failed one. While the
+  // outline's corners are placed, Undo takes back the last one instead.
+  undo = () => {
+    if (this._interaction?.dropCorner() || !this._history.canUndo) return;
+    void this._whileSaving(async () => {
       const change = this._history.undo();
       if (!change) return;
-      await this._send(change.before).catch((err) => {
+      await this._send(change, "before").catch((err) => {
         this._history.redo();
         throw err;
       });
     });
+  };
 
   redo = () =>
     this._history.canRedo &&
     this._whileSaving(async () => {
       const change = this._history.redo();
       if (!change) return;
-      await this._send(change.after).catch((err) => {
+      await this._send(change, "after").catch((err) => {
         this._history.undo();
         throw err;
       });
     });
 
-  /** The area strip; on All only the Building pill and a hint. */
+  /** The area strip; on All only the Building pill. */
   render(hovered?: string) {
     return html`<spatial-area-strip
       ?allFloors=${this._floor === "all"}
@@ -366,8 +398,6 @@ export class RoomEditor {
 
   private _snapshot(): EditorSnapshot {
     const footprint = this._footprints.get(this._active);
-    // The offered outline snaps as the outline would, while the Building is drawn.
-    const offered = this._offeredOutline();
     return {
       tool: this.tool,
       floorPicked: this._floor !== "all",
@@ -377,7 +407,9 @@ export class RoomEditor {
       siteFrame: this._host.siteFrame(),
       units: this._host.units(),
       floorAreaIds: this._order().map((area) => area.area_id),
-      footprints: offered ? new Map(this._footprints).set(BUILDING, offered) : this._footprints,
+      footprints: this._footprints,
+      mapGuide: this._mapGuide(),
+      outlineByCorners: this._active === BUILDING && !this._footprints.has(BUILDING),
     };
   }
 
@@ -479,6 +511,30 @@ export class RoomEditor {
     });
   };
 
+  /**
+   * Removes every footprint, the outline included, and the site's direction and origin in one save and
+   * one undo step, back to picking the home's building; the toast's Undo takes back only that. Reads the
+   * plan first, as the editor holds no room properties and no origin.
+   */
+  startOver = () =>
+    this._whileSaving(async () => {
+      const [feed, site] = await Promise.all([
+        this._connection.sendMessagePromise<FeatureCollection>({ type: "spatial/geojson" }),
+        this._connection.sendMessagePromise<SiteFields>({ type: "spatial/site" }),
+      ]);
+      const change = startOverChange(feed, site);
+      if (!change) return;
+      await this._apply(change);
+      this._mapOutlineDeclined = false;
+      this._checkingLength = false;
+      this._host.startedOver();
+      this._select(BUILDING);
+      const undoStartOver = () => {
+        if (this._history.isLatest(change)) this.undo();
+      };
+      this._host.toast({ message: "Started over", action: { text: "Undo", action: undoStartOver } });
+    });
+
   // All is a view, and No floor holds outdoor areas, not a floor to start over.
   private _floorClear() {
     if (this._floor === "all" || this._floor === null) return undefined;
@@ -486,7 +542,8 @@ export class RoomEditor {
   }
 
   // In Select each side of the active room, when it is a rectangle on the site axis, gets a handle that
-  // drags it: a chip with the length of its axis, or a grip.
+  // drags it: a chip with the length of its axis, or a grip. Each side of an outline of another shape
+  // gets a chip with its own length that only drags it.
   private _showSides() {
     // The controls follow the draft until the resize ends; `_resizing` rebuilds them then. A held
     // control would lose its pointer capture, so nothing is rebuilt from its press on.
@@ -498,7 +555,7 @@ export class RoomEditor {
     const footprint = this._footprints.get(areaId);
     if (!map || !interaction || this.tool !== "select" || this._floor === "all" || !footprint) return;
     const frame = this._host.siteFrame();
-    if (!frame || !isAxisRectangle(frame, footprint)) return;
+    if (!frame || !isResizable(frame, footprint, areaId === BUILDING)) return;
     const floorAreaIds = this._order().map((area) => area.area_id);
     const roomEdges = snapCandidatesFor(frame, floorAreaIds, this._footprints, BUILDING, areaId).roomEdges;
     const room = { areaId, footprint, frame, units: this._host.units(), roomEdges };
@@ -523,18 +580,36 @@ export class RoomEditor {
 
   private async _finishBox(box: Polygon, frame: PlanFrame) {
     const areaId = this._active;
-    const floor = this._floor;
     const current = this._footprints.get(areaId);
     const drawn = boxChange(frame, areaId, current, box);
     if ("refusal" in drawn) {
       this._host.toast({ message: refusalMessage(drawn.refusal, this._host.units()) });
       return;
     }
-    await this._whileSaving(async () => {
+    await this._saveDrawn(drawn.change, current ? undefined : box);
+  }
+
+  // A ring the plan refuses stays open, with the reason as a toast.
+  private _closeRing(corners: readonly LatticePoint[], frame: PlanFrame): boolean {
+    const drawn = ringChange(frame, BUILDING, corners);
+    if ("refusal" in drawn) {
+      this._host.toast({ message: refusalMessage(drawn.refusal, this._host.units()) });
+      return false;
+    }
+    void this._whileSaving(async () => {
       await this._apply(drawn.change);
-      // Only a first shape moves on: the next box for a drawn area usually extends it.
-      if (!current && this._floor === floor) this._setActive(firstToDraw(this._order(), this._linked()));
-    }, current ? undefined : box);
+      this._checkOutline();
+    }, drawn.change.after[BUILDING] ?? undefined);
+    return true;
+  }
+
+  // Only a first shape moves on: the next box for a drawn area usually extends it.
+  private _saveDrawn(change: Change, first: Polygon | undefined) {
+    const floor = this._floor;
+    return this._whileSaving(async () => {
+      await this._apply(change);
+      if (first && this._floor === floor) this._setActive(firstToDraw(this._order(), this._linked()));
+    }, first);
   }
 
   private _saveShape({ areaId, footprint }: ActiveRoom, changed: Polygon) {
@@ -557,12 +632,12 @@ export class RoomEditor {
   }
 
   private async _apply(change: Change) {
-    await this._send(change.after);
+    await this._send(change, "after");
     this._history.record(change);
   }
 
   // One action at a time: a second one before the first settles would build on a stale footprint.
-  // A failed action offers to run again. A failed first shape stays on the map until it saves or the user draws
+  // A failed action offers to run again, unless it was refused and would fail the same way. A failed first shape stays on the map until it saves or the user draws
   // on; a room with a stored shape shows only that one, as a second outline reads as a second room.
   private async _whileSaving(action: () => Promise<void>, shape?: Polygon) {
     if (this._saving) return;
@@ -594,13 +669,12 @@ export class RoomEditor {
 
   private _saveFailed(error: unknown, retry: () => void) {
     this._saveFailedShown = true;
-    this._host.toast({
-      id: SAVE_FAILED_ID,
-      message: saveFailureMessage(error),
-      action: { text: "Retry", action: retry },
-      duration: -1,
-      dismissable: true,
-    });
+    const failure = saveFailure(error);
+    this._host.toast(
+      failure.retry
+        ? { id: SAVE_FAILED_ID, message: failure.message, action: { text: "Retry", action: retry }, duration: -1, dismissable: true }
+        : { id: SAVE_FAILED_ID, message: failure.message },
+    );
   }
 
   private _saveSucceeded() {
@@ -609,15 +683,22 @@ export class RoomEditor {
     this._host.toast({ id: SAVE_FAILED_ID, message: "", duration: 0 });
   }
 
-  // A batch holds either the site outline alone or areas, never both.
-  private async _send(batch: FootprintBatch) {
+  // A batch holds either the site outline alone or areas, never both; a change with site fields carries
+  // the outline in them, with the areas and their properties in the same write.
+  private async _send(change: Change, side: "before" | "after") {
+    const batch = change[side];
+    const site = change.site?.[side];
+    const properties = Object.fromEntries(Object.entries(change.properties ?? {}).filter(([areaId]) => batch[areaId]));
     await this._connection.sendMessagePromise(
-      BUILDING in batch
-        ? { type: "spatial/site/update", outline: batch[BUILDING] }
-        : { type: "spatial/area/update_geometries", areas: batch },
+      site
+        ? { type: "spatial/area/update_geometries", areas: batch, properties, site }
+        : BUILDING in batch
+          ? { type: "spatial/site/update", outline: batch[BUILDING] }
+          : { type: "spatial/area/update_geometries", areas: batch },
     );
     this._changes++;
-    for (const [areaId, footprint] of Object.entries(batch)) {
+    const footprints = site ? { ...batch, [BUILDING]: site.outline } : batch;
+    for (const [areaId, footprint] of Object.entries(footprints)) {
       if (footprint) this._footprints.set(areaId, footprint);
       else this._footprints.delete(areaId);
     }

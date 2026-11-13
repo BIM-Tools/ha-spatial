@@ -1,12 +1,16 @@
 // The space editor panel; the dashboard card embeds it to show the rooms on the map.
 
-import { lineString } from "@turf/helpers";
+import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
+import { lineString, point } from "@turf/helpers";
+import nearestPointOnLine from "@turf/nearest-point-on-line";
 import type { Feature, MultiPolygon, Polygon, Position } from "geojson";
 import { LitElement, type PropertyValues, css, html, nothing } from "lit";
+import polylabel from "polylabel";
 import {
   type GeoJSONSource,
   type MapMouseEvent,
   Map as MapLibreMap,
+  type Point,
   type PointLike,
   type StyleSpecification,
   setWorkerUrl,
@@ -15,6 +19,7 @@ import { type Place, cameraFor, homeQuestion, homeUnknown } from "./address";
 import "./address-search";
 import "./editor-toolbar";
 import {
+  CARD_FIELD_OF_VIEW_DEG,
   type FloorStack,
   FloorLabels,
   VIEW_PITCH_DEG,
@@ -27,20 +32,22 @@ import {
 } from "./floor-stack";
 import type { Floor, FloorChoice } from "./floor-selector";
 import "./floor-selector";
+import { mapCursor } from "./map-cursor";
 import "./map-stack";
 import { type MapPaint, layerColours, readMapPaint, repaint } from "./map-paint";
 import { type ThemeState, bounds, darkModeOf, mapBearing, styleUrl, withMapTilesToken, workerUrl } from "./map-view";
-import { type AlignFields, alignFields, buildingAt, wallAt } from "./outline";
+import { type AlignFields, type TileBuildings, alignFields, nearestBuilding, reachesUnreadTiles, wallAt } from "./outline";
 import "./panel-header";
 import type { MenuItem } from "./panel-header";
+import { type Control, type Step, nextStep } from "./onboarding";
 import { EMPTY, PanelState, alignPlace } from "./panel-state";
-import { mapOutlineBox } from "./plan";
+import { mapOutline } from "./plan";
 import type { PlanFrame } from "./site-frame";
 import { BUILDING } from "./area-strip";
-import { type Guide, RoomEditor, type Toast, type Tool } from "./room-editor";
+import { RoomEditor, type Toast, type Tool } from "./room-editor";
 import { type AreaInfo, RoomLabels, roomLabelStyles } from "./room-labels";
-import { floatingSurface, phoneBar, selectedFill } from "./styles";
-import { type HassUnits, formatDistance, isStillStarting, saveFailureMessage } from "./units";
+import { floatingSurface, litControl, phoneBar } from "./styles";
+import { type HassUnits, formatDistance, saveFailure } from "./units";
 
 // The parts of Home Assistant's `hass` object this panel uses.
 interface Hass extends HassUnits {
@@ -62,13 +69,11 @@ interface Hass extends HassUnits {
 
 // Share of the map height the aligned wall sits below the centre.
 const WALL_OFFSET_SHARE = 0.3;
-// The stack's layers, bottom up: id, feature kind, opacity, and a shift on screen that lets the shadow show below its slab.
-const STACK_LAYERS: [string, string, number, [number, number]][] = [
-  ["stack-shadow", "shadow", 0.2, [5, 9]],
-  ["stack-slabs", "slab", 1, [0, 0]],
-  ["stack-slab-edges", "slab-edge", 1, [0, 0]],
-  ["stack-rooms", "room", 1, [0, 0]],
-  ["stack-room-edges", "edge", 1, [0, 0]],
+// The stack's layers, bottom up: id and feature kind.
+const STACK_LAYERS: [string, string][] = [
+  ["stack-outline", "outline"],
+  ["stack-rooms", "room"],
+  ["stack-room-edges", "edge"],
 ];
 const REGISTRY_EVENTS = ["area_registry_updated", "floor_registry_updated"];
 const START_ZOOM = 19;
@@ -78,8 +83,34 @@ const MAP_SHOWN_KEY = "spatial-show-map";
 // The whole globe in view, for a home that is not known yet.
 const GLOBE_CENTRE: [number, number] = [0, 20];
 const GLOBE_ZOOM = 1.5;
-// Long enough to read the question and the distance; Home Assistant's default of 3 s is not.
-const HOME_QUESTION_MS = 10000;
+// How closely the middle of a clicked home is found, in degrees: about 0.1 m.
+const HOME_MIDDLE_PRECISION_DEG = 1e-6;
+// A building is read at the point, then from the tiles under it, and once more for one that reaches a third tile.
+const MAX_BUILDING_READS = 3;
+// How far beside a building a click still picks it: a few pixels for a mouse, half a 44 px target for a finger.
+const PICK_TOLERANCE_PX = { mouse: 8, touch: 22 };
+// Below this zoom buildings are too small to point at; a click there zooms in to PICK_ZOOM instead.
+const PICK_MIN_ZOOM = 16;
+const PICK_ZOOM = 18;
+const COARSE_QUERY = "(pointer: coarse)";
+
+// A finger, when the browser says which pointer clicked, else when the main pointer is coarse.
+const isTouch = (event: MapMouseEvent) => {
+  const pointerType = (event.originalEvent as Partial<PointerEvent> | undefined)?.pointerType;
+  return pointerType ? pointerType === "touch" : window.matchMedia(COARSE_QUERY).matches;
+};
+
+const tileId = (tile: TileBuildings) => `${tile.z}/${tile.x}/${tile.y}`;
+
+// The screen box around a polygon, to read the map tiles under all of it.
+const screenBox = (map: MapLibreMap, shape: Polygon): [PointLike, PointLike] => {
+  const points = shape.coordinates[0].map(([lng, lat]) => map.project([lng, lat]));
+  const [xs, ys] = [points.map((p) => p.x), points.map((p) => p.y)];
+  return [
+    [Math.min(...xs), Math.min(...ys)],
+    [Math.max(...xs), Math.max(...ys)],
+  ];
+};
 
 type HomeLocation = { latitude: number; longitude: number };
 
@@ -138,6 +169,10 @@ class SpatialPanel extends LitElement {
     _mapShown: { state: true },
     _phone: { state: true },
     _searchOpen: { state: true },
+    _searched: { state: true },
+    _pickedBuilding: { state: true },
+    _zoomedOut: { state: true },
+    _buildingAtHome: { state: true },
   };
 
   static styles = [
@@ -227,29 +262,25 @@ class SpatialPanel extends LitElement {
     .top.phone .guide {
       gap: var(--ha-space-2);
     }
-    .guide .text {
-      overflow: hidden;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-    }
-    .guide .step {
-      flex: none;
-      color: var(--secondary-text-color);
-    }
-    /* A question: two lines of text and its answers, which wrap below the text when narrow. */
-    .guide.question {
-      flex-wrap: wrap;
-      max-width: 560px;
-      border-radius: 24px;
-      padding: var(--ha-space-2) var(--ha-space-2) var(--ha-space-2) var(--ha-space-4);
-    }
-    .guide.question .lines {
+    .guide .lines {
       display: flex;
       flex: 1 1 auto;
       flex-direction: column;
       min-width: 0;
     }
-    .guide.question .text {
+    .guide .text {
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    /* Two lines of text and any answers, which wrap below the text when narrow. */
+    .guide.two-lines {
+      flex-wrap: wrap;
+      max-width: 560px;
+      border-radius: 24px;
+      padding: var(--ha-space-2) var(--ha-space-2) var(--ha-space-2) var(--ha-space-4);
+    }
+    .guide.two-lines .text {
       font-weight: 500;
       white-space: normal;
     }
@@ -275,8 +306,7 @@ class SpatialPanel extends LitElement {
       cursor: pointer;
     }
     .guide button.lit {
-      background: ${selectedFill};
-      box-shadow: 0 0 0 1.5px var(--primary-color);
+      ${litControl}
     }
     @media (pointer: coarse) {
       .guide button {
@@ -337,6 +367,15 @@ class SpatialPanel extends LitElement {
   declare _mapShown: boolean;
   declare _phone: boolean;
   declare _searchOpen: boolean;
+  // The address search was used or closed in this visit, which ends the step that offers it.
+  declare _searched: boolean;
+  // The map tiles' building picked as the home: by a click, by the Align click, or after a reload the one
+  // at the site origin. It sets the Align target and the offered outline; never stored.
+  declare _pickedBuilding: Polygon | undefined;
+  // The map is too far out to point at a building.
+  declare _zoomedOut: boolean;
+  // Whether the map draws a building at Home Assistant's home, once it has shown the home before any Align.
+  declare _buildingAtHome: boolean | undefined;
 
   // The site, its frame, the rooms and the floor in view.
   private readonly _state = new PanelState(this);
@@ -354,17 +393,19 @@ class SpatialPanel extends LitElement {
   private _unsubscribe?: () => void;
   private _labels?: RoomLabels;
   private _floorLabels?: FloorLabels;
-  // All floors as slabs, built again with every load of the rooms.
+  // All floors as a stack of their rooms, built again with every load of the rooms.
   private _stack?: FloorStack;
   // Only the admin panel edits; the card stays read-only.
   private _editor?: RoomEditor;
-  // The map tiles' building that Align picked, or the one at the site origin; kept for this visit only.
-  private _mapBuilding?: Polygon;
   private readonly _phoneQuery = window.matchMedia(PHONE_QUERY);
   // Set at start when there is no home and no plan: the map opens on the globe with the address search.
   private _globe = false;
-  // Set once the panel has offered to move the home to a picked place, so a second search in this visit stays quiet.
-  private _homeAsked = false;
+  // The latest pointer move while a building can be picked, read at the next animation frame.
+  private _pointerToRead?: MapMouseEvent;
+  // The building lit under the pointer, if any.
+  private _pointedBuilding?: Polygon;
+  // The place the address search found last, pinned until a building is picked or the site has a direction; never stored.
+  private _place?: Position;
 
   constructor() {
     super();
@@ -373,6 +414,10 @@ class SpatialPanel extends LitElement {
     this._mapShown = readMapShown();
     this._phone = false;
     this._searchOpen = false;
+    this._searched = false;
+    this._pickedBuilding = undefined;
+    this._zoomedOut = false;
+    this._buildingAtHome = undefined;
   }
 
   connectedCallback() {
@@ -394,7 +439,7 @@ class SpatialPanel extends LitElement {
     return darkModeOf(this.hass!, window.matchMedia(DARK_QUERY).matches);
   }
 
-  // The card's show_map option; without it a card of all floors shows the slabs on plain ground and one of a floor keeps the map.
+  // The card's show_map option; without it a card of all floors shows the stack on plain ground and one of a floor keeps the map.
   private get _mapVisible() {
     if (this.card) return this.showMap ?? this.floor !== "all";
     return this._mapShown || this._aligning;
@@ -403,6 +448,9 @@ class SpatialPanel extends LitElement {
   render() {
     const editor = this._editor;
     const phone = this._phone && !this.card;
+    const step = this._step();
+    const searching = this._searchOpen || step?.kind === "find";
+    const lit = step?.lit === "align" || step?.lit === "draw" ? step.lit : undefined;
     return html`
       <link rel="stylesheet" href="/static/map/maplibre-gl.css" />
       ${this.card ? nothing : html`<spatial-panel-header ?narrow=${phone} .menu=${this._menu()}></spatial-panel-header>`}
@@ -411,8 +459,8 @@ class SpatialPanel extends LitElement {
         <div id="map"></div>
         <div class="top ${phone ? "phone" : ""}">
           ${phone ? nothing : this._floorSelector(false)}
-          ${editor && !phone ? this._toolbar(editor, false) : nothing}
-          ${this._searchOpen && !phone ? html`<div class="guide-row">${this._searchCard(false)}</div>` : this._guide()}
+          ${editor && !phone ? this._toolbar(editor, false, lit) : nothing}
+          ${searching && !phone ? html`<div class="guide-row">${this._searchCard(false)}</div>` : this._guide(step)}
         </div>
         ${editor
           ? html`<spatial-map-stack
@@ -430,10 +478,10 @@ class SpatialPanel extends LitElement {
             ></spatial-map-stack>`
           : nothing}
         ${editor && !phone ? html`<div class="strip" @area-hover=${this._hoverFromStrip}>${editor.render(this._hovered)}</div>` : nothing}
-        ${this._searchOpen && phone ? this._searchCard(true) : nothing}
+        ${searching && phone ? this._searchCard(true) : nothing}
       </div>
       ${editor && phone ? html`<div class="strip-bar" @area-hover=${this._hoverFromStrip}>${editor.render(this._hovered)}</div>` : nothing}
-      ${editor && phone ? this._toolbar(editor, true) : nothing}
+      ${editor && phone ? this._toolbar(editor, true, lit) : nothing}
     `;
   }
 
@@ -448,12 +496,13 @@ class SpatialPanel extends LitElement {
     ></spatial-floor-selector>`;
   }
 
-  private _toolbar(editor: RoomEditor, bar: boolean) {
+  private _toolbar(editor: RoomEditor, bar: boolean, lit: Tool | undefined) {
     return html`<spatial-editor-toolbar
       class=${bar ? "" : "toolbar"}
       ?bar=${bar}
       ?disabled=${this._state.floor === "all"}
       ?align=${alignPlace(this._state.bearing) === "toolbar"}
+      .lit=${lit}
       .tool=${editor.tool}
       .canUndo=${editor.canUndo}
       .canRedo=${editor.canRedo}
@@ -467,7 +516,8 @@ class SpatialPanel extends LitElement {
 
   // Once the site has a direction, Align moves out of the toolbar into the header menu. Like the
   // tools both entries need a floor; on All, a view only, they are off. No floor is not a floor to
-  // clear, so it keeps the plain, disabled entry.
+  // clear, so it keeps the plain, disabled entry. Start over is for the whole plan, so it works on
+  // any floor once there is a shape or a direction.
   private _menu(): MenuItem[] {
     const editor = this._editor;
     if (!editor) return [];
@@ -479,34 +529,68 @@ class SpatialPanel extends LitElement {
       disabled: !editor.canClear,
       action: () => editor.clearFloor(floorName),
     };
-    if (alignPlace(this._state.bearing) !== "menu") return [clear];
-    return [{ label: "Change alignment", disabled: onAll, action: () => this._selectTool("align") }, clear];
+    const startOver = {
+      label: "Start over",
+      disabled: !editor.hasShapes && typeof this._state.bearing !== "number",
+      action: editor.startOver,
+    };
+    if (alignPlace(this._state.bearing) !== "menu") return [clear, startOver];
+    return [{ label: "Change alignment", disabled: onAll, action: () => this._selectTool("align") }, clear, startOver];
   }
 
-  // One line at a time, and only when there is something to say; what went wrong first.
-  private _guide() {
-    const noRooms = this._state.hasNoRooms(this.floor);
-    const guide: Guide | undefined = this._failed
-      ? { text: "Map could not load" }
-      : (this._editor?.guide ?? (noRooms ? { text: "No rooms yet" } : undefined));
-    if (!guide) return nothing;
-    if (guide.actions) {
-      return html`<div class="guide-row">
-        <div class="guide question" role="status">
-          <span class="lines"><span class="text">${guide.text}</span><span class="detail">${guide.detail}</span></span>
-          <span class="actions">
-            ${guide.actions.map(
-              (action) => html`<button class=${action.lit ? "lit" : ""} @click=${action.run}>${action.label}</button>`,
-            )}
-          </span>
-        </div>
-      </div>`;
-    }
+  // The plan's one next step, from what the panel and the editor know now; the card has none, and none
+  // is known before the site is read.
+  private _step(): Step | undefined {
+    const editor = this._editor;
+    const bearing = this._state.bearing;
+    if (!editor || bearing === undefined || !this.hass) return undefined;
+    return nextStep({
+      homeKnown: !homeUnknown(this.hass.config),
+      buildingAtHome: this._buildingAtHome,
+      searched: this._searched,
+      picked: this._pickedBuilding !== undefined,
+      zoomedOut: this._zoomedOut,
+      aligned: bearing !== null,
+      floor: this._state.floor,
+      ...editor.plan((floor) => this._floorName(floor)),
+    });
+  }
+
+  // One line at a time, and only when there is something to say; what went wrong first. The panel
+  // says its step; the card only that it has no rooms.
+  private _guide(step: Step | undefined) {
+    const noRooms = this.card && this._state.hasNoRooms(this.floor);
+    const line: Step | undefined = this._failed
+      ? { kind: "done", text: "Map could not load" }
+      : noRooms
+        ? { kind: "done", text: "No rooms yet" }
+        : step;
+    if (!line?.text) return nothing;
+    const buttons = line.buttons ?? [];
     return html`<div class="guide-row">
-      <div class="guide" role="status">
-        <span class="text">${guide.text}</span>${guide.step ? html`<span class="step">${guide.step}</span>` : nothing}
+      <div class="guide ${line.detail || buttons.length ? "two-lines" : ""}" role="status">
+        <span class="lines"
+          ><span class="text">${line.text}</span>${line.detail ? html`<span class="detail">${line.detail}</span>` : nothing}</span
+        >
+        ${buttons.length
+          ? html`<span class="actions">
+              ${buttons.map(
+                ({ control, label }) =>
+                  html`<button class=${control === line.lit ? "lit" : ""} @click=${() => this._press(control, line)}>${label}</button>`,
+              )}
+            </span>`
+          : nothing}
       </div>
     </div>`;
+  }
+
+  private _press(control: Control, step: Step) {
+    const editor = this._editor;
+    if (control === "use-outline") editor?.useMapOutline();
+    else if (control === "draw-myself") editor?.drawOutlineMyself();
+    else if (control === "looks-right") editor?.lengthChecked();
+    else if (control === "pick-again") this._selectTool("select");
+    else if (control === "next-floor" && step.floor !== undefined) this._show(step.floor);
   }
 
   private _searchCard(sheet: boolean) {
@@ -514,29 +598,141 @@ class SpatialPanel extends LitElement {
       class=${sheet ? "sheet" : ""}
       .search=${this._searchAddress}
       @place-pick=${this._flyToPlace}
-      @search-close=${() => (this._searchOpen = false)}
+      @search-close=${this._closeSearch}
     ></spatial-address-search>`;
   }
+
+  private _closeSearch = () => {
+    this._searchOpen = false;
+    this._searched = true;
+  };
 
   private _searchAddress = async (query: string): Promise<Place[]> =>
     (await this.hass!.connection.sendMessagePromise<{ places: Place[] }>({ type: "spatial/address/search", query })).places;
 
+  // The map goes near the picked place and pins it, and nothing more: a search often lands on the
+  // street, so the home is asked about only once the home's building is picked. Before Align it starts
+  // the pick over, in Select.
   private _flyToPlace = (event: CustomEvent<{ place: Place }>) => {
-    this._searchOpen = false;
+    this._closeSearch();
+    this._place = [event.detail.place.lon, event.detail.place.lat];
+    if (this._state.bearing === null) {
+      this._setPick(undefined);
+      this._selectTool("select");
+    }
     const map = this._map;
     if (!map) return;
     const camera = cameraFor(event.detail.place);
     if ("bounds" in camera) map.fitBounds(camera.bounds, { maxZoom: camera.maxZoom, bearing: map.getBearing(), padding: 48 });
     else map.flyTo({ center: camera.center, zoom: camera.zoom });
-    this._offerHome(event.detail.place);
   };
 
-  // Asked at most once a visit, whatever the answer; nothing is stored, so a later visit may ask again.
-  private _offerHome(place: Place) {
+  // While the home is to be picked, and once aligned until an outline is stored on a floor, buildings
+  // light up under the pointer and a click picks one; another click picks again. Not in Align, whose
+  // click picks the wall's building, nor while a box is drawn or a shape pressed, moved or resized.
+  private get _picking() {
+    const editor = this._editor;
+    if (!editor || editor.tool === "align" || editor.gesture) return false;
+    if (this._state.bearing === null) return this._step()?.kind === "pick";
+    return this._state.outline.type !== "Polygon" && this._state.floor !== "all";
+  }
+
+  // Read at most once per animation frame, as each read joins the building across the tiles under it.
+  private _pointAtBuilding(event: MapMouseEvent) {
+    if (!this._picking && !this._pointedBuilding) return;
+    const scheduled = this._pointerToRead !== undefined;
+    this._pointerToRead = event;
+    if (scheduled) return;
+    requestAnimationFrame(() => {
+      const pointer = this._pointerToRead;
+      this._pointerToRead = undefined;
+      this._showPointedBuilding(pointer && this._picking && !this._zoomedOut ? this._pickableUnder(pointer, 0) : undefined);
+      this._showCursor();
+    });
+  }
+
+  private _showPointedBuilding(building: Polygon | undefined) {
+    this._pointedBuilding = building;
+    this._map?.getSource<GeoJSONSource>("spatial-pick-hover")?.setData(building ?? EMPTY);
+  }
+
+  // The map canvas's cursor, as MapLibre's own examples set it, says what a click would do.
+  private _showCursor() {
+    const [map, editor] = [this._map, this._editor];
+    if (!map || !editor) return;
+    const pickable = this._pointedBuilding !== undefined && !editor.gesture;
+    map.getCanvas().style.cursor = mapCursor({ tool: editor.tool, pickable, ...editor.hover });
+  }
+
+  // The building a click here picks. In Draw only one that holds the point and lies clear of the picked
+  // building by a finger's or a mouse's reach, so a box started on or beside the pick, where its
+  // corners snap, still draws.
+  private _pickableUnder(event: MapMouseEvent, tolerancePx: number): Polygon | undefined {
+    const map = this._map;
+    if (!map || this._editor?.tool !== "draw") return this._buildingUnder(event, tolerancePx);
+    const picked = this._pickedBuilding;
+    const at: Position = [event.lngLat.lng, event.lngLat.lat];
+    const reachM = metresForPixels(isTouch(event) ? PICK_TOLERANCE_PX.touch : PICK_TOLERANCE_PX.mouse, map.getZoom(), at[1]);
+    const nearPick =
+      picked &&
+      (booleanPointInPolygon(at, picked) ||
+        picked.coordinates.some((ring) => nearestPointOnLine(lineString(ring), point(at), { units: "meters" }).properties.dist <= reachM));
+    return nearPick ? undefined : this._buildingUnder(event);
+  }
+
+  // Inside a building wins; else the one whose edge is nearest within a finger's or a mouse's reach. Too
+  // far out, the click zooms in on itself instead. A click that picks is marked with preventDefault, so
+  // the editor neither starts a box with it nor Align takes it. Before Align a pick turns Align on, and
+  // a miss says so; after Align a miss is the editor's, which deselects in Select.
+  private _clickBuilding(event: MapMouseEvent) {
+    if (!this._picking || this._roomUnder(event)) return;
+    const drawing = this._editor?.tool === "draw";
+    if (this._zoomedOut) {
+      if (drawing) return;
+      event.preventDefault();
+      this._map?.easeTo({ center: event.lngLat, zoom: PICK_ZOOM });
+      return;
+    }
+    const building = this._pickableUnder(event, isTouch(event) ? PICK_TOLERANCE_PX.touch : PICK_TOLERANCE_PX.mouse);
+    if (!building) {
+      if (!drawing && this._state.bearing === null) this._toast({ message: "No building here" });
+      return;
+    }
+    event.preventDefault();
+    this._setPick(building);
+    // Before Align the first click is often the neighbour; once aligned, a click here re-picks the
+    // building whose outline is still to be stored, so the home is asked about again.
+    if (this._state.bearing !== null) this._offerHome(building);
+    else if (this._state.floor !== "all") this._selectTool("align");
+  }
+
+  // A new start forgets this visit's pick, search pin, search and home check, and faces north as before
+  // any Align; the update that follows the save finds the bearing already null, so it turns nothing.
+  private _startedOver() {
+    this._state.bearing = null;
+    this._map?.easeTo({ bearing: mapBearing(this._state.axisDeg) });
+    this._place = undefined;
+    this._searched = false;
+    this._searchOpen = false;
+    this._buildingAtHome = undefined;
+    this._setPick(undefined);
+    this._selectTool("select");
+  }
+
+  // The offered outline follows a new pick at once.
+  private _setPick(building: Polygon | undefined) {
+    this._pickedBuilding = building;
+    this._showPick();
+    this._offerMapOutline();
+  }
+
+  // Offers the building's middle as the home. Nothing is stored, so a later visit may ask again.
+  private _offerHome(building: Polygon) {
+    const [lon, lat] = polylabel(building.coordinates as [number, number][][], HOME_MIDDLE_PRECISION_DEG);
+    const place = { lat, lon };
     const config = this.hass!.config;
-    const question = this._homeAsked ? undefined : homeQuestion(config, place);
+    const question = homeQuestion(config, place);
     if (!question) return;
-    this._homeAsked = true;
     const back = { latitude: config.latitude ?? 0, longitude: config.longitude ?? 0 };
     const to = { latitude: place.lat, longitude: place.lon };
     this._toast({
@@ -545,7 +741,9 @@ class SpatialPanel extends LitElement {
           ? "Use this as Home Assistant's home?"
           : `Move Home Assistant's home here? The home pin is ${formatDistance(question.metres, this.hass!)} away`,
       action: { text: question.kind === "use" ? "Use as home" : "Move", action: () => this._moveHome(to, back) },
-      duration: HOME_QUESTION_MS,
+      // A question waits for its answer: Close means not now, and another pick's question replaces it.
+      duration: -1,
+      dismissable: true,
     });
   }
 
@@ -560,7 +758,7 @@ class SpatialPanel extends LitElement {
       await this.hass!.connection.sendMessagePromise({ type: "config/core/update", ...location });
       return true;
     } catch (err) {
-      this._toast({ message: saveFailureMessage(err) });
+      this._toast({ message: saveFailure(err).message });
       return false;
     }
   }
@@ -685,6 +883,7 @@ class SpatialPanel extends LitElement {
       this._buildStack();
       this._showLabels();
       this._offerMapOutline();
+      this._showPick();
       return site;
     };
     const editor = this.card
@@ -703,6 +902,7 @@ class SpatialPanel extends LitElement {
           // Renaming writes Home Assistant's core config, which only an admin may change.
           canRenameBuilding: () => this.hass?.user?.is_admin === true,
           hideLabels: (areaIds) => this._labels?.hide(areaIds),
+          startedOver: () => this._startedOver(),
         });
     this._editor = editor;
     const site = await loadAreas();
@@ -738,9 +938,11 @@ class SpatialPanel extends LitElement {
     this._unsubscribe = unsubscribe;
 
     this._state.bearing = site.bearing_deg;
+    // A plan still being drawn opens on the floor of its next step, as the tools are off on All.
+    const opening = this._step();
+    if (opening?.floor !== undefined) this._show(opening.floor);
     const planDrawn = this._state.areas.features.length > 0 || this._state.outline.type === "Polygon";
     this._globe = Boolean(editor) && !planDrawn && homeUnknown(hass.config);
-    if (this._globe) this._searchOpen = true;
     const style = await this._loadStyle();
     if (stopped() || !style) return;
     setWorkerUrl(workerUrl(import.meta.url));
@@ -758,32 +960,51 @@ class SpatialPanel extends LitElement {
       dragRotate: !this.card,
       touchPitch: !this.card,
     });
-    if (this.card) map.touchZoomRotate.disableRotation();
+    if (this.card) {
+      map.touchZoomRotate.disableRotation();
+      // The admin panel keeps MapLibre's own perspective, which helps while orbiting the stack.
+      map.setVerticalFieldOfView(CARD_FIELD_OF_VIEW_DEG);
+    }
     this._map = map;
     this._labels = new RoomLabels(map, !this.card, () => this.hass!, () => this._buildingName());
     this._floorLabels = new FloorLabels(map);
     this._showLabels();
     this._showFloorLabels();
     map.on("style.load", () => this._addAreas());
+    this._zoomedOut = map.getZoom() < PICK_MIN_ZOOM;
     map.on("zoomend", () => {
+      this._zoomedOut = map.getZoom() < PICK_MIN_ZOOM;
       if (this._state.floor === "all") this._buildStack();
     });
     map.on("mousemove", (event) => {
       this._previewWall(event);
+      this._pointAtBuilding(event);
       this._pointAt(event);
     });
-    map.on("mouseout", () => this._hover(undefined));
+    map.on("mouseout", () => {
+      this._hover(undefined);
+      this._showPointedBuilding(undefined);
+    });
     if (editor) {
       this._showBearing(this._mapBearingDeg);
       map.on("rotate", () => this._showBearing(map.getBearing()));
       // The map's buildings can be read once their tiles are drawn.
-      map.on("idle", () => this._offerMapOutline());
+      map.on("idle", () => {
+        this._offerMapOutline();
+        this._lookForHome();
+        this._showPick();
+      });
     }
+    // Before the editor, so a click that picks a building does not also start a box.
+    map.on("click", (event) => this._clickBuilding(event));
     editor?.attach(map);
-    // After the editor, so the click that ends Align is not also a room pick in Select.
+    // After the editor: the cursor follows what its hover found, and the click that ends Align is not
+    // also a room pick in Select.
+    map.on("mousemove", () => this._showCursor());
     map.on("click", (event) => {
-      this._pick(event);
+      this._alignAt(event);
       this._pointAt(event);
+      this._showCursor();
     });
     if (this.floor || this._state.floor === "all") this._fit();
   }
@@ -811,7 +1032,7 @@ class SpatialPanel extends LitElement {
     return mapBearing(this._state.axisDeg + (this._state.floor === "all" ? VIEW_TURN_DEG : 0));
   }
 
-  // The edges are drawn as strips a pixel or so wide at this zoom, so they are built again after a zoom.
+  // The edges are strips a pixel or so wide and every raise above a floor is under a pixel at this zoom, so they are built again after a zoom.
   private _buildStack(zoom = this._map?.getZoom() ?? START_ZOOM) {
     const frame = this._state.frame;
     if (!frame) return;
@@ -830,10 +1051,10 @@ class SpatialPanel extends LitElement {
     this._showFloorLabels();
   }
 
-  // Each slab is named while All is on screen.
+  // Each floor in the stack is named while All is on screen.
   private _showFloorLabels() {
-    const slabs = this._state.floor === "all" ? (this._stack?.slabs ?? []) : [];
-    this._floorLabels?.show(slabs, this._state.frame, (floorId) => this._floorName(floorId));
+    const floors = this._state.floor === "all" ? (this._stack?.floors ?? []) : [];
+    this._floorLabels?.show(floors, this._state.frame, (floorId) => this._floorName(floorId));
   }
 
   // The whole stack in view from the front corner, clear of the floating controls and the floor labels.
@@ -868,12 +1089,12 @@ class SpatialPanel extends LitElement {
     };
   }
 
-  // "All" stacks the floors as slabs; one floor is a flat plan with room outlines.
+  // "All" stacks the floors' rooms; one floor is a flat plan with room outlines.
   private _addAreas() {
     const map = this._map!;
     const colours = layerColours(this._readPaint());
     map.addSource("stack", { type: "geojson", data: this._stack?.features ?? EMPTY });
-    for (const [id, kind, opacity, translate] of STACK_LAYERS) {
+    for (const [id, kind] of STACK_LAYERS) {
       map.addLayer({
         id,
         type: "fill-extrusion",
@@ -883,9 +1104,6 @@ class SpatialPanel extends LitElement {
           ...colours[id],
           "fill-extrusion-base": ["get", "base_m"],
           "fill-extrusion-height": ["get", "top_m"],
-          "fill-extrusion-opacity": opacity,
-          "fill-extrusion-translate": translate,
-          "fill-extrusion-translate-anchor": "viewport",
         },
       });
     }
@@ -921,6 +1139,39 @@ class SpatialPanel extends LitElement {
         layout: { visibility: this._hovered === BUILDING ? "visible" : "none" },
         paint: { ...colours["spatial-hover-building"], "line-width": 2 },
       });
+    }
+    if (this._editor) {
+      map.addSource("spatial-pick-hover", { type: "geojson", data: this._pointedBuilding ?? EMPTY });
+      map.addLayer({ id: "spatial-pick-hover-fill", type: "fill", source: "spatial-pick-hover", paint: colours["spatial-pick-hover-fill"] });
+      map.addLayer({
+        id: "spatial-pick-hover",
+        type: "line",
+        source: "spatial-pick-hover",
+        paint: { ...colours["spatial-pick-hover"], "line-width": 2 },
+      });
+      map.addSource("spatial-pick", { type: "geojson", data: EMPTY });
+      map.addLayer({
+        id: "spatial-pick",
+        type: "line",
+        source: "spatial-pick",
+        paint: { ...colours["spatial-pick"], "line-width": 2, "line-dasharray": [2, 1] },
+      });
+      // After Align the offered outline or the dotted guide is the dashed line, so the pick turns thin and solid.
+      map.addLayer({
+        id: "spatial-pick-aligned",
+        type: "line",
+        source: "spatial-pick",
+        paint: { ...colours["spatial-pick-aligned"], "line-width": 1 },
+      });
+      map.addSource("spatial-place", { type: "geojson", data: EMPTY });
+      map.addLayer({
+        id: "spatial-place",
+        type: "circle",
+        source: "spatial-place",
+        // 18 px across: a 7 px radius inside a 2 px ring.
+        paint: { ...colours["spatial-place"], "circle-radius": 7, "circle-stroke-width": 2 },
+      });
+      this._showPick();
     }
     map.addSource("spatial-wall", { type: "geojson", data: EMPTY });
     map.addLayer({
@@ -970,9 +1221,13 @@ class SpatialPanel extends LitElement {
   }
 
   private _pointAt(event: MapMouseEvent) {
-    if (!this._map?.getLayer("areas-2d")) return;
+    this._hover(this._roomUnder(event));
+  }
+
+  private _roomUnder(event: MapMouseEvent): string | undefined {
+    if (!this._map?.getLayer("areas-2d")) return undefined;
     const [room] = this._map.queryRenderedFeatures(event.point, { layers: ["areas-2d"] });
-    this._hover(room?.properties?.area_id === undefined ? undefined : String(room.properties.area_id));
+    return room?.properties?.area_id === undefined ? undefined : String(room.properties.area_id);
   }
 
   // The panel lists every registered floor, so an empty one can be drawn; the card only those with rooms.
@@ -1004,6 +1259,9 @@ class SpatialPanel extends LitElement {
     if (!editor || editor.tool === tool) return;
     if (editor.tool === "align") this._showWall();
     editor.setTool(tool);
+    // The next pointer move lights a building again where the new tool picks one.
+    this._showPointedBuilding(undefined);
+    this._showCursor();
   }
 
   private _toggleMap() {
@@ -1016,23 +1274,82 @@ class SpatialPanel extends LitElement {
     this._map?.getSource<GeoJSONSource>("spatial-wall")?.setData(data);
   }
 
-  private _buildingUnder(event: MapMouseEvent): Polygon | undefined {
-    return this._buildingAt([event.lngLat.lng, event.lngLat.lat], event.point);
+  private _buildingUnder(event: MapMouseEvent, tolerancePx = 0): Polygon | undefined {
+    return this._buildingAt([event.lngLat.lng, event.lngLat.lat], event.point, tolerancePx);
   }
 
-  // The part of the map tiles' buildings at `at`, on screen at `point`, when the map shows them there.
-  private _buildingAt(at: [number, number], point?: PointLike): Polygon | undefined {
-    const map = this._map;
-    if (!map) return undefined;
-    const layers = map
-      .getStyle()
-      .layers.filter((layer) => "source-layer" in layer && layer["source-layer"] === "buildings")
+  // The ids of the style's layers that draw the map tiles' buildings; none while the map is hidden.
+  private _buildingLayers(): string[] {
+    return (this._map?.getStyle().layers ?? [])
+      .filter((layer) => "source-layer" in layer && layer["source-layer"] === "buildings")
       .map((layer) => layer.id);
-    if (!layers.length) return undefined;
-    return map
-      .queryRenderedFeatures(point ?? map.project(at), { layers })
-      .map((feature) => buildingAt(feature.geometry as Polygon | MultiPolygon, at))
-      .find(Boolean);
+  }
+
+  // The map tiles' building at `at`, on screen at `point`, when the map shows it there. MapLibre cuts the
+  // source's tiles again into the tiles of the view's zoom, so a building is cut at those edges too; it is
+  // read from each tile it reaches and joined. Only the finest tiles under the point count, so a coarser
+  // tile standing in while finer ones load does not mix in. With a tolerance, a building whose edge lies
+  // within that many pixels of the point counts too.
+  private _buildingAt(at: [number, number], point?: Point, tolerancePx = 0): Polygon | undefined {
+    const map = this._map;
+    const layers = this._buildingLayers();
+    if (!map || !layers.length) return undefined;
+    const read = (where: PointLike | [PointLike, PointLike]): TileBuildings[] =>
+      map.queryRenderedFeatures(where, { layers }).map((feature) => ({
+        z: feature._z,
+        x: feature._x,
+        y: feature._y,
+        geometry: feature.geometry as Polygon | MultiPolygon,
+      }));
+    const centre = point ?? map.project(at);
+    let tiles = read(
+      tolerancePx
+        ? [
+            [centre.x - tolerancePx, centre.y - tolerancePx],
+            [centre.x + tolerancePx, centre.y + tolerancePx],
+          ]
+        : centre,
+    );
+    const zoom = Math.max(...tiles.map((tile) => tile.z));
+    const maxM = metresForPixels(tolerancePx, map.getZoom(), at[1]);
+    let building = nearestBuilding(tiles, at, maxM, zoom);
+    for (let reads = 1; building && reads < MAX_BUILDING_READS && reachesUnreadTiles(building, tiles, zoom); reads++) {
+      const known = new Set(tiles.map(tileId));
+      const more = read(screenBox(map, building)).filter((tile) => !known.has(tileId(tile)));
+      if (!more.length) break;
+      tiles = [...tiles, ...more];
+      building = nearestBuilding(tiles, at, maxM, zoom);
+    }
+    return building;
+  }
+
+  // Before any Align, the first time the map has drawn its buildings around Home Assistant's home, it
+  // tells whether one stands there; without one the address search is the next step. Not stored.
+  private _lookForHome() {
+    const map = this._map;
+    const config = this.hass?.config;
+    if (!map || !config || this._buildingAtHome !== undefined || this._state.bearing !== null || homeUnknown(config)) return;
+    const home: [number, number] = [config.longitude!, config.latitude!];
+    const { x, y } = map.project(home);
+    const container = map.getContainer();
+    const inView = x >= 0 && y >= 0 && x <= container.clientWidth && y <= container.clientHeight;
+    if (!inView || !this._buildingLayers().length) return;
+    this._buildingAtHome = Boolean(this._buildingAt(home));
+  }
+
+  // Until an outline is stored the picked building shows: dashed before Align, thin and solid after it.
+  // Until a building is picked or the site has a direction, a pin marks the place the address search found.
+  private _showPick() {
+    const map = this._map;
+    const pick = this._state.outline.type === "Polygon" ? undefined : this._pickedBuilding;
+    map?.getSource<GeoJSONSource>("spatial-pick")?.setData(pick ?? EMPTY);
+    if (map?.getLayer("spatial-pick")) {
+      const aligned = this._state.bearing !== null;
+      map.setLayoutProperty("spatial-pick", "visibility", aligned ? "none" : "visible");
+      map.setLayoutProperty("spatial-pick-aligned", "visibility", aligned ? "visible" : "none");
+    }
+    const pin = this._state.bearing === null && !this._pickedBuilding ? this._place : undefined;
+    this._map?.getSource<GeoJSONSource>("spatial-place")?.setData(pin ? point(pin) : EMPTY);
   }
 
   // Align on an empty plan puts the origin at the left end of the picked wall, with the building
@@ -1042,14 +1359,17 @@ class SpatialPanel extends LitElement {
     return this._buildingAt([lon, lat]);
   }
 
-  // The map's building offers its outline once the site frame follows the stored bearing and until
-  // the Building has an outline; the editor decides where it shows. Nothing about it is stored.
+  // The picked building offers its outline once the site frame follows the stored bearing and until
+  // the Building has an outline; after a reload the building at the site origin stands in as the pick.
+  // The editor decides where it shows. Nothing about it is stored.
   private _offerMapOutline() {
     const [editor, frame] = [this._editor, this._state.frame];
     if (!editor || !frame) return;
     const aligned = this._state.bearing !== null && frame.bearingDeg === this._state.bearing;
-    if (aligned && this._state.outline.type !== "Polygon") this._mapBuilding ??= this._buildingAtOrigin(frame);
-    editor.setMapOutline(aligned && this._mapBuilding ? mapOutlineBox(frame, this._mapBuilding) : undefined);
+    if (aligned && this._state.outline.type !== "Polygon" && !this._pickedBuilding) {
+      this._pickedBuilding = this._buildingAtOrigin(frame);
+    }
+    editor.setMapOutline(aligned && this._pickedBuilding ? mapOutline(frame, this._pickedBuilding) : undefined);
   }
 
   private _previewWall(event: MapMouseEvent) {
@@ -1061,42 +1381,45 @@ class SpatialPanel extends LitElement {
   // One tap sets the site axis from the wall of the building nearest to it, and goes back to Select.
   // The camera turns in place around the click, so the building stays in view. It turns before
   // the save, because Home Assistant sends the update event ahead of the reply.
-  private _pick(event: MapMouseEvent) {
-    if (!this._aligning) return;
+  private _alignAt(event: MapMouseEvent) {
+    if (!this._aligning || event.defaultPrevented) return;
     const building = this._buildingUnder(event);
     this._selectTool("select");
     if (!building) {
       this._toast({ message: "No building here" });
       return;
     }
-    // Its outline is offered once the new frame arrives.
-    this._mapBuilding = building;
+    // The clicked wall's building becomes the pick; its outline is offered once the new frame arrives.
+    this._pickedBuilding = building;
     const at: Position = [event.lngLat.lng, event.lngLat.lat];
     const fields = alignFields(building, at, this._editor?.hasShapes ?? false);
     // The picked wall lies low in the view with the building above it, its outside facing the viewer.
     const wallBelowCentre = (this._map?.getContainer().clientHeight ?? 0) * WALL_OFFSET_SHARE;
     this._map?.easeTo({ bearing: mapBearing(fields.bearing_deg), center: event.lngLat, offset: [0, wallBelowCentre] });
-    this._saveBearing(fields, this._state.bearing ?? null);
+    // Once aligned, the home's building is certain enough to ask about the home.
+    this._saveBearing(fields, this._state.bearing ?? null, () => this._offerHome(building));
+    this._showPick();
   }
 
-  // A failed save turns the view back. A refusal shows Spatial's reason, as trying again would not
+  // A failed save turns the view back. A refusal says why, as trying again would not
   // help; otherwise Retry turns the view to the picked wall again and saves the same fields once more.
-  private _saveBearing(fields: AlignFields, previousBearing: number | null) {
+  private _saveBearing(fields: AlignFields, previousBearing: number | null, saved: () => void) {
     const newBearing = fields.bearing_deg;
     this._state.bearing = newBearing;
-    this.hass!.connection.sendMessagePromise({ type: "spatial/site/update", ...fields }).catch((err) => {
+    this.hass!.connection.sendMessagePromise({ type: "spatial/site/update", ...fields }).then(saved, (err) => {
       console.error(err);
       this._state.bearing = previousBearing;
       this._map?.easeTo({ bearing: mapBearing(this._state.axisDeg) });
-      if (typeof err?.code === "string" && typeof err.message === "string" && !isStillStarting(err)) {
-        this._toast({ message: err.message });
+      const failure = saveFailure(err);
+      if (!failure.retry) {
+        this._toast({ message: failure.message });
         return;
       }
       const retry = () => {
         this._map?.easeTo({ bearing: mapBearing(newBearing) });
-        this._saveBearing(fields, previousBearing);
+        this._saveBearing(fields, previousBearing, saved);
       };
-      this._toast({ message: saveFailureMessage(err), action: { text: "Retry", action: retry }, duration: -1, dismissable: true });
+      this._toast({ message: failure.message, action: { text: "Retry", action: retry }, duration: -1, dismissable: true });
     });
   }
 
@@ -1104,7 +1427,7 @@ class SpatialPanel extends LitElement {
     const map = this._map!;
     const flat = this._state.floor !== "all";
     for (const [id] of STACK_LAYERS) map.setLayoutProperty(id, "visibility", flat ? "none" : "visible");
-    // The slabs carry the outline in All; on the ground it would cross them.
+    // The stack carries the outline in All, under the ground floor's rooms; a flat line would cross them.
     map.setLayoutProperty("spatial-outline", "visibility", flat ? "visible" : "none");
     for (const id of ["areas-2d", "areas-outline"]) {
       map.setLayoutProperty(id, "visibility", flat ? "visible" : "none");
@@ -1122,7 +1445,7 @@ class SpatialPanel extends LitElement {
     this._showLabels();
     this._showFloorLabels();
     // Before the style has loaded, `_addAreas` applies the floor.
-    if (this._map?.getLayer("stack-slabs")) this._applyFloor();
+    if (this._map?.getLayer("stack-outline")) this._applyFloor();
     // Drawing needs the plan flat with the picked wall horizontal again.
     if (floor === "all") this._viewStack(true);
     else if (previous === "all") this._map?.easeTo({ pitch: 0, bearing: mapBearing(this._state.axisDeg) });

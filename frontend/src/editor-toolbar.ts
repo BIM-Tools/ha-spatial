@@ -3,7 +3,7 @@
 import { mdiAngleAcute, mdiCursorDefault, mdiDeleteOutline, mdiRedo, mdiUndo, mdiVectorRectangle } from "@mdi/js";
 import { LitElement, css, html } from "lit";
 import type { Tool } from "./room-editor";
-import { phoneBar, pillButtons, selectedFill } from "./styles";
+import { litControl, phoneBar, pillButtons, selectedFill } from "./styles";
 
 const TOOLS: { tool: Tool; label: string; icon: string }[] = [
   { tool: "align", label: "Align", icon: mdiAngleAcute },
@@ -21,6 +21,8 @@ class SpatialEditorToolbar extends LitElement {
     canRemove: { attribute: false },
     // Align is offered here until the site has a direction; after that the header menu offers it.
     align: { type: Boolean },
+    // The tool the guide names as the next step.
+    lit: { attribute: false },
     bar: { type: Boolean, reflect: true },
   };
 
@@ -40,6 +42,10 @@ class SpatialEditorToolbar extends LitElement {
       button:disabled {
         opacity: 0.38;
         cursor: default;
+      }
+      :host(:not([bar])) button.lit,
+      :host([bar]) button.lit .pill {
+        ${litControl}
       }
       button.icon {
         justify-content: center;
@@ -101,6 +107,7 @@ class SpatialEditorToolbar extends LitElement {
   declare canRedo: boolean;
   declare canRemove: boolean;
   declare align: boolean;
+  declare lit: Tool | undefined;
   declare bar: boolean;
 
   constructor() {
@@ -124,6 +131,7 @@ class SpatialEditorToolbar extends LitElement {
     const tools = TOOLS.filter(({ tool }) => this.align || tool !== "align").map(
       ({ tool, label, icon }) => html`
         <button
+          class=${!this.disabled && tool === this.lit ? "lit" : ""}
           aria-pressed=${!this.disabled && tool === this.tool}
           ?disabled=${this.disabled}
           @click=${() => this._fire("tool-select", { tool })}

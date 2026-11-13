@@ -19,6 +19,7 @@ from custom_components.spatial.geometry import (
     shared_edge_length,
     validate_lattice_polygon,
     validate_polygon,
+    validate_rings,
 )
 
 from .common import lonlat, rect
@@ -111,6 +112,64 @@ def test_snap_drops_corners_that_meet() -> None:
         ],
     }
     assert [len(corners) for corners in frame.snap(polygon)] == [3, 3]
+
+
+def _ring(*corners: tuple[float, float]) -> list[list[float]]:
+    """Return a closed ring through corners given in metres from the origin."""
+    return [lonlat(x, y) for x, y in (*corners, corners[0])]
+
+
+@pytest.mark.parametrize(
+    ("rings", "expected_metres"),
+    [
+        (
+            [_ring((0, 0), (1, 0), (2, 0), (3, 0), (3, 3), (0, 3))],
+            [[(0, 0), (3, 0), (3, 3), (0, 3)]],
+        ),
+        (
+            [_ring((2, 0), (3, 0), (3, 3), (0, 3), (0, 0), (1, 0))],
+            [[(3, 0), (3, 3), (0, 3), (0, 0)]],
+        ),
+        (
+            [_ring((0, 0), (1.5, 0.004), (3, 0), (3, 3), (0, 3))],
+            [[(0, 0), (3, 0), (3, 3), (0, 3)]],
+        ),
+        (
+            [_ring((0, 0), (6, 0), (4, 0), (4, 3), (0, 3))],
+            [[(0, 0), (6, 0), (4, 0), (4, 3), (0, 3)]],
+        ),
+        (
+            [
+                _ring((0, 0), (6, 0), (6, 6), (0, 6)),
+                _ring((2, 2), (2, 4), (4, 4), (4, 3), (4, 2)),
+            ],
+            [[(0, 0), (6, 0), (6, 6), (0, 6)], [(2, 2), (2, 4), (4, 4), (4, 2)]],
+        ),
+    ],
+    ids=[
+        "run_of_three",
+        "across_the_ring_start",
+        "straight_once_rounded",
+        "turn_back_kept",
+        "hole",
+    ],
+)
+def test_snap_drops_corners_on_a_straight_line(
+    rings: list[list[list[float]]], expected_metres: list[list[tuple[float, float]]]
+) -> None:
+    """Test a corner between its neighbours on one straight line is not read; a turn back is."""
+    frame = SiteFrame(lonlat(0, 0), 0.0, METRIC.lattice_unit_m)
+    # At bearing 0 the frame's first axis points north and its second west.
+    expected = [[(round(y * 40), -round(x * 40)) for x, y in ring] for ring in expected_metres]
+    assert frame.snap({"type": "Polygon", "coordinates": rings}) == expected
+
+
+def test_a_ring_on_one_line_is_refused() -> None:
+    """Test a ring whose corners all lie on one line reads as fewer than three and is refused."""
+    frame = SiteFrame(lonlat(0, 0), 0.0, METRIC.lattice_unit_m)
+    rings = frame.snap({"type": "Polygon", "coordinates": [_ring((0, 0), (4, 0), (8, 0))]})
+    with pytest.raises(ValueError, match="^A ring needs at least three corners$"):
+        validate_rings(rings)
 
 
 @pytest.mark.parametrize(

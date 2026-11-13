@@ -1,5 +1,6 @@
-// Plan geometry for drawing rooms on the site lattice: boxes, side lengths, resizing, moving and joining shapes.
+// Plan geometry for drawing rooms on the site lattice: boxes, rings of corners, side lengths, resizing, moving and joining shapes.
 
+import difference from "@turf/difference";
 import { polygon } from "@turf/helpers";
 import union from "@turf/union";
 import type { Polygon, Position } from "geojson";
@@ -7,6 +8,7 @@ import type { Change } from "./history";
 import type { LatticePoint, PlanFrame } from "./site-frame";
 import type { LatticeEdge } from "./snap";
 import { type HassUnits, type Refusal, formatArea, formatLength } from "./units";
+import { onSegment, properlyCross } from "./wall-stop";
 
 type Ring = LatticePoint[];
 
@@ -15,30 +17,8 @@ const latticeRings = (frame: PlanFrame, shape: Polygon): Ring[] =>
   shape.coordinates.map((ring) => ring.slice(0, -1).map((corner) => frame.toLattice(corner)));
 const outerCorners = (frame: PlanFrame, shape: Polygon): Ring => latticeRings(frame, shape)[0];
 
-const liesOnStraightLine = (corners: Ring, index: number): boolean => {
-  const [x, y] = corners[index];
-  const [previousX, previousY] = corners.at(index - 1)!;
-  const [nextX, nextY] = corners[(index + 1) % corners.length];
-  return (x - previousX) * (nextY - y) - (y - previousY) * (nextX - x) === 0;
-};
-
-/**
- * Custom. The ring without its corners that lie exactly on the line through their neighbours (a
- * zero cross product on lattice integers), also the tip of a spike back on itself and a repeated
- * corner, so the shape never changes. Near-straight corners stay.
- */
-export function dropStraightCorners(corners: readonly LatticePoint[]): LatticePoint[] {
-  const ring = [...corners];
-  for (let index = ring.findIndex((_, at) => liesOnStraightLine(ring, at)); index >= 0 && ring.length > 3; ) {
-    ring.splice(index, 1);
-    index = ring.findIndex((_, at) => liesOnStraightLine(ring, at));
-  }
-  return ring;
-}
-
-// Every footprint the panel writes leaves the lattice here, so none keeps a straight corner.
 const ringToWgs84 = (frame: PlanFrame, corners: Ring): Position[] => {
-  const positions = dropStraightCorners(corners).map((corner) => frame.fromLattice(corner));
+  const positions = corners.map((corner) => frame.fromLattice(corner));
   return [...positions, positions[0]];
 };
 const edgeUnits = (from: LatticePoint, to: LatticePoint): number => Math.hypot(to[0] - from[0], to[1] - from[1]);
@@ -71,20 +51,150 @@ export function boxFromCorners(frame: PlanFrame, a: LatticePoint, b: LatticePoin
 
 // The map shows the outer face of a building's walls; the outline lies on their axis.
 const MAP_OUTLINE_INSET_M = 0.15;
+// A map wall within 3 degrees of a site axis, or at most one map tile unit across it, is taken to lie
+// on it; the rest is noise in the map.
+const STRAIGHTEN_TANGENT = Math.tan((3 * Math.PI) / 180);
+const EQUATOR_M = 40075016.686;
+
+// Home Assistant's map tiles carry buildings at zoom 14 at most, 4096 units across a tile, so a map
+// corner is only known to one such unit: a short wall reads several degrees crooked or as a stair step.
+const mapTileUnitM = (latitude: number): number => (EQUATOR_M * Math.cos((latitude * Math.PI) / 180)) / 2 ** 14 / 4096;
+
+type FloatRing = [number, number][];
+
+// The site axis an edge runs along, 0 for x and 1 for y, or undefined for a diagonal: within 3 degrees
+// of it, or at most `tileUnits` across it from end to end.
+const nearAxisOf = (from: LatticePoint, to: LatticePoint, tileUnits: number): 0 | 1 | undefined => {
+  const [dx, dy] = [Math.abs(to[0] - from[0]), Math.abs(to[1] - from[1])];
+  if (dy <= dx && (dy <= dx * STRAIGHTEN_TANGENT || dy <= tileUnits)) return 0;
+  if (dx <= dy && (dx <= dy * STRAIGHTEN_TANGENT || dx <= tileUnits)) return 1;
+  return undefined;
+};
 
 /**
- * Custom. The outline copied from a map building: the bounding rectangle of its outer ring along the
- * site axes, each side moved 150 mm inward and rounded to the lattice. Undefined when a side would be
- * under one grid step.
+ * Custom. Drops the corner that ends an edge shorter than `shortest`, one at a time until none is
+ * left or fewer than three corners remain, so a jog of map noise or a tile seam between two parallel
+ * walls leaves one wall to straighten. Limit: a real recess under one grid step disappears.
  */
-export function mapOutlineBox(frame: PlanFrame, building: Polygon): Polygon | undefined {
-  const corners = building.coordinates[0].map((corner) => frame.toLatticeUnits(corner));
-  const inset = MAP_OUTLINE_INSET_M / frame.unitM;
-  const inward = (values: number[]) => [Math.round(Math.min(...values) + inset), Math.round(Math.max(...values) - inset)];
-  const [left, right] = inward(corners.map(([x]) => x));
-  const [bottom, top] = inward(corners.map(([, y]) => y));
-  if (right - left < frame.unitsPerStep || top - bottom < frame.unitsPerStep) return undefined;
-  return boxFromCorners(frame, [left, bottom], [right, top]);
+function withoutShortEdges(corners: FloatRing, shortest: number): FloatRing {
+  let ring = corners;
+  for (;;) {
+    const short = ring.findIndex((corner, index) => edgeUnits(corner, ring[(index + 1) % ring.length]) < shortest);
+    if (short < 0 || ring.length < 3) return ring;
+    ring = ring.filter((_, index) => index !== (short + 1) % ring.length);
+  }
+}
+
+/**
+ * Custom. Each run of consecutive edges that `nearAxisOf` puts on the same site axis becomes one
+ * straight line on that axis: its corners take the length-weighted mean of the run's coordinate across the
+ * axis. Only that coordinate moves, so a corner between an x run and a y run takes one from each;
+ * diagonal edges keep their corners, apart from what a neighbouring run moves.
+ */
+function straighten(corners: FloatRing, tileUnits: number): FloatRing {
+  const count = corners.length;
+  const axes = corners.map((corner, index) => nearAxisOf(corner, corners[(index + 1) % count], tileUnits));
+  const result = corners.map(([x, y]): [number, number] => [x, y]);
+  const start = axes.findIndex((axis, index) => axis !== axes[(index + count - 1) % count]);
+  if (start < 0) return result;
+  for (let offset = 0; offset < count; ) {
+    const first = (start + offset) % count;
+    const axis = axes[first];
+    let length = 1;
+    while (offset + length < count && axes[(first + length) % count] === axis) length++;
+    offset += length;
+    if (axis === undefined) continue;
+    const across = axis === 0 ? 1 : 0;
+    let [weighted, total] = [0, 0];
+    for (let step = 0; step < length; step++) {
+      const [from, to] = [corners[(first + step) % count], corners[(first + step + 1) % count]];
+      const edge = edgeUnits(from, to);
+      weighted += (edge * (from[across] + to[across])) / 2;
+      total += edge;
+    }
+    for (let step = 0; step <= length; step++) result[(first + step) % count][across] = weighted / total;
+  }
+  return result;
+}
+
+const closedRing = (corners: FloatRing): Position[] => [...corners, corners[0]];
+
+/**
+ * The ring moved `distance` inward, as GEOS buffers by a negative distance with square end caps: the
+ * ring minus a band of width twice `distance` centred on every edge and a square of that side, along
+ * the site axes, centred on every corner. Axis corners get an exact mitre, diagonal ones a close
+ * bevel; parts narrower than twice `distance` disappear. Custom only in the construction of the bands
+ * and squares; the boolean difference is polyclip-ts through turf. The largest part by area, without
+ * holes, or undefined when nothing is left.
+ */
+function insetShell(corners: FloatRing, distance: number): FloatRing | undefined {
+  const band = (from: [number, number], to: [number, number]) => {
+    const length = edgeUnits(from, to);
+    const [nx, ny] = [((from[1] - to[1]) / length) * distance, ((to[0] - from[0]) / length) * distance];
+    return polygon([closedRing([[from[0] + nx, from[1] + ny], [to[0] + nx, to[1] + ny], [to[0] - nx, to[1] - ny], [from[0] - nx, from[1] - ny]])]);
+  };
+  const square = ([x, y]: [number, number]) =>
+    polygon([closedRing([[x - distance, y - distance], [x + distance, y - distance], [x + distance, y + distance], [x - distance, y + distance]])]);
+  const cuts = corners.flatMap((corner, index) => [band(corner, corners[(index + 1) % corners.length]), square(corner)]);
+  const left = difference({ type: "FeatureCollection", features: [polygon([closedRing(corners)]), ...cuts] })?.geometry;
+  if (!left) return undefined;
+  const shells = (left.type === "Polygon" ? [left.coordinates] : left.coordinates).map((rings) =>
+    rings[0].slice(0, -1).map(([x, y]): [number, number] => [x, y]),
+  );
+  return shells.reduce((largest, shell) => (Math.abs(doubleArea(shell)) > Math.abs(doubleArea(largest)) ? shell : largest));
+}
+
+// Custom. The boolean engine leaves corners a hair apart where cuts meet; on the lattice they fall on one
+// point or on one straight line. Drops a corner equal to the one before it, then a corner the ring
+// runs straight through.
+function withoutSpareCorners(corners: Ring): Ring {
+  const at = <T>(ring: T[], index: number): T => ring[(index + ring.length) % ring.length];
+  const distinct = corners.filter(([x, y], index) => {
+    const [px, py] = at(corners, index - 1);
+    return x !== px || y !== py;
+  });
+  return distinct.filter(([x, y], index) => {
+    const [[px, py], [nx, ny]] = [at(distinct, index - 1), at(distinct, index + 1)];
+    const cross = (x - px) * (ny - y) - (y - py) * (nx - x);
+    const along = (x - px) * (nx - x) + (y - py) * (ny - y);
+    return cross !== 0 || along <= 0;
+  });
+}
+
+// No two edges of the ring cross or touch, apart from neighbours at their shared corner.
+function isSimpleRing(corners: Ring): boolean {
+  const edges = corners.map((corner, index): LatticeEdge => [corner, corners[(index + 1) % corners.length]]);
+  return edges.every((edge, i) =>
+    edges.every((other, j) => {
+      if (j <= i) return true;
+      const [[a, b], [c, d]] = [edge, other];
+      if (j === i + 1) return !onSegment(d, edge) && !onSegment(a, other);
+      if (i === 0 && j === edges.length - 1) return !onSegment(c, edge) && !onSegment(b, other);
+      return !properlyCross(edge, other) && ![a, b].some((end) => onSegment(end, other)) && ![c, d].some((end) => onSegment(end, edge));
+    }),
+  );
+}
+
+/**
+ * The outline copied from a map building: the outer ring of its own shape (courtyards dropped),
+ * without edges under one grid step, with walls within 3 degrees of a site axis or at most one map
+ * tile unit across it straightened onto it, moved 150 mm inward (its largest part when the inset splits it) and rounded to the lattice.
+ * It may have fewer or more corners than the map's. Undefined when nothing is left, or when the
+ * rounded ring has an edge under one grid step or edges that cross or touch.
+ */
+export function mapOutline(frame: PlanFrame, building: Polygon): Polygon | undefined {
+  const corners: FloatRing = building.coordinates[0].slice(0, -1).map((corner) => frame.toLatticeUnits(corner));
+  const kept = withoutShortEdges(corners, frame.unitsPerStep);
+  if (kept.length < 3) return undefined;
+  const tileUnits = mapTileUnitM(building.coordinates[0][0][1]) / frame.unitM;
+  const inset = insetShell(straighten(kept, tileUnits), MAP_OUTLINE_INSET_M / frame.unitM);
+  if (!inset) return undefined;
+  const outline = withoutSpareCorners(inset.map(([x, y]) => [Math.round(x) + 0, Math.round(y) + 0]));
+  if (outline.length < 3) return undefined;
+  const edgesLongEnough = outline.every((from, index) => edgeUnits(from, outline[(index + 1) % outline.length]) >= frame.unitsPerStep);
+  // Rounding to the lattice can bring two parts of the ring together that the inset kept apart.
+  if (!edgesLongEnough || !isSimpleRing(outline)) return undefined;
+  return { type: "Polygon", coordinates: [ringToWgs84(frame, outline)] };
 }
 
 export function sideLabels(
@@ -152,12 +262,24 @@ export function areaLabel(frame: PlanFrame, shape: Polygon, units: HassUnits): s
   return formatArea(squareUnits * frame.unitM * frame.unitM, units);
 }
 
-/** Where the area label goes: the middle of the shape's bounding box on the plan. */
-export function centreOf(frame: PlanFrame, shape: Polygon): Position {
+// The extent of the outer ring along the site axes, in lattice units.
+const latticeBounds = (frame: PlanFrame, shape: Polygon) => {
   const corners = outerCorners(frame, shape);
   const xs = corners.map(([x]) => x);
   const ys = corners.map(([, y]) => y);
-  return frame.fromLattice([(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2]);
+  return { left: Math.min(...xs), bottom: Math.min(...ys), right: Math.max(...xs), top: Math.max(...ys) };
+};
+
+/** Where the area label goes: the middle of the shape's bounding box on the plan. */
+export function centreOf(frame: PlanFrame, shape: Polygon): Position {
+  const { left, bottom, right, top } = latticeBounds(frame, shape);
+  return frame.fromLattice([(left + right) / 2, (bottom + top) / 2]);
+}
+
+/** The width and depth of the shape along the site axes, in metres. */
+export function overallSize(frame: PlanFrame, shape: Polygon): [number, number] {
+  const { left, bottom, right, top } = latticeBounds(frame, shape);
+  return [(right - left) * frame.unitM, (top - bottom) * frame.unitM];
 }
 
 /** One ring of four corners whose edges all run along the site axes. */
@@ -229,6 +351,47 @@ export function boxChange(frame: PlanFrame, areaId: string, current: Polygon | u
   const footprint = addToFootprint(frame, current, box);
   if (!footprint) return { refusal: "apart" };
   return { change: footprintChange(areaId, current ?? null, footprint) };
+}
+
+/** The corners of an open ring with `point` added; a repeat of the last corner, as from a double click, adds nothing. */
+export function addCorner(corners: readonly LatticePoint[], point: LatticePoint): LatticePoint[] {
+  const last = corners[corners.length - 1];
+  return last && last[0] === point[0] && last[1] === point[1] ? [...corners] : [...corners, point];
+}
+
+/** Whether a click at `pointer`, in lattice units, lands on the first corner of an open ring, within `radius`. */
+export function closesRing(corners: readonly LatticePoint[], pointer: readonly [number, number], radius: number): boolean {
+  const [first] = corners;
+  return first !== undefined && Math.hypot(pointer[0] - first[0], pointer[1] - first[1]) <= radius;
+}
+
+/**
+ * A ring of clicked corners becomes the area's first shape, counter-clockwise; refused with fewer
+ * than three corners, a side under one grid step, or sides that cross or touch.
+ */
+export function ringChange(frame: PlanFrame, areaId: string, corners: readonly LatticePoint[]): ChangeOrRefusal {
+  if (corners.length < 3) return { refusal: "too_few_corners" };
+  const ring = [...corners];
+  const refusal = ringRefusal(frame, ring);
+  if (refusal) return { refusal };
+  if (doubleArea(ring) < 0) ring.reverse();
+  return { change: footprintChange(areaId, null, { type: "Polygon", coordinates: [ringToWgs84(frame, ring)] }) };
+}
+
+// Why a ring cannot be a shape: a side under one grid step, or sides that cross or touch.
+function ringRefusal(frame: PlanFrame, ring: Ring): Refusal | undefined {
+  if (ring.some((corner, index) => edgeUnits(corner, ring[(index + 1) % ring.length]) < frame.unitsPerStep)) return "too_small";
+  return isSimpleRing(ring) ? undefined : "crossing";
+}
+
+/**
+ * A dragged corner or edge reshapes the footprint; refused when its outer ring gets a side under one
+ * grid step or sides that cross or touch. A corner left on a straight line stays: the integration drops
+ * it when it stores the shape.
+ */
+export function reshapeChange(frame: PlanFrame, areaId: string, before: Polygon, after: Polygon): ChangeOrRefusal {
+  const refusal = ringRefusal(frame, outerCorners(frame, after));
+  return refusal ? { refusal } : { change: footprintChange(areaId, before, after) };
 }
 
 /** A typed side length resizes the rectangle; an unreadable length or one under a grid step is refused. */

@@ -8,7 +8,7 @@ import { type LatticeEdge, type SnapCandidates, type SnapSource, candidatesOf } 
 import { siteFrameData } from "./site-frame-fixture";
 
 const FRAME = PlanFrame.fromSite(siteFrameData([5, 52], 20));
-const NONE: SnapCandidates = { roomCorners: [], roomEdges: [], outlineCorners: [], outlineEdges: [], roomRings: [] };
+const NONE: SnapCandidates = { roomCorners: [], roomEdges: [], outlineCorners: [], outlineEdges: [], lineCorners: [], guideCorners: [], guideEdges: [], roomRings: [] };
 
 const shapeOf = (ring: LatticePoint[]): Polygon => ({
   type: "Polygon",
@@ -166,6 +166,7 @@ test.each<[string, SnapCandidates, LatticePoint, ReturnType<typeof walkToWall>]>
   ["a side stops at an outline corner within its span", { ...NONE, outlineCorners: [[46, 20]] }, [20, 0], { offset: [6, 0], source: { kind: "corner", at: [46, 20] } }],
   ["a side on the outline cannot pass it", walls(RIGHT_AT_40), [20, 0], { offset: [0, 0], source: { kind: "edge", edge: RIGHT_AT_40 } }],
   ["a side on the outline still moves in", walls(RIGHT_AT_40), [-12, 0], undefined],
+  ["a wall of the map's building never stops it", { ...NONE, guideEdges: [RIGHT_AT_48], guideCorners: [...RIGHT_AT_48] }, [20, 0], undefined],
   ["an outline wall along the stretched side does not stop it", walls(TOP_AT_40), [20, 0], undefined],
   ["a corner stops where it first touches either wall", walls(RIGHT_AT_48, TOP_AT_48), [20, 10], { offset: [8, 4], source: { kind: "edge", edge: RIGHT_AT_48 } }],
   ["a corner stops in the corner of two walls", walls(RIGHT_AT_48, TOP_AT_48), [20, 20], { offset: [8, 8], source: { kind: "edge", edge: RIGHT_AT_48 } }],

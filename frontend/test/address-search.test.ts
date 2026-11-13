@@ -1,7 +1,26 @@
 // @vitest-environment happy-dom
-// Checks the panel's address search wiring: when the card opens, what it sends, what it shows and where the map goes.
+// Checks the panel's address search wiring: when the card opens, what it sends, what it shows and where the map goes;
+// then the pick of the home's building and when the home question is asked about it.
 import { afterEach, expect, test, vi } from "vitest";
-import { buttonNamed, fitBounds, flyTo, mapCreated, type Mount, mountPanel, type Reply, resetFakes, settle, toasts } from "./panel-harness";
+import {
+  EMPTY,
+  buttonNamed,
+  fitBounds,
+  flyTo,
+  guideText,
+  handlers,
+  layers,
+  mapCreated,
+  type Mount,
+  mountPanel,
+  onUpdateOf,
+  queryRenderedFeatures,
+  type Reply,
+  resetFakes,
+  settle,
+  sources,
+  toasts,
+} from "./panel-harness";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
 
@@ -52,11 +71,25 @@ test.each([
   ["a home at 0, 0", { latitude: 0, longitude: 0 }, true],
   ["a home", { latitude: 52, longitude: 5 }, false],
 ])("with %s and an empty plan, the panel opens on the globe with the search card: %s", async (_, homeLocation, globe) => {
-  const { panel } = mountPanel({ homeLocation });
+  const { panel } = mountPanel({ homeLocation, site: { bearing_deg: null } });
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
   await settle(panel);
   expect(card(panel) !== null).toBe(globe);
   expect(mapCreated.mock.calls[0][0].zoom < 5).toBe(globe);
+});
+
+test.each([
+  ["no building", [], true],
+  ["a building", [{ geometry: { type: "Polygon", coordinates: [[[4.9, 51.9], [5.1, 51.9], [5.1, 52.1], [4.9, 51.9]]] } }], false],
+])("before any Align, a home with %s under it on the drawn map opens the search card: %s", async (_, buildings, opened) => {
+  const { panel } = mountPanel({ site: { bearing_deg: null } });
+  await vi.waitFor(() => expect(handlers.idle).toBeDefined());
+  await settle(panel);
+  expect(card(panel)).toBeNull();
+  queryRenderedFeatures.mockReturnValue(buildings);
+  handlers.idle();
+  await settle(panel);
+  expect(card(panel) !== null).toBe(opened);
 });
 
 test("a plan keeps the panel on the house without a home location", async () => {
@@ -196,41 +229,260 @@ const searchAndPick = async (panel: HTMLElement) => {
   await settle(panel);
 };
 
-test("a place far from the home offers Move, which writes the place as the home, and Undo writes the old home back", async () => {
-  const { panel, connection } = await openSearch(searchingAnd([DOMTOREN]));
-  await searchAndPick(panel);
-  expect(toasts).toHaveLength(1);
-  expect(toasts[0].message).toMatch(/^Move Home Assistant's home here\? The home pin is 1\d\.\d km away$/);
-  expect(toasts[0].action!.text).toBe("Move");
-  toasts[0].action!.action();
-  await vi.waitFor(() => expect(toasts).toHaveLength(2));
-  expect(toasts[1]).toMatchObject({ message: "Home location moved", action: { text: "Undo" } });
-  toasts[1].action!.action();
-  await vi.waitFor(() => expect(homeWrites(connection)).toHaveLength(2));
-  expect(homeWrites(connection)).toEqual([
-    { type: "config/core/update", latitude: 52.0907, longitude: 5.1214 },
-    { type: "config/core/update", latitude: 52, longitude: 5 },
-  ]);
-});
+// The map tiles' building around the Domtoren point.
+const TOWER = { type: "Polygon", coordinates: [[[5.121, 52.0903], [5.1218, 52.0903], [5.1218, 52.0911], [5.121, 52.0911], [5.121, 52.0903]]] };
+const toolPressed = (panel: HTMLElement, name: string) => buttonNamed(panel, name)?.getAttribute("aria-pressed");
 
-test("without a home location, a picked place offers Use as home", async () => {
-  const { panel, connection } = await openSearch(searchingAnd([DOMTOREN]), { homeLocation: {} });
-  await searchAndPick(panel);
-  expect(toasts.map((toast) => [toast.message, toast.action?.text])).toEqual([["Use this as Home Assistant's home?", "Use as home"]]);
-  toasts[0].action!.action();
-  await vi.waitFor(() => expect(homeWrites(connection)).toEqual([{ type: "config/core/update", latitude: 52.0907, longitude: 5.1214 }]));
-});
+// A synthetic building east of the tower, for a second pick.
+const ANNEX = { type: "Polygon", coordinates: [[[5.1222, 52.0905], [5.1226, 52.0905], [5.1226, 52.0909], [5.1222, 52.0909], [5.1222, 52.0905]]] };
+const PICK_LINE = "Click your home Point at a building to light it up, then click it.";
+const PICKED_LINE = "Click the front wall of your home The view turns so that wall lies flat. Pick another building";
+// The map tiles' buildings under the pointer are `buildings`; no room is drawn there.
+const buildingsUnderPointer = (buildings: object[]) =>
+  queryRenderedFeatures.mockImplementation(((_where: unknown, options: { layers: string[] }) =>
+    options.layers.includes("building-3d") ? buildings : []) as never);
+const pointer = (event: "mousemove" | "click", [lng, lat]: [number, number]) => handlers[event]({ point: { x: 1, y: 2 }, lngLat: { lng, lat } });
 
-test("a place within 25 m of the home asks nothing", async () => {
-  const { panel } = await openSearch(searchingAnd([VOORBEELDSTRAAT]));
-  await searchAndPick(panel);
+const clickingHome = async () => {
+  const mounted = mountPanel({ homeLocation: {}, site: { bearing_deg: null }, reply: searchingAnd([DOMTOREN], [DOMTOREN]) });
+  await vi.waitFor(() => expect(card(mounted.panel)).not.toBeNull());
+  handlers["style.load"]();
+  await searchAndPick(mounted.panel);
+  return mounted;
+};
+
+test("on a first visit without a home, a pick leaves the panel on a floor with Click your home, Align off, asking nothing yet", async () => {
+  const { panel } = await clickingHome();
+  expect(buttonNamed(panel, "No floor")!.getAttribute("aria-pressed")).toBe("true");
+  expect(toolPressed(panel, "Align")).toBe("false");
+  expect(guideText(panel)).toBe(PICK_LINE);
   expect(toasts).toEqual([]);
 });
 
-test("a second pick in the same visit asks nothing, whatever the first answer", async () => {
-  const { panel, connection } = await openSearch(searchingAnd([DOMTOREN], [DOMTOREN]));
+test("while the home is to be picked, the building under the pointer lights up", async () => {
+  await clickingHome();
+  buildingsUnderPointer([{ geometry: TOWER }]);
+  pointer("mousemove", [5.1214, 52.0907]);
+  await vi.waitFor(() => expect(sources["spatial-pick-hover"].data).toEqual(TOWER));
+  buildingsUnderPointer([]);
+  pointer("mousemove", [5.13, 52.0907]);
+  await vi.waitFor(() => expect(sources["spatial-pick-hover"].data).toEqual(EMPTY));
+});
+
+test("a click makes the building the home in place of the found place's pin: it shows dashed, and Align is on", async () => {
+  const { panel } = await clickingHome();
+  expect(sources["spatial-place"].data).toMatchObject({ geometry: { type: "Point" } });
+  buildingsUnderPointer([{ geometry: TOWER }]);
+  pointer("click", [5.1211, 52.0904]);
+  await settle(panel);
+  expect(sources["spatial-pick"].data).toEqual(TOWER);
+  expect(sources["spatial-place"].data).toEqual(EMPTY);
+  expect(guideText(panel)).toBe(PICKED_LINE);
+  expect(toolPressed(panel, "Align")).toBe("true");
+});
+
+test("Pick another building goes back to picking with the pick kept, and the next click picks again", async () => {
+  const { panel } = await clickingHome();
+  buildingsUnderPointer([{ geometry: TOWER }]);
+  pointer("click", [5.1214, 52.0907]);
+  await settle(panel);
+  buttonNamed(panel, "Pick another building")!.click();
+  await settle(panel);
+  expect(toolPressed(panel, "Select")).toBe("true");
+  expect(sources["spatial-pick"].data).toEqual(TOWER);
+  expect(guideText(panel)).toBe(PICK_LINE);
+  buildingsUnderPointer([{ geometry: ANNEX }]);
+  pointer("click", [5.1224, 52.0907]);
+  await settle(panel);
+  expect(sources["spatial-pick"].data).toEqual(ANNEX);
+  expect(guideText(panel)).toBe(PICKED_LINE);
+});
+
+test("a click beside a building reads the tiles within a few pixels of it and picks the building", async () => {
+  const { panel } = await clickingHome();
+  buildingsUnderPointer([{ geometry: TOWER }]);
+  // About 0.3 m south of the tower.
+  pointer("click", [5.1214, 52.090297]);
+  await settle(panel);
+  expect(sources["spatial-pick"].data).toEqual(TOWER);
+  expect(queryRenderedFeatures).toHaveBeenCalledWith(
+    [
+      [-7, -6],
+      [9, 10],
+    ],
+    { layers: ["building-3d"] },
+  );
+});
+
+test("a click beyond any building's reach says so, and the home is still to be picked", async () => {
+  const { panel } = await clickingHome();
+  pointer("click", [5.13, 52.0907]);
+  await settle(panel);
+  expect(toasts.map((toast) => toast.message)).toEqual(["No building here"]);
+  expect(guideText(panel)).toBe(PICK_LINE);
+});
+
+test("a new search before Align drops the pick", async () => {
+  const { panel } = await clickingHome();
+  buildingsUnderPointer([{ geometry: TOWER }]);
+  pointer("click", [5.1214, 52.0907]);
+  await settle(panel);
   await searchAndPick(panel);
+  expect(sources["spatial-pick"].data).toEqual(EMPTY);
+  expect(guideText(panel)).toBe(PICK_LINE);
+});
+
+test("the picked building shows dashed before Align, thin and solid after it, until an outline is stored", async () => {
+  const shownAs = () => layers.filter((layer) => layer.source === "spatial-pick" && layer.layout?.visibility !== "none").map((layer) => layer.id);
+  let site: { bearing_deg: number | null; outline?: object } = { bearing_deg: null };
+  const { panel, connection } = mountPanel({ homeLocation: {}, site: () => site, reply: searchingAnd([DOMTOREN]) });
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
   await searchAndPick(panel);
-  expect(toasts).toHaveLength(1);
-  expect(homeWrites(connection)).toEqual([]);
+  buildingsUnderPointer([{ geometry: TOWER }]);
+  pointer("click", [5.1214, 52.0907]);
+  expect(sources["spatial-pick"].data).toEqual(TOWER);
+  expect(shownAs()).toEqual(["spatial-pick"]);
+  site = { bearing_deg: 0 };
+  await onUpdateOf(connection)();
+  handlers.idle();
+  expect(sources["spatial-pick"].data).toEqual(TOWER);
+  expect(shownAs()).toEqual(["spatial-pick-aligned"]);
+  site = { bearing_deg: 0, outline: TOWER };
+  await onUpdateOf(connection)();
+  expect(sources["spatial-pick"].data).toEqual(EMPTY);
+});
+
+// A synthetic hall around the Domtoren point across the edge between tiles 8424 and 8425 at zoom 14, as
+// each tile has it: cut at the edge plus a buffer of 8 of its 4096 units.
+const TILE_EDGE = (8425 / 2 ** 14) * 360 - 180;
+const TILE_BUFFER = (8 / 4096 / 2 ** 14) * 360;
+const hallPart = (west: number, east: number) => ({
+  type: "Polygon",
+  coordinates: [[[west, 52.0905], [east, 52.0905], [east, 52.0909], [west, 52.0909], [west, 52.0905]]],
+});
+const WEST_PART = { _z: 14, _x: 8424, _y: 5405, geometry: hallPart(5.119, TILE_EDGE + TILE_BUFFER) };
+const EAST_PART = { _z: 14, _x: 8425, _y: 5405, geometry: hallPart(TILE_EDGE - TILE_BUFFER, 5.122) };
+const lngRange = (data: unknown) => {
+  const lngs = (data as { coordinates: number[][][] }).coordinates[0].map(([lng]) => lng);
+  return [Math.min(...lngs), Math.max(...lngs)];
+};
+
+test("a picked building across a tile edge is read from the tiles under it and shows whole", async () => {
+  const { panel } = await clickingHome();
+  // The click reads only the eastern tile; the building's box then reads both.
+  let buildingReads = 0;
+  queryRenderedFeatures.mockImplementation(((_where: unknown, options: { layers: string[] }) =>
+    options.layers.includes("building-3d") ? (buildingReads++ ? [WEST_PART, EAST_PART] : [EAST_PART]) : []) as never);
+  pointer("click", [5.1214, 52.0907]);
+  await settle(panel);
+  expect(lngRange(sources["spatial-pick"].data)).toEqual([5.119, 5.122]);
+});
+
+test("a picked building is read from the tiles MapLibre renders at the view's zoom, without a coarser stand-in", async () => {
+  const { panel } = await clickingHome();
+  // Past the source's zoom 14 MapLibre cuts its tiles into zoom 18 tiles, and features carry those.
+  buildingsUnderPointer([
+    { _z: 17, _x: 67400, _y: 43241, geometry: hallPart(5.1, 5.13) },
+    { _z: 18, _x: 134801, _y: 86482, geometry: TOWER },
+  ]);
+  pointer("click", [5.1214, 52.0907]);
+  await settle(panel);
+  expect(sources["spatial-pick"].data).toEqual(TOWER);
+});
+
+// Synthetic buildings beside the site centre, a home and the one next door; each centre is its middle.
+const houseBetween = (west: number, east: number) => ({
+  type: "Polygon",
+  coordinates: [[[west, 52.0001], [east, 52.0001], [east, 52.0002], [west, 52.0002], [west, 52.0001]]],
+});
+const HOUSE = houseBetween(5.0001, 5.0003);
+const NEXT_DOOR = houseBetween(5.0004, 5.0006);
+// About 11 km north of both.
+const FAR_HOME = { latitude: 52.1, longitude: 5 };
+
+// On a floor, Align is pressed and the house's south wall clicked; the site then has the saved direction.
+const alignOnHouse = async (homeLocation: Mount["homeLocation"]) => {
+  let bearing: number | null = null;
+  const mounted = mountPanel({ homeLocation, site: () => ({ bearing_deg: bearing }), reply: searchingAnd() });
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
+  await settle(mounted.panel);
+  buttonNamed(mounted.panel, "No floor")!.click();
+  await settle(mounted.panel);
+  buildingsUnderPointer([{ geometry: HOUSE }]);
+  buttonNamed(mounted.panel, "Align")!.click();
+  await settle(mounted.panel);
+  pointer("click", [5.0002, 52.0001]);
+  const [saved] = mounted.connection.sendMessagePromise.mock.calls.filter(([message]) => message.type === "spatial/site/update");
+  bearing = saved[0].bearing_deg as number;
+  await onUpdateOf(mounted.connection)();
+  await settle(mounted.panel);
+  return mounted;
+};
+
+// While the map's outline is offered, a click on the house next door picks it instead.
+const repickNextDoor = async (panel: HTMLElement) => {
+  await vi.waitFor(() => expect(guideText(panel)).toMatch(/^Use the map's outline\?/));
+  buildingsUnderPointer([{ geometry: NEXT_DOOR }]);
+  pointer("click", [5.0005, 52.00015]);
+  await settle(panel);
+};
+
+test.each([
+  ["Align asks for the middle of the building it was clicked on", async () => await alignOnHouse(FAR_HOME), [5.0002, 52.00015]],
+  [
+    "a re-pick before the outline is stored asks again, for the new building's middle",
+    async () => {
+      const mounted = await alignOnHouse(FAR_HOME);
+      await repickNextDoor(mounted.panel);
+      return mounted;
+    },
+    [5.0005, 52.00015],
+  ],
+])("%s; the question waits for its answer, Move writes it and Undo the old home", async (_, act, [lon, lat]) => {
+  const { connection } = await act();
+  await vi.waitFor(() => expect(toasts.at(-1)?.action?.text).toBe("Move"));
+  const question = toasts.at(-1)!;
+  expect(question.message).toMatch(/^Move Home Assistant's home here\? The home pin is 1\d\.\d km away$/);
+  expect(question).toMatchObject({ duration: -1, dismissable: true });
+  question.action!.action();
+  await vi.waitFor(() => expect(toasts.at(-1)).toMatchObject({ message: "Home location moved", action: { text: "Undo" } }));
+  toasts.at(-1)!.action!.action();
+  await vi.waitFor(() => expect(homeWrites(connection)).toHaveLength(2));
+  const [moved, back] = homeWrites(connection) as unknown as { latitude: number; longitude: number }[];
+  expect(moved.latitude).toBeCloseTo(lat, 5);
+  expect(moved.longitude).toBeCloseTo(lon, 5);
+  expect(back).toEqual({ type: "config/core/update", ...FAR_HOME });
+});
+
+test("without a home location, Align offers the building's middle as the home", async () => {
+  const { connection } = await alignOnHouse({});
+  await vi.waitFor(() => expect(toasts.map((toast) => [toast.message, toast.action?.text])).toEqual([["Use this as Home Assistant's home?", "Use as home"]]));
+  toasts[0].action!.action();
+  await vi.waitFor(() => expect(homeWrites(connection)).toHaveLength(1));
+});
+
+test.each([
+  [
+    "a click on a building before Align",
+    async () => {
+      const { panel } = await clickingHome();
+      buildingsUnderPointer([{ geometry: TOWER }]);
+      pointer("click", [5.1214, 52.0907]);
+      await settle(panel);
+      expect(sources["spatial-pick"].data).toEqual(TOWER);
+    },
+  ],
+  [
+    "a search pick on an aligned site far from the home",
+    async () => {
+      const { panel } = await openSearch(searchingAnd([DOMTOREN]));
+      await searchAndPick(panel);
+      expect(fitBounds).toHaveBeenCalled();
+    },
+  ],
+])("%s asks nothing about the home", async (_, act) => {
+  await act();
+  expect(toasts).toEqual([]);
 });

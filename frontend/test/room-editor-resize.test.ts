@@ -117,12 +117,12 @@ test("an edge drag released where it started saves nothing and records no undo s
   expect(held()).toEqual([false, false, false, false]);
 });
 
-test("the pointer turns into a resize arrow over an edge of the active rectangle", async () => {
+test("the pointer turns into a resize arrow over an edge of the active rectangle, and a move arrow inside it", async () => {
   await selectKitchen();
   handlers.mousemove(mouse(1, 25));
   expect(mapCanvas.style.cursor).toBe("ew-resize");
   handlers.mousemove(mouse(25, 25));
-  expect(mapCanvas.style.cursor).toBe("");
+  expect(mapCanvas.style.cursor).toBe("move");
 });
 
 test("with the map turned 40 degrees off the site axis the edge drag follows the room's edges", async () => {

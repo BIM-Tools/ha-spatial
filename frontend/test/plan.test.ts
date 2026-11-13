@@ -5,18 +5,22 @@ import booleanClockwise from "@turf/boolean-clockwise";
 import type { Polygon } from "geojson";
 import { expect, test } from "vitest";
 import {
+  addCorner,
   addToFootprint,
   areaLabel,
   boxChange,
   boxFromCorners,
   centreOf,
-  dropStraightCorners,
+  closesRing,
   edgeLengths,
   isAxisRectangle,
-  mapOutlineBox,
+  mapOutline,
   movePolygon,
+  overallSize,
   resizeChange,
   resizeSide,
+  reshapeChange,
+  ringChange,
   type SideHandle,
   sideHandles,
   sideLabels,
@@ -128,29 +132,15 @@ test("movePolygon moves every corner by a lattice delta", () => {
   ]);
 });
 
-test("movePolygon drops stored corners on a straight side, from the outer and the inner ring", () => {
-  const stored = shapeOf(METRIC, [[0, 0], [80, 0], [160, 0], [160, 120], [0, 120]], [[40, 40], [40, 60], [40, 80], [80, 80], [80, 40]]);
-  expect(latticeOf(METRIC, movePolygon(METRIC, stored, [8, 0]))).toEqual([
-    [[8, 0], [168, 0], [168, 120], [8, 120], [8, 0]],
-    [[48, 40], [48, 80], [88, 80], [88, 40], [48, 40]],
-  ]);
-});
-
-test.each<[string, LatticePoint[], LatticePoint[]]>([
-  ["a corner on a straight run", [[0, 0], [80, 0], [160, 0], [160, 120], [0, 120]], [[0, 0], [160, 0], [160, 120], [0, 120]]],
-  ["several on an inner ring", [[40, 40], [40, 60], [40, 80], [60, 80], [80, 80], [80, 40]], [[40, 40], [40, 80], [80, 80], [80, 40]]],
-  ["a spike back on itself", [[0, 0], [40, 0], [40, 40], [20, 40], [20, 60], [20, 40], [0, 40]], [[0, 0], [40, 0], [40, 40], [0, 40]]],
-  ["a repeated corner", [[0, 0], [40, 0], [40, 0], [40, 40], [0, 40]], [[0, 0], [40, 0], [40, 40], [0, 40]]],
-  ["nothing on an L-shape", [[0, 0], [160, 0], [160, 40], [80, 40], [80, 120], [0, 120]], [[0, 0], [160, 0], [160, 40], [80, 40], [80, 120], [0, 120]]],
-  ["nothing when a corner is one unit off the line", [[0, 0], [80, 1], [160, 0], [160, 120], [0, 120]], [[0, 0], [80, 1], [160, 0], [160, 120], [0, 120]]],
-])("dropStraightCorners: %s", (_name, corners, expected) => {
-  expect(dropStraightCorners(corners)).toEqual(expected);
-});
-
 test("centreOf is the middle of the box on the plan", () => {
   const [x, y] = METRIC.toLatticeUnits(centreOf(METRIC, box));
   expect(x).toBeCloseTo(80, 6);
   expect(y).toBeCloseTo(60, 6);
+});
+
+test("overallSize is the extent along the site axes in metres", () => {
+  const ell = shapeOf(METRIC, [[0, 0], [400, 0], [400, 160], [200, 160], [200, 320], [0, 320]]);
+  expect(rounded(overallSize(METRIC, ell))).toEqual([10, 8]);
 });
 
 test("addToFootprint unions touching boxes into one Polygon", () => {
@@ -208,20 +198,87 @@ test.each<[string, PlanFrame, number | undefined]>([
   const rectangle = boxFromCorners(frame, [0, 0], [160, 120])!;
   expect(resizeChange(frame, "kitchen", rectangle, 0, lengthM)).toEqual({ refusal: "too_small" });
 });
-// The building's corners in lattice units, then the stored outline's lower left and upper right corner.
-test.each<[string, PlanFrame, [number, number][], [LatticePoint, LatticePoint] | undefined]>([
-  ["an axis rectangle moves 150 mm in on each side", METRIC, [[0, 0], [400, 0], [400, 320], [0, 320]], [[6, 6], [394, 314]]],
-  ["a turned building gives its bounding rectangle", METRIC, [[200, 0], [400, 200], [200, 400], [0, 200]], [[6, 6], [394, 394]]],
-  ["each side rounds to the lattice", METRIC, [[0.3, 0.4], [400.2, 0.4], [400.2, 320.7], [0.3, 320.7]], [[6, 6], [394, 315]]],
-  ["150 mm is about six inches in a US customary frame", INCHES, [[0, 0], [400, 0], [400, 320], [0, 320]], [[6, 6], [394, 314]]],
-  ["a side under one grid step after the inset is refused", METRIC, [[0, 0], [15, 0], [15, 320], [0, 320]], undefined],
-  ["a side the inset turns inside out is refused", METRIC, [[0, 0], [5, 0], [5, 320], [0, 320]], undefined],
-])("mapOutlineBox: %s", (_name, frame, corners, expected) => {
-  const outline = mapOutlineBox(frame, shapeOf(frame, corners));
-  if (!expected) {
-    expect(outline).toBeUndefined();
-    return;
-  }
-  const [[left, bottom], [right, top]] = expected;
-  expect(latticeOf(frame, outline!)[0]).toEqual([[left, bottom], [right, bottom], [right, top], [left, top], [left, bottom]]);
+test.each<[string, LatticePoint[], LatticePoint, LatticePoint[]]>([
+  ["the first corner starts the ring", [], [0, 0], [[0, 0]]],
+  ["a new corner goes last", [[0, 0]], [40, 0], [[0, 0], [40, 0]]],
+  ["a repeat of the last corner adds nothing", [[0, 0], [40, 0]], [40, 0], [[0, 0], [40, 0]]],
+])("addCorner: %s", (_name, corners, point, expected) => {
+  expect(addCorner(corners, point)).toEqual(expected);
+});
+
+test.each<[string, LatticePoint[], [number, number], boolean]>([
+  ["no corner yet", [], [0, 0], false],
+  ["within the radius of the first corner", [[0, 0], [40, 0], [40, 40]], [2, 2], true],
+  ["beyond the radius of the first corner", [[0, 0], [40, 0], [40, 40]], [3, 3], false],
+  ["on another corner", [[0, 0], [40, 0], [40, 40]], [40, 0], false],
+])("closesRing: %s", (_name, corners, pointer, closes) => {
+  expect(closesRing(corners, pointer, 3)).toBe(closes);
+});
+
+test.each<[string, LatticePoint[]]>([
+  ["counter-clockwise", [[0, 0], [160, 0], [160, 120], [80, 120], [80, 60], [0, 60]]],
+  ["clockwise, turned round", [[0, 0], [0, 60], [80, 60], [80, 120], [160, 120], [160, 0]]],
+])("ringChange saves a %s ring as the area's first shape, counter-clockwise", (_name, corners) => {
+  const result = ringChange(METRIC, "building", corners);
+  if (!("change" in result)) throw new Error("refused");
+  expect(result.change.before).toEqual({ building: null });
+  const shape = result.change.after.building!;
+  expect(booleanClockwise(shape.coordinates[0])).toBe(false);
+  // 4 m by 1.5 m and 2 m by 1.5 m.
+  expect(area(shape)).toBeCloseTo(9, 1);
+});
+
+test.each<[string, LatticePoint[], string]>([
+  ["fewer than three corners", [[0, 0], [160, 0]], "too_few_corners"],
+  ["a side under one grid step", [[0, 0], [160, 0], [160, 120], [2, 120], [0, 120]], "too_small"],
+  ["sides that cross", [[0, 0], [160, 120], [160, 0], [0, 120]], "crossing"],
+  ["a corner on another side", [[0, 0], [160, 0], [160, 120], [80, 0]], "crossing"],
+])("ringChange refuses %s", (_name, corners, refusal) => {
+  expect(ringChange(METRIC, "building", corners)).toEqual({ refusal });
+});
+
+const SLANTED_OUTLINE = shapeOf(METRIC, [[0, 0], [160, 0], [166, 120], [0, 120]]);
+
+// A dragged corner or edge reshapes the outline as it is, a straight corner included; the ring rules are ringChange's.
+test.each<[string, LatticePoint[], string | undefined]>([
+  ["a ring with a corner on a straight line", [[0, 0], [160, 0], [160, 60], [160, 120], [0, 120]], undefined],
+  ["a ring with a side under one grid step", [[0, 0], [160, 0], [160, 120], [2, 120], [0, 120]], "too_small"],
+  ["a ring whose sides cross", [[0, 0], [160, 0], [-20, 120], [0, 120]], "crossing"],
+])("reshapeChange of %s, refusal: %s",(_name, corners, refusal) => {
+  const after = shapeOf(METRIC, corners);
+  const expected = refusal ? { refusal } : { change: { before: { building: SLANTED_OUTLINE }, after: { building: after } } };
+  expect(reshapeChange(METRIC, "building", SLANTED_OUTLINE, after)).toEqual(expected);
+});
+
+// The building's outer ring in lattice units, then the offered outline's corners, or undefined for no offer.
+test.each<[string, PlanFrame, [number, number][], LatticePoint[] | undefined]>([
+  ["a rectangle moves 150 mm in on each side", METRIC, [[0, 0], [400, 0], [400, 320], [0, 320]], [[6, 6], [394, 6], [394, 314], [6, 314]]],
+  ["an L keeps its inner corner", METRIC, [[0, 0], [400, 0], [400, 160], [200, 160], [200, 320], [0, 320]], [[6, 6], [394, 6], [394, 154], [194, 154], [194, 314], [6, 314]]],
+  ["a 45 degree wall stays diagonal", METRIC, [[0, 0], [400, 0], [400, 200], [280, 320], [0, 320]], [[6, 6], [394, 6], [394, 198], [278, 314], [6, 314]]],
+  ["walls within 3 degrees of an axis are straightened onto it", METRIC, [[0, 0.5], [200, 1.5], [400, 0], [404, 320], [0, 318]], [[6, 7], [396, 7], [396, 313], [6, 313]]],
+  // One map tile unit is about 0.37 m (14.7 lattice units) at 52 degrees north.
+  [
+    "a stair step of one map tile unit and a short wall 5 degrees off are straightened onto the axes",
+    METRIC,
+    [[0, 0], [150, 0], [250, 14], [400, 14], [400, 320], [240, 320], [160, 327], [0, 327]],
+    [[6, 13], [394, 13], [394, 317], [6, 317]],
+  ],
+  ["a wall a little over one map tile unit across, 5 degrees off over 4 m, stays diagonal", METRIC, [[0, 0], [400, 0], [415, 160], [415, 320], [0, 320]], [[6, 6], [395, 6], [409, 160], [409, 314], [6, 314]]],
+  ["a 5 cm jog in a long wall straightens into one line", METRIC, [[0, 0], [100, 0], [100, 2], [400, 2], [400, 320], [0, 320]], [[6, 7], [394, 7], [394, 314], [6, 314]]],
+  ["150 mm is about six inches in a US customary frame", INCHES, [[0, 0], [400, 0], [400, 320], [0, 320]], [[6, 6], [394, 6], [394, 314], [6, 314]]],
+  ["a 20 cm wide part disappears and the main body stays", METRIC, [[0, 0], [400, 0], [400, 320], [208, 320], [208, 400], [200, 400], [200, 320], [0, 320]], [[6, 6], [394, 6], [394, 314], [6, 314]]],
+  ["a 20 cm neck splits the building and the larger part stays", METRIC, [[0, 0], [400, 0], [400, 100], [440, 100], [440, 0], [560, 0], [560, 200], [440, 200], [440, 108], [400, 108], [400, 320], [0, 320]], [[6, 6], [394, 6], [394, 314], [6, 314]]],
+  ["a building with sides under one grid step after the inset is refused", METRIC, [[0, 0], [15, 0], [15, 15], [0, 15]], undefined],
+  [
+    "recesses of 40 to 80 cm, a 20 cm pier between two of them and a 45 degree corner",
+    METRIC,
+    [[0, 0], [480, 0], [480, 320], [440, 360], [340, 360], [340, 336], [300, 336], [300, 360], [292, 360], [292, 344], [260, 344], [260, 360], [0, 360], [0, 240], [32, 240], [32, 160], [0, 160]],
+    [[6, 6], [474, 6], [474, 318], [438, 354], [346, 354], [346, 330], [294, 330], [294, 338], [254, 338], [254, 354], [6, 354], [6, 246], [38, 246], [38, 154], [6, 154]],
+  ],
+])("mapOutline: %s", (_name, frame, corners, expected) => {
+  const outline = mapOutline(frame, shapeOf(frame, corners));
+  const ring = outline && latticeOf(frame, outline)[0].slice(0, -1);
+  // The ring may start at any corner; compare it from the expected first one.
+  const start = ring ? ring.findIndex(([x, y]) => x === expected?.[0][0] && y === expected?.[0][1]) : 0;
+  expect(ring && [...ring.slice(start), ...ring.slice(0, start)]).toEqual(expected);
 });

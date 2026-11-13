@@ -6,16 +6,21 @@ import {
   areaEntry,
   buttonNamed,
   chooseFromMenu,
+  guideText,
   handlers,
   headerButton,
   settle,
   sources,
   resetFakes,
+  siteReply,
   toastMessages,
   toasts,
 } from "./panel-harness";
 import {
+  FRAME_DATA,
   KITCHEN,
+  OUTLINE,
+  SITE_BEARING,
   pixelBox,
   showFloor,
   siteSaves,
@@ -209,9 +214,42 @@ test("No floor offers no clear, even with shaped outdoor areas", async () => {
   expect(buttonNamed(panel, "Clear No floor")).toBeUndefined();
 });
 
+test("Start over removes every footprint and the site's fields in one save, back to the pick, and its toast's Undo restores them", async () => {
+  const origin = [5.0001, 52.0001];
+  const site = { ...siteReply({ bearing_deg: SITE_BEARING, outline: OUTLINE, frame: FRAME_DATA }), origin };
+  const { panel, connection, setFeed } = mountEditor(async (message) => (message.type === "spatial/site" ? site : undefined));
+  const kitchenProperties = { floors_up: 1, on_facade_override: true };
+  const atticProperties = { floors_up: 0, on_facade_override: null };
+  setFeed([
+    { type: "Feature", id: "kitchen", geometry: KITCHEN, properties: { floor_id: "ground", level: 0, ...kitchenProperties } },
+    { type: "Feature", id: "attic", geometry: ATTIC, properties: { floor_id: "loft", level: 1, ...atticProperties } },
+  ]);
+  await startSelecting(panel);
+  await chooseFromMenu(panel, "Start over");
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
+  expect(saves(connection)[0]).toEqual({
+    type: "spatial/area/update_geometries",
+    areas: { kitchen: null, attic: null },
+    properties: {},
+    site: { bearing_deg: null, origin: null, outline: null },
+  });
+  expect(siteSaves(connection)).toEqual([]);
+  await vi.waitFor(() => expect(toastMessages()).toEqual(["Started over"]));
+  expect(guideText(panel)).toMatch(/^Click your home/);
+  toasts[0].action!.action();
+  await vi.waitFor(() => expect(saves(connection)).toHaveLength(2));
+  expect(saves(connection)[1]).toEqual({
+    type: "spatial/area/update_geometries",
+    areas: { kitchen: KITCHEN, attic: ATTIC },
+    properties: { kitchen: kitchenProperties, attic: atticProperties },
+    site: { bearing_deg: SITE_BEARING, origin, outline: OUTLINE },
+  });
+});
+
 test("Clear is one undo step, and off on All and on a floor without room shapes", async () => {
   const { panel, connection } = mountTwoFloors();
-  await vi.waitFor(() => expect(headerButton(panel, "More options")).toBeDefined());
+  await vi.waitFor(() => expect(buttonNamed(panel, "All")).toBeDefined());
+  buttonNamed(panel, "All")!.click();
   await settle(panel);
   await toggleMenu(panel);
   expect(buttonNamed(panel, "Clear floor")!.disabled).toBe(true);

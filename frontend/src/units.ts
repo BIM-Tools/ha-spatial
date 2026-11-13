@@ -13,22 +13,67 @@ const METRES_PER_MILE = 1609.344;
 
 export const isUsCustomary =(hass: HassUnits): boolean => hass.config.unit_system.length === "mi";
 
-/** Why a gesture saves nothing: a box apart from its room, or a side under one grid step. */
-export type Refusal = "apart" | "too_small";
+/**
+ * Why a gesture saves nothing: a box apart from its room, a side under one grid step, a ring of
+ * corners with fewer than three, or one whose sides cross or touch.
+ */
+export type Refusal = "apart" | "too_small" | "too_few_corners" | "crossing";
 
 /** The toast for a refused gesture; the minimum side is the drawing grid step of the unit system. */
-export const refusalMessage = (refusal: Refusal, hass: HassUnits): string =>
-  refusal === "apart"
-    ? "A room is one shape: draw against it"
-    : `Too small: every side needs at least ${isUsCustomary(hass) ? "4 in" : "10 cm"}`;
+export const refusalMessage = (refusal: Refusal, hass: HassUnits): string => {
+  switch (refusal) {
+    case "apart":
+      return "A room is one shape: draw against it";
+    case "too_few_corners":
+      return "An outline needs at least three corners";
+    case "crossing":
+      return "The outline cannot cross itself";
+    case "too_small":
+      return `Too small: every side needs at least ${isUsCustomary(hass) ? "4 in" : "10 cm"}`;
+  }
+};
 
-/** Whether a websocket error means the integration has not registered its commands yet, right after a restart. */
-export const isStillStarting = (error: unknown): boolean =>
-  typeof error === "object" && error !== null && "code" in error && error.code === "unknown_command";
+/** What a toast says about a save that did not happen, and whether sending it again could succeed. */
+export interface SaveFailure {
+  message: string;
+  retry: boolean;
+}
 
-/** The toast for a save that failed, as against one Spatial refused; trying again may help. */
-export const saveFailureMessage = (error: unknown): string =>
-  isStillStarting(error) ? "Spatial is still starting, try again in a moment" : "Could not save";
+// Home Assistant answers a refused command with a string code; a lost connection has a numeric one.
+const refusalCode = (error: unknown): string | undefined =>
+  typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : undefined;
+
+const serverMessage = (error: unknown): string =>
+  typeof error === "object" && error !== null && "message" in error && typeof error.message === "string" ? error.message : "";
+
+/**
+ * The toast for a save that did not happen. A write Home Assistant or Spatial refused fails the same
+ * way again, so it says why and offers no Retry; a lost connection or a Spatial still starting may
+ * pass on a second try. Spatial's own codes get plain words; other refusals show Home Assistant's message.
+ */
+export function saveFailure(error: unknown): SaveFailure {
+  const code = refusalCode(error);
+  if (code === undefined) return { message: "Could not save", retry: true };
+  const message = serverMessage(error);
+  switch (code) {
+    // Right after a restart, before the integration has registered its commands.
+    case "unknown_command":
+      return { message: "Spatial is still starting, try again in a moment", retry: true };
+    case "outside_outline":
+      return { message: "Rooms must stay inside the outline", retry: false };
+    case "conflict":
+      return { message: "Changed elsewhere meanwhile", retry: false };
+    case "not_found":
+      return { message: "This room was removed meanwhile", retry: false };
+    case "invalid_format":
+      // Spatial names the area after its reason, "(kitchen)", or lists the areas after a colon.
+      return message.startsWith("No net area")
+        ? { message: "Too small: no floor is left inside the walls", retry: false }
+        : { message: message.replace(/\s*\([^()]*\)$/, "") || "Spatial cannot store this shape", retry: false };
+    default:
+      return { message: message || "Could not save", retry: false };
+  }
+}
 
 /*!
  * numberFormatToLocale and formatNumber are ported from home-assistant/frontend

@@ -42,6 +42,14 @@ test.each([
   ],
   ["a corner lights as a dot", [{ kind: "corner", at: [40, 8] }], [[40, 8]], [40, 8], [], { walls: [], dots: [[40, 8]] }],
   [
+    "an axis line lights whole from its corner, with a dot there",
+    [{ kind: "aligned", edge: [[0, 0], [0, 300]] }],
+    [[0, 300]],
+    [0, 300],
+    [],
+    { walls: [[[0, 0], [0, 300]]], dots: [[0, 0]] },
+  ],
+  [
     "the active shape's own walls and corners stay dark, either way round",
     [{ kind: "edge", edge: [[0, 400], [0, 0]] }, { kind: "corner", at: [400, 0] }],
     [[0, 200]],

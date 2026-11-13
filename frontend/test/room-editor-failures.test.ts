@@ -148,6 +148,18 @@ test("a save while Spatial is still starting says so and offers Retry", async ()
   expect(toasts[0]).toMatchObject({ action: { text: "Retry" }, duration: -1, dismissable: true });
 });
 
+test("a box Spatial refuses says why and offers no Retry", async () => {
+  const { panel } = mountEditor(async (message) => {
+    if (message.type === "spatial/area/update_geometries") throw { code: "outside_outline", message: "Beyond the building outline: bath" };
+    return undefined;
+  });
+  vi.spyOn(console, "error").mockImplementationOnce(() => {});
+  await startDrawing(panel);
+  drawBox();
+  await vi.waitFor(() => expect(toastMessages()).toEqual(["Rooms must stay inside the outline"]));
+  expect(toasts[0].action).toBeUndefined();
+});
+
 test("a reload that hangs after a failed save does not block the next box", async () => {
   let failed = false;
   const { panel, connection } = mountEditor(async (message) => {

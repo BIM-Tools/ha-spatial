@@ -3,7 +3,18 @@
 import type { Polygon } from "geojson";
 import { expect, test } from "vitest";
 import { PlanFrame, type LatticePoint } from "../src/site-frame";
-import { type LatticeEdge, type SnapSource, candidatesOf, snapCandidatesFor, snapLine, snapMove, snapPoint } from "../src/snap";
+import {
+  type LatticeEdge,
+  type SnapCandidates,
+  type SnapSource,
+  candidatesOf,
+  snapCandidatesFor,
+  snapLine,
+  snapMove,
+  snapPoint,
+  withAxisLinesThrough,
+  withOpenRing,
+} from "../src/snap";
 import { siteFrameData } from "./site-frame-fixture";
 
 const FRAME = PlanFrame.fromSite(siteFrameData([5, 52], 20));
@@ -22,6 +33,7 @@ const boxRing = (left: number, bottom: number, right: number, top: number): Latt
 ];
 const wall = (edge: LatticeEdge): SnapSource => ({ kind: "edge", edge });
 const corner = (at: LatticePoint): SnapSource => ({ kind: "corner", at });
+const aligned = (edge: LatticeEdge): SnapSource => ({ kind: "aligned", edge });
 
 // A room, a second room up and to the right of it, and an outline wall just left of the first.
 const PLAN = candidatesOf(FRAME, [shapeOf(boxRing(0, 0, 40, 40)), shapeOf(boxRing(43, 60, 80, 100))], shapeOf(boxRing(-2, -40, 200, 200)));
@@ -57,6 +69,17 @@ test.each<[string, number, [number, number], number, SnapSource[]]>([
   ["within the rooms the nearest wins", 41.8, [38, 62], 43, [wall([[43, 100], [43, 60]])]],
 ])("snapLine tiers: %s", (_name, value, along, expected, sources) => {
   expect(snapLine(value, 0, PLAN, OPTIONS, along)).toEqual({ value: expected, sources });
+});
+
+// A room, the outline wall left of it at -6 and the map's building, its walls at -3 and 102.
+const GUIDED = candidatesOf(FRAME, [shapeOf(boxRing(0, 0, 40, 40))], shapeOf(boxRing(-6, -40, 200, 200)), shapeOf(boxRing(-3, -40, 102, 100)));
+
+test.each<[string, number, number, SnapSource[]]>([
+  ["a room wall beats a nearer map building wall", -2.5, 0, [wall([[0, 40], [0, 0]])]],
+  ["the outline beats a nearer map building wall", -4, -6, [wall([[-6, 200], [-6, -40]])]],
+  ["a map building wall beats the grid", 101, 102, [wall([[102, -40], [102, 100]])]],
+])("snapLine tiers with the map's building: %s", (_name, value, expected, sources) => {
+  expect(snapLine(value, 0, GUIDED, OPTIONS, [17, 17])).toEqual({ value: expected, sources });
 });
 
 test.each<[string, number, 0 | 1, number]>([
@@ -224,4 +247,37 @@ test.each<[string, string | undefined, Polygon[], Polygon | undefined, boolean]>
   const floorAreaIds = ["kitchen", "hall", "bath"];
   const expected = candidatesOf(FRAME, rooms, outline);
   expect(snapCandidatesFor(FRAME, floorAreaIds, FOOTPRINTS, "#outline", exclude)).toEqual(roomsStop ? expected : { ...expected, roomRings: [] });
+});
+
+test("withOpenRing lets a corner snap to the corners and sides placed so far, in the outline's tier", () => {
+  const open = withOpenRing(candidatesOf(FRAME, [], undefined), [[0, 0], [40, 0], [40, 40]]);
+  expect(snapPoint([1, 2], open, OPTIONS).point).toEqual([0, 0]);
+  expect(snapPoint([42, 20], open, OPTIONS).point).toEqual([40, 20]);
+});
+
+test("withOpenRing lines a corner up with the corners placed so far, however far along, so the ring closes square", () => {
+  const open = withOpenRing(candidatesOf(FRAME, [], undefined), [[0, 0], [80, 0], [80, 60]]);
+  expect(snapPoint([1.3, 58.2], open, OPTIONS)).toEqual({ point: [0, 60], sources: [aligned([[0, 0], [0, 60]]), aligned([[80, 60], [0, 60]])] });
+});
+
+const EMPTY_PLAN = candidatesOf(FRAME, [], undefined);
+// A room from 10 to 40, and the map's building with a wall at x 101.
+const ROOM_AND_MAP = candidatesOf(FRAME, [shapeOf(boxRing(10, 10, 40, 40))], undefined, shapeOf(boxRing(-50, -50, 101, 300)));
+
+test.each<[string, SnapCandidates, LatticePoint[], [number, number], LatticePoint, SnapSource[]]>([
+  ["far along the line through a corner lands on it", EMPTY_PLAN, [[0, 0]], [1.2, 101.3], [0, 100], [aligned([[0, 0], [0, 100]])]],
+  ["on the line through two corners lights it from the nearer", EMPTY_PLAN, [[0, 0], [0, 60]], [1.2, 101.3], [0, 100], [aligned([[0, 60], [0, 100]])]],
+  ["near two lines lands where they cross", EMPTY_PLAN, [[0, 0], [90, 70]], [-1.4, 71.6], [0, 70], [aligned([[0, 0], [0, 70]]), aligned([[90, 70], [0, 70]])]],
+  ["lands on a room wall before a nearer line", ROOM_AND_MAP, [[41, 200]], [41.2, 20.3], [40, 20], [wall([[40, 10], [40, 40]])]],
+  ["lands on a line before a nearer wall of the map's building", ROOM_AND_MAP, [[102, 400]], [101.2, 150.3], [102, 152], [aligned([[102, 400], [102, 152]])]],
+])("withAxisLinesThrough: a point %s", (_name, candidates, corners, pointer, point, sources) => {
+  expect(snapPoint(pointer, withAxisLinesThrough(candidates, corners), OPTIONS)).toEqual({ point, sources });
+});
+
+test("withAxisLinesThrough: a line lights from its corner to the nearest point of the line that lands on it", () => {
+  expect(snapLine(1.2, 0, withAxisLinesThrough(EMPTY_PLAN, [[0, 0]]), OPTIONS, [50, 80])).toEqual({ value: 0, sources: [aligned([[0, 0], [0, 50]])] });
+});
+
+test("withAxisLinesThrough: Alt places on the lattice without the lines", () => {
+  expect(snapPoint([1.2, 101.3], withAxisLinesThrough(EMPTY_PLAN, [[0, 0]]), FREE)).toEqual({ point: [1, 101], sources: [] });
 });

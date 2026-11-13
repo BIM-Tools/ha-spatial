@@ -1,7 +1,7 @@
 // Checks lengths and areas in both of Home Assistant's unit systems and in several number formats.
 
 import { expect, test } from "vitest";
-import { type HassUnits, type Refusal, formatArea, formatDistance, formatLength, formatSize, parseLength, refusalMessage, saveFailureMessage, typedLength } from "../src/units";
+import { type HassUnits, type Refusal, formatArea, formatDistance, formatLength, formatSize, parseLength, refusalMessage, saveFailure, typedLength } from "../src/units";
 import { METRIC_UNITS as METRIC, US_UNITS as US, unitsOf } from "./units-fixture";
 
 const INCH_M = 0.0254;
@@ -121,17 +121,27 @@ test.each<[Refusal, HassUnits, string]>([
   ["apart", METRIC, "A room is one shape: draw against it"],
   ["too_small", METRIC, "Too small: every side needs at least 10 cm"],
   ["too_small", US, "Too small: every side needs at least 4 in"],
+  ["too_few_corners", METRIC, "An outline needs at least three corners"],
+  ["crossing", METRIC, "The outline cannot cross itself"],
 ])("refusalMessage words %s", (refusal, units, message) => {
   expect(refusalMessage(refusal, units)).toBe(message);
 });
 
-test.each<[string, unknown, string]>([
-  ["a command Home Assistant does not know yet", { code: "unknown_command", message: "Unknown command." }, "Spatial is still starting, try again in a moment"],
-  ["another error code", { code: "home_assistant_error", message: "Something broke" }, "Could not save"],
-  ["a lost connection", new Error("connection lost"), "Could not save"],
-  ["a non-object error", 3, "Could not save"],
-])("saveFailureMessage words %s", (_case, error, message) => {
-  expect(saveFailureMessage(error)).toBe(message);
+test.each<[string, unknown, string, boolean]>([
+  ["a command Home Assistant does not know yet", { code: "unknown_command", message: "Unknown command." }, "Spatial is still starting, try again in a moment", true],
+  ["a lost connection", { code: 3, message: "Connection lost" }, "Could not save", true],
+  ["a thrown error", new Error("connection lost"), "Could not save", true],
+  ["a non-object error", 3, "Could not save", true],
+  ["a room beyond the outline", { code: "outside_outline", message: "Beyond the building outline: kitchen" }, "Rooms must stay inside the outline", false],
+  ["a change made elsewhere", { code: "conflict", message: "Changed meanwhile: kitchen" }, "Changed elsewhere meanwhile", false],
+  ["a removed room", { code: "not_found", message: "Areas not found: kitchen" }, "This room was removed meanwhile", false],
+  ["a room without net area", { code: "invalid_format", message: "No net area: kitchen" }, "Too small: no floor is left inside the walls", false],
+  ["a shape off the lattice rules", { code: "invalid_format", message: "A ring crosses itself (kitchen)" }, "A ring crosses itself", false],
+  ["a bad format without a reason", { code: "invalid_format", message: "" }, "Spatial cannot store this shape", false],
+  ["another refusal", { code: "invalid_info", message: "The name Kitchen is already in use" }, "The name Kitchen is already in use", false],
+  ["another refusal without a reason", { code: "home_assistant_error" }, "Could not save", false],
+])("saveFailure words %s", (_case, error, message, retry) => {
+  expect(saveFailure(error)).toEqual({ message, retry });
 });
 test.each<[number, number, HassUnits, string]>([
   [9.8, 7.6, METRIC, "9.80 × 7.60 m"],

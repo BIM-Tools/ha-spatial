@@ -1,23 +1,23 @@
-// Checks the stack of floor slabs and the camera that frames it, as pure functions in the site frame.
+// Checks the stack of floors and the camera that frames it, as pure functions in the site frame.
 import type { Feature, Polygon } from "geojson";
 import { expect, test } from "vitest";
 import {
+  CARD_FIELD_OF_VIEW_DEG,
   FIT_MARGIN,
-  SLAB_SPACING_M,
-  SLAB_THICKNESS_M,
+  FLOOR_SPACING_M,
   type StackPoint,
   type StackScreen,
   fitStack,
+  floorBase,
   floorStack,
+  OUTLINE_PX,
   ROOM_EDGE_PX,
-  SLAB_EDGE_PX,
   edgeStrips,
   labelAnchor,
   metresForPixels,
   pixelsPerMetre,
   projectPoint,
   roomCount,
-  slabBase,
   stackFloors,
   stackView,
   turnFromFrame,
@@ -49,7 +49,7 @@ test.each([
   { name: "by level, lowest first", rooms: [room(rectangle(0, 0, 1, 1), "first"), room(rectangle(0, 0, 1, 1), "cellar")], floors: ["cellar", "first"] },
   { name: "a floor without a level above those with one", rooms: [room(rectangle(0, 0, 1, 1), "attic"), room(rectangle(0, 0, 1, 1), "ground")], floors: ["ground", "attic"] },
   { name: "a floor a room only reaches into", rooms: [room(rectangle(0, 0, 1, 1), "ground", ["ground", "first"])], floors: ["ground", "first"] },
-  { name: "No floor gets no slab", rooms: [room(rectangle(0, 0, 1, 1), null)], floors: [] },
+  { name: "No floor is not in the stack", rooms: [room(rectangle(0, 0, 1, 1), null)], floors: [] },
 ])("stackFloors orders the floors $name", ({ rooms, floors }) => {
   expect(stackFloors(rooms, levelOf)).toEqual(floors);
 });
@@ -58,84 +58,82 @@ test.each([
   [0, 0],
   [1, 3.2],
   [3, 9.6],
-])("the slab at place %i in the stack lies at %f m", (index, base) => {
-  expect(slabBase(index)).toBeCloseTo(base, 9);
+])("the floor at place %i in the stack lies at %f m", (index, base) => {
+  expect(floorBase(index)).toBeCloseTo(base, 9);
 });
-
-type Heights = [kind: string, base: number, top: number][];
 
 // A screen pixel of 1 cm.
 const PIXEL_M = 0.01;
 
-const heights = (rooms: Feature<Polygon>[], outline: Polygon | undefined, floors: string[]): Heights =>
-  floorStack(rooms, outline, floors, FRAME, PIXEL_M)
-    .features.features.filter((feature) => !feature.properties!.kind.endsWith("edge"))
-    .map((feature) => [feature.properties!.kind, feature.properties!.base_m, feature.properties!.top_m]);
+// Each kind of feature with the height it stands on, once per height, rounded to the millimetre.
+const bases = (rooms: Feature<Polygon>[], outline: Polygon | undefined, floors: string[]): string[] => [
+  ...new Set(
+    floorStack(rooms, outline, floors, FRAME, PIXEL_M).features.features.map(
+      (feature) => `${feature.properties!.kind} ${millimetres(feature.properties!.base_m)}`,
+    ),
+  ),
+];
 
-const upper = SLAB_SPACING_M;
-const thick = SLAB_THICKNESS_M;
+const upper = FLOOR_SPACING_M;
 
 test.each([
   {
-    name: "a slab per floor under the outline, each room on its own slab",
+    name: "the outline lies on the ground under the lowest floor only, each room on its own floor",
     rooms: [room(rectangle(0, 0, 4, 4), "ground"), room(rectangle(0, 0, 4, 4), "first")],
     outline: rectangle(0, 0, 8, 6),
-    expected: [
-      ["shadow", -0.05, 0],
-      ["slab", 0, thick],
-      ["shadow", upper - 0.05, upper],
-      ["slab", upper, upper + thick],
-      ["room", thick, thick + 0.02],
-      ["room", upper + thick, upper + thick + 0.02],
-    ],
+    expected: ["outline 0", "room 0", "edge 0", `room ${upper}`, `edge ${upper}`],
   },
   {
-    name: "without an outline the floor's rooms are its slab",
+    name: "without an outline only the rooms",
     rooms: [room(rectangle(0, 0, 4, 4), "ground")],
     outline: undefined,
-    expected: [
-      ["shadow", -0.05, 0],
-      ["slab", 0, thick],
-      ["room", thick, thick + 0.02],
-    ],
+    expected: ["room 0", "edge 0"],
   },
   {
-    name: "a room on two floors lies on both slabs",
+    name: "a room on two floors lies on both",
     rooms: [room(rectangle(0, 0, 4, 4), "ground", ["ground", "first"])],
     outline: undefined,
-    expected: [
-      ["shadow", -0.05, 0],
-      ["slab", 0, thick],
-      ["shadow", upper - 0.05, upper],
-      ["slab", upper, upper + thick],
-      ["room", thick, thick + 0.02],
-      ["room", upper + thick, upper + thick + 0.02],
-    ],
+    expected: ["room 0", "edge 0", `room ${upper}`, `edge ${upper}`],
   },
   {
-    name: "a room on No floor lies on the ground without a slab",
-    rooms: [room(rectangle(10, 0, 12, 2), null)],
-    outline: undefined,
-    expected: [["room", 0, 0.02]],
+    name: "a room on No floor lies on the ground with the outline",
+    rooms: [room(rectangle(1, 1, 3, 3), null)],
+    outline: rectangle(0, 0, 8, 6),
+    expected: ["outline 0", "room 0", "edge 0"],
   },
 ])("floorStack: $name", ({ rooms, outline, expected }) => {
-  const floors = stackFloors(rooms, levelOf);
-  const actual = heights(rooms, outline, floors);
-  expect(actual.map(([kind]) => kind)).toEqual(expected.map(([kind]) => kind));
-  actual.forEach(([, base, top], index) => {
-    expect(base).toBeCloseTo(expected[index][1] as number, 9);
-    expect(top).toBeCloseTo(expected[index][2] as number, 9);
-  });
+  expect(bases(rooms, outline, stackFloors(rooms, levelOf))).toEqual(expected);
 });
 
-test("floorStack gives each slab its room count and top corners, and frames every slab and room corner", () => {
+test.each([0.001, 0.01, 0.1])(
+  "floorStack lifts the outline, the room fill and the room edges above the ground in that order within a pixel of %f m",
+  (pixelM) => {
+    const stack = floorStack([room(rectangle(0, 0, 4, 3), "ground")], rectangle(0, 0, 8, 6), ["ground"], FRAME, pixelM);
+    const raiseOf = (kind: string) => {
+      const features = stack.features.features.filter((feature) => feature.properties!.kind === kind);
+      expect(features.length).toBeGreaterThan(0);
+      const raises = new Set(features.map((feature) => feature.properties!.top_m - feature.properties!.base_m));
+      expect(raises.size).toBe(1);
+      return [...raises][0];
+    };
+    const raises = ["outline", "room", "edge"].map(raiseOf);
+    expect(raises[0]).toBeGreaterThan(0);
+    raises.slice(1).forEach((raise, index) => expect(raise).toBeGreaterThan(raises[index]));
+    expect(raises[2]).toBeLessThan(pixelM);
+  },
+);
+
+test("floorStack gives each floor its room count and the corners drawn on it, the outline's on the lowest, and frames them all", () => {
   const rooms = [room(rectangle(0, 0, 4, 3), "ground"), room(rectangle(4, 0, 8, 3), "ground", ["ground", "first"])];
   const stack = floorStack(rooms, rectangle(0, 0, 8, 6), ["ground", "first"], FRAME, PIXEL_M);
-  expect(stack.slabs.map((slab) => [slab.floorId, slab.rooms])).toEqual([["ground", 2], ["first", 1]]);
-  const top = stack.slabs[0].top.map(([x, y, z]) => [millimetres(x), millimetres(y), z]);
-  expect(top.slice(0, 4)).toEqual([[0, 0, thick], [8, 0, thick], [8, 6, thick], [0, 6, thick]]);
-  const zs = new Set(stack.corners.map(([, , z]) => millimetres(z)));
-  expect([...zs]).toEqual([0, thick, upper, upper + thick].map(millimetres));
+  expect(stack.floors.map((floor) => [floor.floorId, floor.rooms])).toEqual([["ground", 2], ["first", 1]]);
+  const rounded = (corners: StackPoint[]) => [...new Set(corners.map((corner) => corner.map(millimetres).join(" ")))].sort();
+  const plan = (z: number, corners: [number, number][]) => corners.map(([x, y]) => [x, y, millimetres(z)].join(" "));
+  const ground = plan(0, [[0, 0], [8, 0], [8, 6], [0, 6], [4, 0], [4, 3], [0, 3], [8, 3]]);
+  const first = plan(upper, [[4, 0], [8, 0], [8, 3], [4, 3]]);
+  expect(rounded(stack.floors[0].corners)).toEqual([...ground].sort());
+  expect(rounded(stack.floors[1].corners)).toEqual([...first].sort());
+  expect(rounded(stack.corners)).toEqual([...ground, ...first].sort());
 });
 
 // The across-edge width of a strip in metres: the narrower side of its box in the frame.
@@ -147,17 +145,13 @@ const stripWidth = (strip: Polygon) => {
 };
 
 test.each([
-  { kind: "slab-edge", pixels: SLAB_EDGE_PX, base: 0, top: thick, count: 4 },
-  { kind: "edge", pixels: ROOM_EDGE_PX, base: thick, top: thick + 0.04, count: 4 },
-])("floorStack draws $kind as $count lines $pixels pixels wide", ({ kind, pixels, base, top, count }) => {
+  { kind: "outline", pixels: OUTLINE_PX, count: 4 },
+  { kind: "edge", pixels: ROOM_EDGE_PX, count: 4 },
+])("floorStack draws $kind as $count lines $pixels pixels wide", ({ kind, pixels, count }) => {
   const stack = floorStack([room(rectangle(0, 0, 4, 3), "ground")], rectangle(0, 0, 8, 6), ["ground"], FRAME, PIXEL_M);
   const edges = stack.features.features.filter((feature) => feature.properties!.kind === kind);
   expect(edges).toHaveLength(count);
-  for (const edge of edges) {
-    expect(stripWidth(edge.geometry)).toBeCloseTo(pixels * PIXEL_M, 6);
-    expect(edge.properties!.base_m).toBeCloseTo(base, 9);
-    expect(edge.properties!.top_m).toBeCloseTo(top, 9);
-  }
+  for (const edge of edges) expect(stripWidth(edge.geometry)).toBeCloseTo(pixels * PIXEL_M, 6);
 });
 
 test("edgeStrips draws each edge as a strip of the given width that runs past both corners by half that", () => {
@@ -227,17 +221,17 @@ test.each([
   expect(turnFromFrame(mapBearingDeg, frameBearingDeg)).toBe(turn);
 });
 
-// A house 9 m by 7 m with three slabs.
+// A house 9 m by 7 m with three floors.
 const HOUSE: StackPoint[] = [0, 5, 10, 10.3].flatMap((z) =>
   [[0, 0], [9, 0], [9, 7], [0, 7]].map(([x, y]) => [x, y, z] as StackPoint),
 );
 
 test.each([
-  { name: "a wide card from the front corner", screen: { width: 800, height: 400 }, padding: { top: 0, right: 0, bottom: 0, left: 0 }, turn: -45 },
-  { name: "a phone with controls on top and bottom", screen: { width: 390, height: 700 }, padding: { top: 120, right: 0, bottom: 90, left: 0 }, turn: -45 },
-  { name: "a panel with labels on the right", screen: { width: 1440, height: 800 }, padding: { top: 80, right: 200, bottom: 100, left: 0 }, turn: 30 },
-])("fitStack fits the whole stack in the free space with its margin: $name", ({ screen, padding, turn }) => {
-  const full: StackScreen = { ...screen, fovDeg: 36.87, latitude: 52 };
+  { name: "a wide card from the front corner", screen: { width: 800, height: 400 }, padding: { top: 0, right: 0, bottom: 0, left: 0 }, turn: -45, fov: CARD_FIELD_OF_VIEW_DEG },
+  { name: "a phone with controls on top and bottom", screen: { width: 390, height: 700 }, padding: { top: 120, right: 0, bottom: 90, left: 0 }, turn: -45, fov: 36.87 },
+  { name: "a panel with labels on the right", screen: { width: 1440, height: 800 }, padding: { top: 80, right: 200, bottom: 100, left: 0 }, turn: 30, fov: 36.87 },
+])("fitStack fits the whole stack in the free space with its margin: $name", ({ screen, padding, turn, fov }) => {
+  const full: StackScreen = { ...screen, fovDeg: fov, latitude: 52 };
   const fit = fitStack(HOUSE, turn, 55, full, padding)!;
   const pixels = HOUSE.map((point) => projectPoint(point, { ...fit, turnDeg: turn, pitchDeg: 55 }, full)!);
   const xs = pixels.map(([x]) => x);
@@ -255,12 +249,12 @@ test("fitStack has nothing to fit without points", () => {
   expect(fitStack([], 0, 55, SCREEN, { top: 0, right: 0, bottom: 0, left: 0 })).toBeUndefined();
 });
 
-test("labelAnchor is the slab's rightmost top corner on screen", () => {
-  const top: StackPoint[] = [[0, 0, 0.3], [9, 0, 0.3], [9, 7, 0.3], [0, 7, 0.3]];
+test("labelAnchor is the floor's rightmost corner on screen", () => {
+  const corners: StackPoint[] = [[0, 0, 0.3], [9, 0, 0.3], [9, 7, 0.3], [0, 7, 0.3]];
   const view = { centre: [4.5, 3.5] as [number, number], zoom: 20, turnDeg: -45, pitchDeg: 55 };
-  const pixels = top.map((corner) => projectPoint(corner, view, SCREEN)!);
+  const pixels = corners.map((corner) => projectPoint(corner, view, SCREEN)!);
   // From the front corner the back right corner of the plan is the rightmost.
-  expect(labelAnchor(top, view, SCREEN)).toEqual(pixels[2]);
+  expect(labelAnchor(corners, view, SCREEN)).toEqual(pixels[2]);
 });
 
 test("stackView looks from 45 degrees left of the site axis, 35 degrees above the horizon", () => {
