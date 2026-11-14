@@ -5,26 +5,24 @@ import type { Feature, Polygon } from "geojson";
 import { css } from "lit";
 import { Marker, type Map as MapLibreMap } from "maplibre-gl";
 import polylabel from "polylabel";
-import { type ScreenBox, type Size, placeLabels } from "./draft-labels";
+import { type ScreenBox, type Size, isSmall, placeLabels, screenShape } from "./draft-labels";
 import { type HassUnits, formatArea } from "./units";
 
 type Point = [number, number];
 
-// A name chip's centre from its label's centre; `legacy` leaves it to the CSS, above the label, for a room too large to be small.
+// A name chip's centre from its label's centre.
 interface ChipPlace {
   x: number;
   y: number;
-  legacy?: boolean;
 }
 
 /** What a room's label shows: everything, icon and name, the icon, or nothing. */
 export type LabelStep = "size" | "name" | "icon" | "none";
 
 // How long a tap on a room keeps its name chip, in milliseconds.
-// The shorter side of a room on screen under which its chip is placed by the rule, as in `placeLabels`.
-const SMALL_PX = 60;
 const TAP_MS = 2000;
-// The chip's size where the element cannot be measured: 24 px high, about 7 px a letter.
+// Custom: the chip's size where its element cannot be measured (not yet built): 24 px high, about 7 px a letter,
+// so the first placement of a chip can be off by a few pixels until the next camera move measures it.
 const chipSize = (element: HTMLElement | null, name: string): Size => ({
   width: element?.offsetWidth || name.length * 7 + 16,
   height: element?.offsetHeight || 24,
@@ -136,17 +134,11 @@ export const roomLabelStyles = css`
     color: var(--primary-text-color);
   }
   /* Placed by the one rule: --chip-x and --chip-y are the chip's centre from the label's centre. */
-  .room-label .chip.placed {
-    bottom: auto;
-    margin: 0;
+  .room-label .chip {
+    position: absolute;
     left: 50%;
     top: 50%;
     transform: translate(calc(-50% + var(--chip-x)), calc(-50% + var(--chip-y)));
-  }
-  .room-label .chip {
-    position: absolute;
-    bottom: 100%;
-    margin-bottom: var(--ha-space-2);
     padding: 0 var(--ha-space-2);
     height: 24px;
     border-radius: var(--ha-border-radius-lg);
@@ -257,7 +249,7 @@ export class RoomLabels {
   update = () => {
     const kept = new Set<string>();
     const rooms = [];
-    const labelBoxes: ScreenBox[] = [];
+    const labelBoxes = new Map<string, ScreenBox>();
     for (const room of this._rooms) {
       const areaId = String(room.properties?.area_id ?? room.id);
       if (this._hidden.has(areaId)) continue;
@@ -265,32 +257,25 @@ export class RoomLabels {
       const space = labelSpace(rings);
       const text = this._texts[areaId];
       const step = labelStep(rings, space.at, this._withSize || text !== undefined);
+      // Only "none" is not in STEP_SPACE, and takes no space.
       const [, width, height] = STEP_SPACE.find(([name]) => name === step) ?? [step, 0, 0];
-      if (step !== "none") labelBoxes.push({ centre: { x: space.at[0], y: space.at[1] }, size: { width, height } });
+      if (step !== "none") labelBoxes.set(areaId, { centre: { x: space.at[0], y: space.at[1] }, size: { width, height } });
       rooms.push({ room, areaId, rings, space, text, step, labelSize: { width, height } });
     }
     const chipBoxes: ScreenBox[] = [];
     for (const { room, areaId, rings, space, text, step, labelSize } of rooms) {
       const area = this._areas[areaId];
       const name = area?.name ?? String(room.properties?.name ?? areaId);
-      const outer = rings[0].slice(0, -1);
-      const xs = outer.map(([x]) => x);
-      const ys = outer.map(([, y]) => y);
-      const box = { width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
-      const centre = { x: (Math.max(...xs) + Math.min(...xs)) / 2, y: (Math.max(...ys) + Math.min(...ys)) / 2 };
-      const small = Math.min(box.width, box.height) < SMALL_PX;
+      const { sides, box, centre } = screenShape(rings[0].slice(0, -1).map(([x, y]) => ({ x, y })));
+      const small = isSmall(box);
       const named = step === "size" || step === "name";
       // Pointed at or tapped, a room that cannot name itself does so in a chip; the active small room always does.
       const wantChip = (areaId === this._pointed && !named) || (areaId === this._active && small);
       let chip: ChipPlace | undefined;
-      if (wantChip && small) {
+      if (wantChip) {
         const label = this._labels.get(areaId)?.marker.getElement().querySelector<HTMLElement>(".chip") ?? null;
         const size = chipSize(label, name);
-        const sides = outer.map(([x, y], index) => {
-          const [nx, ny] = outer[(index + 1) % outer.length];
-          return { midpoint: { x: (x + nx) / 2, y: (y + ny) / 2 }, edge: { x: nx - x, y: ny - y } };
-        });
-        const own = labelBoxes.filter(({ centre: c }) => !(c.x === space.at[0] && c.y === space.at[1]));
+        const own = [...labelBoxes].filter(([id]) => id !== areaId).map(([, labelBox]) => labelBox);
         const container = this._map.getContainer();
         const viewport = container.clientWidth ? { width: container.clientWidth, height: container.clientHeight } : undefined;
         const { name: offset } = placeLabels({
@@ -306,7 +291,7 @@ export class RoomLabels {
           chip = { x: centre.x - space.at[0] + offset.x, y: centre.y - space.at[1] + offset.y };
           chipBoxes.push({ centre: { x: centre.x + offset.x, y: centre.y + offset.y }, size });
         }
-      } else if (wantChip) chip = { x: 0, y: 0, legacy: true };
+      }
       if (step === "none" && !chip) continue;
       kept.add(areaId);
       const label = this._labels.get(areaId) ?? this._newLabel(areaId);
@@ -324,7 +309,7 @@ export class RoomLabels {
       label.marker.remove();
       this._labels.delete(areaId);
     }
-    this._boxes = [...labelBoxes, ...chipBoxes];
+    this._boxes = [...labelBoxes.values(), ...chipBoxes];
     this._placeBuildingLabel();
   };
 
@@ -359,7 +344,7 @@ export class RoomLabels {
     if (step !== "icon") parts.push(text("name", name));
     if (size) parts.push(text(live ? "size live" : "size", size));
     if (chip) {
-      const chipElement = text(chip.legacy ? "chip" : "chip placed", name);
+      const chipElement = text("chip", name);
       chipElement.style.setProperty("--chip-x", `${chip.x}px`);
       chipElement.style.setProperty("--chip-y", `${chip.y}px`);
       parts.unshift(chipElement);

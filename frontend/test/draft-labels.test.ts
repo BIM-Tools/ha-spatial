@@ -1,6 +1,6 @@
 // Checks where the chips and names around a shape go on screen: outside its sides, apart, off a small shape, and on screen while drawn.
 import { expect, test } from "vitest";
-import { type ScreenBox, type Size, placeLabels } from "../src/draft-labels";
+import { type ScreenBox, type Size, isSmall, placeLabels, screenShape } from "../src/draft-labels";
 import type { Pixel } from "../src/edge-drag";
 
 type Corners = [number, number][];
@@ -95,4 +95,32 @@ test("a side under 48 px on screen gets no label", () => {
     area: { centre: { x: 100, y: 50 }, size: LABEL },
   });
   expect(places.sides.map((offset) => offset !== undefined)).toEqual([true, true, true, false, true]);
+});
+
+// A thin triangle whose three sides all run more up and down than across: no side counts as horizontal.
+const THIN: Corners = [[0, 0], [10, 100], [20, 40]];
+
+test.each([
+  ["small", false],
+  ["drawn", true],
+])("a %s shape with no side across the screen places no width chip and does not throw", (_, drawing) => {
+  const drawn = sidesOf(THIN);
+  const places = placeLabels({ sides: drawn, sideSizes: drawn.map(() => LABEL), box: boxOf(THIN), area: { centre: { x: 10, y: 50 }, size: LABEL }, drawing, viewport: VIEW });
+  expect(places.sides.filter((offset) => offset !== undefined)).toHaveLength(1);
+});
+
+test.each([
+  [{ width: 59, height: 200 }, true],
+  [{ width: 200, height: 59 }, true],
+  [{ width: 60, height: 60 }, false],
+])("isSmall(%j) is %s", (size, small) => {
+  expect(isSmall(size)).toBe(small);
+});
+
+test("screenShape gives the sides, the box size and the box centre of a ring of corners", () => {
+  const shape = screenShape([{ x: 10, y: 20 }, { x: 110, y: 20 }, { x: 110, y: 70 }, { x: 10, y: 70 }]);
+  expect(shape.box).toEqual({ width: 100, height: 50 });
+  expect(shape.centre).toEqual({ x: 60, y: 45 });
+  expect(shape.sides[0]).toEqual({ midpoint: { x: 60, y: 20 }, edge: { x: 100, y: 0 } });
+  expect(shape.sides[3]).toEqual({ midpoint: { x: 10, y: 45 }, edge: { x: 0, y: -50 } });
 });

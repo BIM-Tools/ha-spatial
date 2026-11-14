@@ -2,7 +2,7 @@
 // Checks how the panel wires an edge or corner drag in Select: what it saves, records, hides and shows.
 import type { Polygon, Position } from "geojson";
 import { afterEach, expect, test, vi } from "vitest";
-import { EMPTY, buttonNamed, handlers, liveMarkers, mapCanvas, onUpdateOf, resetFakes, settle, sources } from "./panel-harness";
+import { EMPTY, buttonNamed, handlers, liveMarkers, mapCanvas, onUpdateOf, queryRenderedFeatures, resetFakes, settle, sources } from "./panel-harness";
 import {
   FRAME,
   KITCHEN,
@@ -353,4 +353,17 @@ test("a press on a chip of a small room brings the grips back", async () => {
   await selectKitchen();
   pointer(sideButtons()[2], "pointerdown", [25, 50]);
   expect([0, 1, 2, 3].map(sideShown)).toEqual([true, true, true, true]);
+});
+
+test("after the room is deselected a map move leaves its removed side markers alone", async () => {
+  const { panel } = await selectKitchen();
+  const removed = liveMarkers().filter((marker) => marker.element.firstElementChild instanceof HTMLButtonElement);
+  expect(removed).toHaveLength(4);
+  queryRenderedFeatures.mockReturnValue([]);
+  handlers.click(mouse(300, 300));
+  await settle(panel);
+  expect(sideButtons()).toEqual([]);
+  for (const marker of removed) marker.offset = [99, 99];
+  handlers.move();
+  expect(removed.map((marker) => marker.offset)).toEqual([[99, 99], [99, 99], [99, 99], [99, 99]]);
 });

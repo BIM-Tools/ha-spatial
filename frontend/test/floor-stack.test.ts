@@ -293,3 +293,10 @@ test("an undrawn floor joins the stack at its level and is labelled at the outli
   expect(first.corners.length).toBeGreaterThan(0);
   expect(first.corners.every((corner) => millimetres(corner[2]) === FLOOR_SPACING_M)).toBe(true);
 });
+
+test("an undrawn first floor counts the outline's corners once", () => {
+  const outline = rectangle(0, 0, 8, 6);
+  const stack = floorStack([], outline, ["ground"], FRAME, PIXEL_M);
+  expect(stack.corners).toHaveLength(outline.coordinates[0].length);
+  expect(stack.floors[0].corners).toHaveLength(outline.coordinates[0].length);
+});

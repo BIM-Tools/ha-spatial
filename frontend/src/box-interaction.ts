@@ -5,7 +5,7 @@ import { feature } from "@turf/helpers";
 import type { FeatureCollection, LineString, Point, Polygon, Position } from "geojson";
 import { type GeoJSONSource, Marker, type MapMouseEvent, type Map as MapLibreMap } from "maplibre-gl";
 import { BUILDING } from "./area-strip";
-import { type LabelPlaces, type ScreenBox, placeLabels } from "./draft-labels";
+import { type LabelPlaces, type ScreenBox, placeLabels, screenShape } from "./draft-labels";
 import { type Pixel, type ResizeTarget, isResizable, resizeCursor, resizeShape, resizeTargetAt } from "./edge-drag";
 import type { LayerColours } from "./map-paint";
 import { mapBearing } from "./map-view";
@@ -686,25 +686,17 @@ export class BoxInteraction {
 
   // Measured after the texts are set, so each label's own size keeps it clear of its edge.
   private _placeLabels(draft: Polygon, controls: readonly ScreenBox[] | undefined, drawing: boolean): LabelPlaces {
-    const corners = draft.coordinates[0].slice(0, -1).map((corner) => this._map.project(corner as [number, number]));
-    const screenSides = !controls
-      ? corners.map((corner, index) => {
-          const next = corners[(index + 1) % corners.length];
-          return { midpoint: { x: (corner.x + next.x) / 2, y: (corner.y + next.y) / 2 }, edge: { x: next.x - corner.x, y: next.y - corner.y } };
-        })
-      : [];
-    const xs = corners.map(({ x }) => x);
-    const ys = corners.map(({ y }) => y);
-    const box = { width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
+    const shape = screenShape(draft.coordinates[0].slice(0, -1).map((corner) => this._map.project(corner as [number, number])));
+    const screenSides = controls ? [] : shape.sides;
     const sizes = this._labels.map((label) => {
       const element = label.getElement();
       return { width: element.offsetWidth, height: element.offsetHeight };
     });
-    const area = { centre: { x: (Math.max(...xs) + Math.min(...xs)) / 2, y: (Math.max(...ys) + Math.min(...ys)) / 2 }, size: sizes[screenSides.length] };
+    const area = { centre: shape.centre, size: sizes[screenSides.length] };
     const container = this._map.getContainer();
     // An unmeasured container (width 0) gives no viewport, so nothing is clamped to it.
     const viewport = container.clientWidth ? { width: container.clientWidth, height: container.clientHeight } : undefined;
-    return placeLabels({ sides: screenSides, sideSizes: sizes, box, area, controls, viewport, drawing });
+    return placeLabels({ sides: screenSides, sideSizes: sizes, box: shape.box, area, controls, viewport, drawing });
   }
 
   // A box under one grid step is not created, without a toast: while drawn it showed only its start.

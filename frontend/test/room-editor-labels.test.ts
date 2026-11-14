@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 // Checks that the room editor tells the room labels which room is active, and that a touch tap shows a name.
 import { afterEach, expect, test, vi } from "vitest";
-import { handlers, queryRenderedFeatures, resetFakes, settle } from "./panel-harness";
-import { mountEditor, mouse, startSelecting, tapRoom } from "./room-editor-fixture";
+import { handlers, liveMarkers, panMap, queryRenderedFeatures, resetFakes, settle } from "./panel-harness";
+import { mountEditor, mouse, sideButtons, startSelecting, tapRoom } from "./room-editor-fixture";
 import { RoomLabels } from "../src/room-labels";
 
 vi.mock("maplibre-gl", async () => (await import("./panel-harness")).fakeMapLibre);
@@ -26,12 +26,19 @@ test("selecting a room activates it for the labels, and clearing the selection c
   expect(activate).toHaveBeenLastCalledWith(undefined);
 });
 
-test("the side controls keep clear of the label boxes", async () => {
-  const boxes = vi.spyOn(RoomLabels.prototype, "boxes");
+// The kitchen's 50 x 50 px box is small: its width chip stands 8 px below its bottom side, which lies at y 150 once the view is panned clear of the screen's top edge.
+test.each([
+  ["nothing is there", [], [0, 8]],
+  ["another label covers the area below", [{ centre: { x: 0, y: 1000 }, size: { width: 4000, height: 1700 } }], [0, -8]],
+])("the width chip of a small room goes off the spot below it when %s: %j", async (_, boxes, offset) => {
+  panMap(-100, -100);
+  vi.spyOn(RoomLabels.prototype, "boxes").mockReturnValue(boxes);
   const { panel } = mountEditor();
   await startSelecting(panel);
   await tapRoom(panel, "kitchen");
-  expect(boxes).toHaveBeenCalled();
+  const bottom = liveMarkers().find((marker) => marker.element.firstElementChild === sideButtons()[2])!;
+  // Adding 0 turns the -0 of a sign flip into 0.
+  expect(bottom.offset!.map((value) => value + 0)).toEqual(offset);
 });
 
 test.each([

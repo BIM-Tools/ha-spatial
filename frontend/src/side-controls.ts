@@ -4,7 +4,7 @@ import { mdiDragVertical } from "@mdi/js";
 import type { Polygon, Position } from "geojson";
 import { type Map as MapLibreMap, Marker } from "maplibre-gl";
 import { type BoxInteraction, coarsePointer } from "./box-interaction";
-import { type ScreenBox, type ScreenSide, type Size, placeLabels } from "./draft-labels";
+import { type ScreenBox, type Size, isSmall, placeLabels, screenShape } from "./draft-labels";
 import { type Pixel, type ResizeTarget, resizeCursor } from "./edge-drag";
 import { type ChangeOrRefusal, type SideHandle, axisSides, edgeLengths, isAxisRectangle, resizeChange, sideHandles, sideLabels } from "./plan";
 import type { LatticePoint, PlanFrame } from "./site-frame";
@@ -81,7 +81,8 @@ interface Control {
  * whose shorter side is under 60 px they stand at the bottom and right (or the sides opposite), a chip
  * stepping to the opposite side of its pair when the rule puts it there, and the grips stay hidden until a
  * control is pressed or a length is typed. Custom: a grip is reachable only through that press, so a small
- * room is resized from its chips, and a press on a chip reveals the grips until the controls are rebuilt.
+ * room is resized from its chips, and the grips come back only until the controls are rebuilt, not when the
+ * room is pressed again later. An unmeasured map container gives no viewport, so nothing is flipped by its edge.
  */
 export function showSideControls(
   map: MapLibreMap,
@@ -132,13 +133,7 @@ export function showSideControls(
       if (control.length) control.length.data = text;
       control.element.setAttribute("aria-label", ariaLabel(handles[edgeIndex], text, rectangle));
     });
-    const screen = draft.coordinates[0].slice(0, -1).map((corner) => map.project(corner as [number, number]));
-    const xs = screen.map(({ x }) => x);
-    const ys = screen.map(({ y }) => y);
-    const screenSide = (corner: number): ScreenSide => {
-      const [from, to] = [screen[corner], screen[(corner + 1) % screen.length]];
-      return { midpoint: { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 }, edge: { x: to.x - from.x, y: to.y - from.y } };
-    };
+    const shape = screenShape(draft.coordinates[0].slice(0, -1).map((corner) => map.project(corner as [number, number])));
     // In the room's own side order, which the draft's ring may not start with.
     const drawnIndex = (edgeIndex: number) => labels.indexOf(labelOf(edgeIndex));
     // A rectangle's opposite sides are a pair that shows one length, on the chip of the pair.
@@ -149,32 +144,30 @@ export function showSideControls(
     };
     const container = map.getContainer();
     const given = placeLabels({
-      sides: controls.map((_, edgeIndex) => screenSide(drawnIndex(edgeIndex))),
+      sides: controls.map((_, edgeIndex) => shape.sides[drawnIndex(edgeIndex)]),
       sideSizes: controls.map((_, edgeIndex) => sizeOf(edgeIndex)),
-      box: { width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) },
-      area: { centre: { x: (Math.max(...xs) + Math.min(...xs)) / 2, y: (Math.max(...ys) + Math.min(...ys)) / 2 }, size: { width: 0, height: 0 } },
+      box: shape.box,
+      area: { centre: shape.centre, size: { width: 0, height: 0 } },
       controls: avoid?.(),
-      // An unmeasured container gives no viewport, so nothing is flipped by it.
       viewport: container.clientWidth && container.clientHeight ? { width: container.clientWidth, height: container.clientHeight } : undefined,
     }).sides;
-    // Fewer sides placed than there are: a small room, whose chips stand apart and whose grips wait to be pressed.
-    const small = given.some((offset) => offset === undefined);
-    const plain = small && editingSide !== undefined;
+    // A small room's chips stand apart and its grips wait to be pressed; a side without a chip has none.
+    const small = isSmall(shape.box);
     markers.forEach((marker, edgeIndex) => {
       const control = controls[edgeIndex];
       const chip = control.length !== undefined;
       // The chip of a pair the rule put on the opposite side stands there, and drags that side.
-      const stands = chip && !plain && given[edgeIndex] === undefined && rectangle && given[(edgeIndex + 2) % controls.length] ? (edgeIndex + 2) % controls.length : edgeIndex;
+      const stands = chip && small && given[edgeIndex] === undefined && rectangle && given[(edgeIndex + 2) % controls.length] ? (edgeIndex + 2) % controls.length : edgeIndex;
       control.edge = stands;
-      const none = { x: 0, y: 0 };
-      const offset = plain ? none : chip ? given[stands] : small && !revealed ? undefined : none;
+      const offset = chip ? given[stands] : small && !revealed ? undefined : { x: 0, y: 0 };
       marker.setLngLat(labelOf(stands).at as [number, number]);
       marker.setOffset(offset ? [offset.x, offset.y] : [0, 0]);
       marker.getElement().style.visibility = offset ? "" : "hidden";
     });
   }
   place(room.footprint);
-  map.on("move", () => place(drawn));
+  const onMove = () => place(drawn);
+  map.on("move", onMove);
   field?.focus();
   field?.select();
   return {
@@ -191,6 +184,7 @@ export function showSideControls(
       });
     },
     remove() {
+      map.off("move", onMove);
       for (const marker of markers) marker.remove();
     },
   };

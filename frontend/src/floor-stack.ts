@@ -160,12 +160,15 @@ export const floorStack = (
       addCorners(room.geometry, floorId, base);
     }
   }
-  const floorsWithCorners = floors.map((floorId, index) => {
-    const count = rooms.filter((room) => floorsOf(room).includes(floorId)).length;
-    // An undrawn floor is labelled at the outline, at the height it would have.
-    if (!count && outline) addCorners(outline, floorId, floorBase(index));
-    return { floorId, rooms: count, corners: cornersOnFloor.get(floorId)! };
+  // An undrawn floor is labelled at the outline, at the height it would have; the first floor has it already, at 0.
+  floors.forEach((floorId, index) => {
+    if (outline && index > 0 && !rooms.some((room) => floorsOf(room).includes(floorId))) addCorners(outline, floorId, floorBase(index));
   });
+  const floorsWithCorners = floors.map((floorId) => ({
+    floorId,
+    rooms: rooms.filter((room) => floorsOf(room).includes(floorId)).length,
+    corners: cornersOnFloor.get(floorId)!,
+  }));
   return { features: { type: "FeatureCollection", features }, floors: floorsWithCorners, corners };
 };
 
@@ -290,7 +293,7 @@ export const labelAnchor = (
 
 export type LabelSide = "left" | "right";
 
-/** Labels go left of the stack when less than this many pixels are free on its right. */
+/** Labels go left of the stack when less than this many pixels are free on its right: about the width of a floor's name and room count. */
 export const LABEL_SIDE_FREE_PX = 120;
 
 export const labelSide = (freeRightPx: number): LabelSide => (freeRightPx < LABEL_SIDE_FREE_PX ? "left" : "right");
@@ -344,7 +347,7 @@ const cameraOf = (map: MapLibreMap, frame: PlanFrame): { camera: StackCamera; sc
 
 /** Names each floor in the stack with its Home Assistant floor, right of its rooms, placed again on every camera move. */
 export class FloorLabels {
-  private _floors: { floor: StackFloor; marker: Marker }[] = [];
+  private _floors: { floor: StackFloor; element: HTMLElement; marker: Marker; side: LabelSide }[] = [];
   private _frame?: PlanFrame;
 
   constructor(private readonly _map: MapLibreMap) {
@@ -358,6 +361,11 @@ export class FloorLabels {
     this.show([], undefined, () => "");
   }
 
+  // A Marker's anchor cannot change, so a label that changes side gets a new Marker; "left" puts the label right of its point.
+  private _marker(element: HTMLElement, side: LabelSide) {
+    return new Marker({ element, anchor: side === "right" ? "left" : "right" }).setLngLat([0, 0]).addTo(this._map);
+  }
+
   /** The floors to name, none outside All, in the frame they were built in. */
   show(floors: StackFloor[], frame: PlanFrame | undefined, floorName: (floorId: string) => string) {
     for (const { marker } of this._floors) marker.remove();
@@ -369,14 +377,14 @@ export class FloorLabels {
       const { name, count, dashed } = floorLabel(floorName(floor.floorId), floor.rooms);
       element.classList.toggle("dashed", dashed);
       element.append(line("name", name), ...(count ? [line("count", count)] : []));
-      return { floor, marker: new Marker({ element, anchor: "left" }).setLngLat([0, 0]).addTo(this._map) };
+      return { floor, element, marker: this._marker(element, "right"), side: "right" as LabelSide };
     });
     this.update();
   }
 
   /** The widest label in pixels, which the stack leaves room for on its right. */
   get width(): number {
-    return Math.max(0, ...this._floors.map(({ marker }) => marker.getElement().offsetWidth));
+    return Math.max(0, ...this._floors.map(({ element }) => element.offsetWidth));
   }
 
   update = () => {
@@ -386,13 +394,15 @@ export class FloorLabels {
     const anchors = this._floors.map(({ floor }) => labelAnchor(floor.corners, camera, screen));
     const stackRight = Math.max(0, ...anchors.map((anchor) => anchor?.[0] ?? 0));
     const side = labelSide(screen.width - stackRight);
-    this._floors.forEach(({ floor, marker }, index) => {
-      const anchor = side === "right" ? anchors[index] : labelAnchor(floor.corners, camera, screen, side);
-      const element = marker.getElement();
-      element.hidden = !anchor;
+    this._floors.forEach((entry, index) => {
+      const anchor = side === "right" ? anchors[index] : labelAnchor(entry.floor.corners, camera, screen, side);
+      entry.element.hidden = !anchor;
       // Left of the stack the label ends at the leftmost corner.
-      marker.setOffset([side === "right" ? 0 : -element.offsetWidth, 0]);
-      if (anchor) marker.setLngLat(this._map.unproject(anchor));
+      if (entry.side !== side) {
+        entry.marker.remove();
+        Object.assign(entry, { marker: this._marker(entry.element, side), side });
+      }
+      if (anchor) entry.marker.setLngLat(this._map.unproject(anchor));
     });
   };
 }

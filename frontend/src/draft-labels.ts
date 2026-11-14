@@ -51,6 +51,24 @@ export interface LabelRequest {
 const CLEARANCE_PX = 8;
 const MIN_SIDE_PX = 48;
 const SMALL_PX = 60;
+
+/** A shape whose shorter side on screen is under 60 px is small: it gets chips by the small rule, not one per side. */
+export const isSmall = (box: Size) => Math.min(box.width, box.height) < SMALL_PX;
+
+/** The sides, box size and box centre of a ring of screen corners, as `placeLabels` takes them. */
+export const screenShape = (corners: readonly Pixel[]): { sides: ScreenSide[]; box: Size; centre: Pixel } => {
+  const xs = corners.map(({ x }) => x);
+  const ys = corners.map(({ y }) => y);
+  const [left, right, top, bottom] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  return {
+    sides: corners.map(({ x, y }, index) => {
+      const next = corners[(index + 1) % corners.length];
+      return { midpoint: { x: (x + next.x) / 2, y: (y + next.y) / 2 }, edge: { x: next.x - x, y: next.y - y } };
+    }),
+    box: { width: right - left, height: bottom - top },
+    centre: { x: (left + right) / 2, y: (top + bottom) / 2 },
+  };
+};
 const AREA_ROOM: Size = { width: 96, height: 40 };
 
 const overlap = (a: ScreenBox, b: ScreenBox) =>
@@ -61,10 +79,11 @@ const within = ({ centre, size }: ScreenBox, view: Size | undefined) =>
 
 const clamp = (value: number, half: number, limit: number) => Math.max(CLEARANCE_PX + half, Math.min(limit - CLEARANCE_PX - half, value));
 
-// The side along (horizontal) or across the screen that lies furthest in a direction, as an index into `sides`.
+// The side along (horizontal) or across the screen that lies furthest in a direction, as an index into `sides`;
+// undefined when no side runs that way, as on a thin triangle, whose chip is then not placed.
 const furthest = (sides: readonly ScreenSide[], horizontal: boolean, towards: (side: ScreenSide) => number) => {
   const candidates = sides.map((side, index) => ({ side, index })).filter(({ side }) => (Math.abs(side.edge.x) >= Math.abs(side.edge.y)) === horizontal);
-  return candidates.reduce((best, next) => (towards(next.side) > towards(best.side) ? next : best)).index;
+  return candidates.length ? candidates.reduce((best, next) => (towards(next.side) > towards(best.side) ? next : best)).index : undefined;
 };
 
 // Twice the signed area of the ring the sides run along; on screen, with y down, positive is clockwise.
@@ -81,8 +100,9 @@ const ringTurn = (sides: readonly ScreenSide[]) => {
  * Side labels sit `CLEARANCE_PX` outside their edge, centred on it; one that would overlap an earlier one in
  * ring order is hidden, and so is one on a side under 48 px. The area label sits at its anchor when the box is
  * at least 96 x 40 px and clear of the side labels and `controls`.
- * Small shape (the shorter side of `box` is under 60 px): only the width chip (below the bottom side), the depth
- * chip (right of the right side) and, when `name` is given, the name chip (above the box) are placed; each moves
+ * When `name` is given, the name chip goes above the box, first of all the chips, on any shape that is not drawn.
+ * Small shape (the shorter side of `box` is under 60 px): only the width chip (below the bottom side) and the depth
+ * chip (right of the right side) are placed besides it; each moves
  * to the opposite side when its spot meets `controls`, an earlier chip or the edge of `viewport`, and keeps its
  * first spot when both are taken.
  * Drawing: one chip per axis, on the side of that axis facing the centre of `viewport`, clamped 8 px inside it.
@@ -93,7 +113,7 @@ export function placeLabels({ sides, sideSizes, box, area, controls = [], name, 
   const offsets: (Pixel | undefined)[] = sides.map(() => undefined);
   const placed: ScreenBox[] = [];
   let nameOffset: Pixel | undefined;
-  const small = sides.length > 0 && Math.min(box.width, box.height) < SMALL_PX;
+  const small = sides.length > 0 && isSmall(box);
   const at = (anchor: Pixel, offset: Pixel, size: Size): ScreenBox => ({ centre: { x: anchor.x + offset.x, y: anchor.y + offset.y }, size });
   // index -1 is the name chip, anchored on the box centre.
   const put = (index: number, offset: Pixel, size: Size) => {
@@ -110,11 +130,13 @@ export function placeLabels({ sides, sideSizes, box, area, controls = [], name, 
     if (free(index, offset, size) || !free(other, opposite, size)) put(index, offset, size);
     else put(other, opposite, size);
   };
+  if (name && !drawing && sides.length) flipping(-1, -1, { x: 0, y: -(box.height / 2 + CLEARANCE_PX + name.height / 2) }, name);
   if (drawing && sides.length) {
     const centre = viewport && { x: viewport.width / 2, y: viewport.height / 2 };
     for (const horizontal of [true, false]) {
       const forward = furthest(sides, horizontal, ({ midpoint }) => (horizontal ? midpoint.y : midpoint.x));
       const backward = furthest(sides, horizontal, ({ midpoint }) => (horizontal ? -midpoint.y : -midpoint.x));
+      if (forward === undefined || backward === undefined) continue;
       // The side whose outside faces the view centre: the one away from the box's own edge of the screen.
       const facing = centre && (horizontal ? area.centre.y > centre.y : area.centre.x > centre.x) ? backward : forward;
       const size = sideSizes[facing];
@@ -127,13 +149,12 @@ export function placeLabels({ sides, sideSizes, box, area, controls = [], name, 
       put(facing, { x: target.x - midpoint.x, y: target.y - midpoint.y }, size);
     }
   } else if (small) {
-    if (name) flipping(-1, -1, { x: 0, y: -(box.height / 2 + CLEARANCE_PX + name.height / 2) }, name);
     const bottom = furthest(sides, true, ({ midpoint }) => midpoint.y);
     const top = furthest(sides, true, ({ midpoint }) => -midpoint.y);
     const right = furthest(sides, false, ({ midpoint }) => midpoint.x);
     const left = furthest(sides, false, ({ midpoint }) => -midpoint.x);
-    flipping(bottom, top, { x: 0, y: CLEARANCE_PX + sideSizes[bottom].height / 2 }, sideSizes[bottom]);
-    flipping(right, left, { x: CLEARANCE_PX + sideSizes[right].width / 2, y: 0 }, sideSizes[right]);
+    if (bottom !== undefined && top !== undefined) flipping(bottom, top, { x: 0, y: CLEARANCE_PX + sideSizes[bottom].height / 2 }, sideSizes[bottom]);
+    if (right !== undefined && left !== undefined) flipping(right, left, { x: CLEARANCE_PX + sideSizes[right].width / 2, y: 0 }, sideSizes[right]);
   } else {
     const outward = ringTurn(sides) > 0 ? 1 : -1;
     sides.forEach(({ midpoint, edge }, index) => {

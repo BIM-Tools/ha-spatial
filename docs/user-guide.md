@@ -267,7 +267,8 @@ of it is hidden.
 - When the active room is a rectangle along the site direction, its width and depth each show
   once, on a button on one of the two sides they measure: on the side that is not a wall shared
   with another room, else on the bottom for the width and the left for the depth. The other two
-  sides carry a small grip. Tap a length or a grip, type the length of that side and press Enter
+  sides carry a small grip; in a room too small for that, the grips show once a length is
+  pressed. Tap a length or a grip, type the length of that side and press Enter
   (at least 10 cm or 4 in; an unchanged length saves nothing). The length is rounded to the 2.5 cm (1 in) lattice, so 3.47 m is stored as 3.475 m and shows as 3.48 m (the display rounds to two decimals, so it can read a
   hair above what is stored).
   The side's start corner stays, the opposite side follows. Escape closes the field.
@@ -288,7 +289,8 @@ of it is hidden.
   snapping. The pointer turns into a resize arrow over an edge or a corner. **Escape** cancels;
   undo, redo and **Delete** do nothing while a side or corner is held.
 - **The length or grip on a side is its handle:** drag it to stretch that side as above; the
-  handle held turns the theme's primary colour. A click or tap without a drag opens the length
+  handle held turns the theme's primary colour. A length may stand on the opposite side when
+  its own is taken. A click or tap without a drag opens the length
   field. On a touch screen, where the thin edge is hard to hit with a finger, a length also
   carries a grip mark, and every handle takes a fingertip-sized touch around it.
 - **Correct the outline:** when the building outline is not a rectangle, as when it came from the

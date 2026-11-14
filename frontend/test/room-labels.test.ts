@@ -178,6 +178,14 @@ test.each([
   }
 });
 
+test("a pointed room that is not small and shows only its icon gets its chip from the same rule, above its box", () => {
+  const labels = mountLabels([pixelRoom("wc", [400, 100], [465, 165])], true, AREAS);
+  expect(chipOf("wc")).toBeFalsy();
+  labels.point("wc");
+  expect(chipOf("wc")?.textContent).toBe("WC");
+  expect(Number(chipOf("wc")?.style.getPropertyValue("--chip-y").replace("px", ""))).toBeLessThan(-32);
+});
+
 test("a tap shows the chip for 2 s", () => {
   vi.useFakeTimers();
   try {
