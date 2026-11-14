@@ -163,7 +163,7 @@ test.each<[string, () => void, [number, number][]]>([
   ],
 ])("an outline of another shape in Select shows a length chip on every side, and %s saves it once with one undo step", async (_name, drag, corners) => {
   const { panel, connection } = await selectSlantedOutline();
-  expect(sideButtons().map((button) => button.textContent)).toEqual(["10.00 m", "10.00 m", "10.50 m", "10.00 m"]);
+  expect(sideButtons().map((button) => button.textContent)).toEqual(["10.00 m", "10.01 m", "10.50 m", "10.00 m"]);
   drag();
   await vi.waitFor(() => expect(siteSaves(connection)).toHaveLength(1));
   expect(latticeCorners(siteSaves(connection)[0].outline!)).toEqual(corners);

@@ -109,40 +109,26 @@ const formatNumber = (value: number, hass: HassUnits, fractionDigits: number): s
   }).format(value);
 };
 
-// The integration's metric lattice unit; labels and toasts have no site frame to read it from.
-export const METRIC_LATTICE_M = 0.025;
-
-// The nearest metric lattice point, and the fewest decimals (at least two) that state it exactly.
-const metricLattice = (metres: number): { value: number; digits: number } => {
-  const units = Math.round(metres / METRIC_LATTICE_M);
-  return { value: (units * 25) / 1000, digits: units % 2 === 0 ? 2 : 3 };
-};
-
 const feetAndInches = (metres: number): string => {
   const inches = Math.round(metres / METRES_PER_INCH);
   return `${Math.floor(inches / INCHES_PER_FOOT)}′ ${inches % INCHES_PER_FOOT}″`;
 };
 
-/** Metres on the lattice as stored, or feet and inches with primes to the nearest inch. */
+/** Metres with two decimals (centimetres, rounded as typedLength does), or feet and inches with primes to the nearest inch. */
 export function formatLength(metres: number, hass: HassUnits): string {
-  if (isUsCustomary(hass)) return feetAndInches(metres);
-  const { value, digits } = metricLattice(metres);
-  return `${formatNumber(value, hass, digits)} m`;
+  return isUsCustomary(hass) ? feetAndInches(metres) : `${formatNumber(Number(metres.toFixed(2)), hass, 2)} m`;
 }
 
-/** The overall size of a rectangle, width first: `9.80 × 7.60 m` with one unit, or feet and inches each. */
+/** The offered size of a rectangle, width first: `9.8 × 7.6 m` with one decimal, or feet and inches each. */
 export function formatSize(widthM: number, depthM: number, hass: HassUnits): string {
   if (isUsCustomary(hass)) return `${feetAndInches(widthM)} × ${feetAndInches(depthM)}`;
-  const [width, depth] = [metricLattice(widthM), metricLattice(depthM)];
-  const digits = Math.max(width.digits, depth.digits);
-  return `${formatNumber(width.value, hass, digits)} × ${formatNumber(depth.value, hass, digits)} m`;
+  return `${formatNumber(widthM, hass, 1)} × ${formatNumber(depthM, hass, 1)} m`;
 }
 
 /** A length as a field starts with it: in ASCII digits with a dot, which parseLength reads in every number format. */
 export function typedLength(metres: number, hass: HassUnits): string {
   if (isUsCustomary(hass)) return feetAndInches(metres);
-  const { value, digits } = metricLattice(metres);
-  return `${value.toFixed(digits)} m`;
+  return `${metres.toFixed(2)} m`;
 }
 
 /** A distance on the map: whole metres up to a kilometre, then kilometres with one decimal; or feet up to a mile, then miles. */
