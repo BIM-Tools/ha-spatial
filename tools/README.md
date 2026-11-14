@@ -6,7 +6,7 @@ Development tools. Not part of the integration.
 
 - Get footprints drawn elsewhere into Home Assistant in one go.
 - Keep the frontend's packages at the versions Home Assistant's frontend ships.
-- Try the panel, the card and the state gallery on an example house without drawing one.
+- Try the panel and the card on an example house without drawing one.
 
 ## How to use
 

@@ -35,7 +35,6 @@ prefix `docker` commands with `MSYS_NO_PATHCONV=1`.
 | Debug in VS Code | `debugpy:` in `.ha-config/configuration.yaml`, then launch config "Attach to Home Assistant" (starts the test server first) or "Restart and attach to Home Assistant"; the `frontend` service adds panel source maps. Tasks "Start test server" and "Restart test server" do the same without the debugger |
 | Frontend (typecheck, test, build) | `MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/frontend":/app -v "$(pwd -W)/custom_components":/custom_components -w /app node:24-alpine sh -c "npm ci && npm run typecheck && npm test && npm run build"` |
 | E2E smoke test (build the panel first) | `docker compose run --rm e2e; docker compose rm -sf homeassistant-e2e` |
-| State gallery: screenshots and contact sheets of every UI state in `gallery-out/`, and the documentation images in `docs/images/` (build the panel first; commit `docs/images/` only in a `docs:` pull request) | `docker compose run --rm gallery; docker compose rm -sf homeassistant-e2e` |
 | Release | `git tag -a vX.Y.Z -m "<release notes>" && git push origin vX.Y.Z`; the workflow builds `spatial.zip` and publishes the full release with it |
 | Sync frontend versions | `python tools/sync_frontend_versions.py` (`--check` only compares) |
 | Tools | Run them against the real Home Assistant, see `tools/README.md` |
@@ -178,8 +177,8 @@ The panel and the card should look as if they were always part of Home Assistant
 - One change per pull request, squash merged into `main`. That holds for UI polish too: each
   visible behaviour is its own pull request, and CI, tooling or dependency changes a feature
   needs land first in their own.
-- Documentation screenshots in `docs/images/` are regenerated in their own `docs:` pull
-  request (for example before a release), never inside a feature or fix.
+- Documentation screenshots in `docs/images/` are refreshed by the maintainer in their own
+  `docs:` pull request (for example before a release), never inside a feature or fix.
 - Conventional commits, subject at most 72 characters, a short body with what and why.
 - A pull request description is the squash commit message: plain text without Markdown, only
   the why (one or two sentences, then a line per notable part with its reason); never the
