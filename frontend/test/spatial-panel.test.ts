@@ -22,6 +22,7 @@ import {
   rooms,
   setBearing,
   setStyle,
+  styleState,
   siteReply,
   settle,
   zoomIn,
@@ -983,6 +984,85 @@ test("on a phone the floors are chips under the header, the tools a bottom bar, 
 
 const paintOf = (layerId: string) => layers.find((layer) => layer.id === layerId)?.paint;
 
+test("on the dark map, buildings get a 1 px outline while the guide asks for the home, again after a style reload, and lose it once aligned", async () => {
+  let bearing: number | null = null;
+  const { panel, connection } = mountPanel({ dark: true, site: () => ({ bearing_deg: bearing }) });
+  panel.style.setProperty("--secondary-text-color", "rgb(10, 20, 30)");
+  queryRenderedFeatures.mockImplementation(((_where: unknown, options: { layers: string[] }) =>
+    options.layers.includes("building-3d") ? [{ geometry: HOUSE }] : []) as never);
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  const reload = () => {
+    layers.splice(0);
+    layers.push({ id: "building-3d", type: "fill", source: "tiles", paint: { "fill-outline-color": "original" } });
+    handlers["style.load"]();
+  };
+  reload();
+  await settle(panel);
+  const edge = () => paintOf("building-3d")?.["fill-outline-color"];
+  expect(edge()).toBe("rgba(10,20,30,1)");
+  reload();
+  expect(edge()).toBe("rgba(10,20,30,1)");
+  buttonNamed(panel, "No floor")!.click();
+  await settle(panel);
+  click();
+  await settle(panel);
+  expect(edge()).toBe("rgba(10,20,30,1)");
+  click();
+  queryRenderedFeatures.mockReturnValue([]);
+  bearing = (updates(connection)[0] as unknown as { bearing_deg: number }).bearing_deg;
+  await onUpdateOf(connection)();
+  await vi.waitFor(() => expect(guideText(panel)).toMatch(/^Use the map's outline\?/));
+  expect(edge()).toBe("original");
+});
+
+test("a pick step before the style has loaded does not throw, and the outline appears after style.load", async () => {
+  styleState.loaded = false;
+  const { panel } = mountPanel({ dark: true, site: () => ({ bearing_deg: null }) });
+  panel.style.setProperty("--secondary-text-color", "rgb(10, 20, 30)");
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  await settle(panel);
+  panel.hass = { ...panel.hass };
+  await expect(panel.updateComplete).resolves.toBe(true);
+  expect(paintOf("building-3d")).toBeUndefined();
+  styleState.loaded = true;
+  layers.push({ id: "building-3d", type: "fill", source: "tiles", paint: { "fill-outline-color": "original" } });
+  handlers["style.load"]();
+  await settle(panel);
+  expect(paintOf("building-3d")?.["fill-outline-color"]).toBe("rgba(10,20,30,1)");
+});
+
+test("stopping the panel forgets the saved building outlines", async () => {
+  const { panel } = mountPanel({ dark: true, site: () => ({ bearing_deg: null }) });
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  layers.push({ id: "building-3d", type: "fill", source: "tiles", paint: { "fill-outline-color": "original" } });
+  handlers["style.load"]();
+  await settle(panel);
+  const edges = () => (panel as unknown as { _buildingEdges: Map<string, unknown> })._buildingEdges;
+  expect(edges().size).toBe(1);
+  panel.remove();
+  expect(edges().size).toBe(0);
+});
+
+test("on the light map the buildings keep their own outline during the pick step, and a switch to dark turns the outline on", async () => {
+  const { panel } = mountPanel({ site: () => ({ bearing_deg: null }) });
+  panel.style.setProperty("--secondary-text-color", "rgb(10, 20, 30)");
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  const reload = () => {
+    layers.splice(0);
+    layers.push({ id: "building-3d", type: "fill", source: "tiles", paint: { "fill-outline-color": "original" } });
+    handlers["style.load"]();
+  };
+  reload();
+  await settle(panel);
+  expect(guideText(panel)).toMatch(/^Click your home/);
+  expect(paintOf("building-3d")?.["fill-outline-color"]).toBe("original");
+  panel.hass = { ...panel.hass, themes: { darkMode: true } };
+  await panel.updateComplete;
+  reload();
+  await settle(panel);
+  expect(paintOf("building-3d")?.["fill-outline-color"]).toBe("rgba(10,20,30,1)");
+});
+
 test("the rooms are painted from the theme's primary colour and follow a changed theme", async () => {
   const { panel } = mountPanel();
   panel.style.setProperty("--primary-color", "rgb(0, 128, 0)");
@@ -1017,6 +1097,7 @@ test("a dark Home Assistant without darkMode in its themes gets the dark map, an
   expect(fetchMock).toHaveBeenLastCalledWith("/static/map/dark.json");
   handlers["style.load"]();
   expect(paintOf("areas-2d")).toEqual({ "fill-color": "rgba(0,128,0,0.25)" });
+  expect(paintOf("areas-outline")).toMatchObject({ "line-color": "rgba(0,128,0,1)", "line-width": 2 });
   panel.hass = { ...panel.hass, themes: { ...unresolved, darkMode: false } };
   await vi.waitFor(() => expect(setStyle).toHaveBeenCalled());
   expect(fetchMock).toHaveBeenLastCalledWith("/static/map/light.json");

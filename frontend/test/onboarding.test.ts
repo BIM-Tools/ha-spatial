@@ -58,11 +58,11 @@ test.each<[string, Partial<Plan>, object]>([
   ["All without areas opens No floor", { floor: "all", floors: [NONE], outlineStored: false }, { kind: "choose-floor", floor: null }],
   [
     "the map's outline question",
-    { outlineStored: false, active: BUILDING, outlineOffer: "9.70 × 7.70 m" },
+    { outlineStored: false, active: BUILDING, outlineOffer: "9.7 × 7.7 m" },
     {
       kind: "outline-question",
       text: "Use the map's outline?",
-      detail: "9.70 × 7.70 m. Or click another building.",
+      detail: "9.7 × 7.7 m. Or click another building.",
       buttons: [
         { control: "draw-myself", label: "Draw it myself" },
         { control: "use-outline", label: "Use outline" },

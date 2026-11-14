@@ -42,10 +42,3 @@ test("dark rooms get a 25 % fill, a 40 % active fill and an opaque stroke; light
   expect(light.roomFill).toBe("rgba(3,169,244,0.1)");
   expect(light.roomEdge).toBe("rgba(3,169,244,0.7)");
 });
-
-test("map buildings are outlined in the secondary text colour", () => {
-  document.body.style.setProperty("--secondary-text-color", "rgb(10, 20, 30)");
-  const paint = readMapPaint(document.body, true);
-  expect(paint.mapBuildingEdge).toBe("rgba(10,20,30,1)");
-  expect(layerColours(paint)["spatial-map-buildings"]).toEqual({ "line-color": "rgba(10,20,30,1)" });
-});

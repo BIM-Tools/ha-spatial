@@ -811,6 +811,7 @@ class SpatialPanel extends LitElement {
     // MapLibre fixes interactivity at creation, so a new option rebuilds the map.
     if (changed.has("floor") && this._started) this._stop();
     this._followStep();
+    this._outlineBuildings();
     const previous = changed.get("hass") as Hass | undefined;
     if (previous && this.hass) {
       // Home Assistant hands over a new themes object only when the theme changes.
@@ -904,6 +905,7 @@ class SpatialPanel extends LitElement {
     this._floorLabels = undefined;
     this._map?.remove();
     this._map = undefined;
+    this._buildingEdges.clear();
     this._started = false;
   }
 
@@ -1024,7 +1026,11 @@ class SpatialPanel extends LitElement {
     this._floorLabels = new FloorLabels(map);
     this._showLabels();
     this._showFloorLabels();
-    map.on("style.load", () => this._addAreas());
+    map.on("style.load", () => {
+      this._addAreas();
+      this._buildingEdges.clear();
+      this._outlineBuildings();
+    });
     this._zoomedOut = map.getZoom() < PICK_MIN_ZOOM;
     map.on("zoomend", () => {
       this._zoomedOut = map.getZoom() < PICK_MIN_ZOOM;
@@ -1182,7 +1188,7 @@ class SpatialPanel extends LitElement {
       id: "areas-outline",
       type: "line",
       source: "areas",
-      paint: { ...colours["areas-outline"], "line-width": 1.5 },
+      paint: { ...colours["areas-outline"], "line-width": this._darkMode ? 2 : 1.5 },
     });
     if (this._editor) {
       map.addLayer({
@@ -1271,6 +1277,7 @@ class SpatialPanel extends LitElement {
     requestAnimationFrame(() => {
       if (!this._map?.getLayer("areas-2d") || !this.hass) return;
       repaint(this._map, this._readPaint());
+      this._outlineBuildings(true);
       // Without the map the ground is the page colour, which a theme in the same mode changes too.
       if (this._map.getLayer("ground")) this._map.setPaintProperty("ground", "background-color", this._groundColour());
     });
@@ -1347,9 +1354,30 @@ class SpatialPanel extends LitElement {
     return this._buildingAt([event.lngLat.lng, event.lngLat.lat], event.point, tolerancePx);
   }
 
+  // While the guide asks for the home or a wall, the map's buildings get a 1 px outline (the width of a fill
+  // outline) on the dark map, where they need it; the light map keeps its own. Their own outline comes back afterwards. A new style has
+  // new layers, so its load clears `_buildingEdges` and paints again.
+  private _buildingEdges = new Map<string, unknown>();
+  private _outlineBuildings(force = false) {
+    const map = this._map;
+    if (!map) return;
+    const layers = map.getStyle()?.layers;
+    if (!layers) return;
+    const kind = this._step()?.kind;
+    const on = this._darkMode && (kind === "pick" || kind === "align");
+    if (!force && on === Boolean(this._buildingEdges.size)) return;
+    for (const layer of layers) {
+      if (layer.type !== "fill" || layer["source-layer"] !== "buildings") continue;
+      if (!this._buildingEdges.has(layer.id)) this._buildingEdges.set(layer.id, map.getPaintProperty(layer.id, "fill-outline-color"));
+      const edge = on ? this._readPaint().mapBuildingEdge : this._buildingEdges.get(layer.id);
+      map.setPaintProperty(layer.id, "fill-outline-color", edge as string);
+      if (!on) this._buildingEdges.delete(layer.id);
+    }
+  }
+
   // The ids of the style's layers that draw the map tiles' buildings; none while the map is hidden.
   private _buildingLayers(): string[] {
-    return (this._map?.getStyle().layers ?? [])
+    return (this._map?.getStyle()?.layers ?? [])
       .filter((layer) => "source-layer" in layer && layer["source-layer"] === "buildings")
       .map((layer) => layer.id);
   }

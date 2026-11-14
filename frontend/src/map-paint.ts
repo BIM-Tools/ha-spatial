@@ -156,7 +156,6 @@ export const layerColours = (paint: MapPaint): LayerColours => ({
   "stack-room-edges": { "fill-extrusion-color": paint.stackRoomEdge },
   "areas-2d": { "fill-color": paint.roomFill },
   "areas-outline": { "line-color": paint.roomEdge },
-  "spatial-map-buildings": { "line-color": paint.mapBuildingEdge },
   "spatial-outline": { "line-color": paint.building },
   "spatial-wall": { "line-color": paint.primary },
   "spatial-active-fill": { "fill-color": paint.activeRoomFill },
