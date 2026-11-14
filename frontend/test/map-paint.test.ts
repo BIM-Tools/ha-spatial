@@ -32,3 +32,12 @@ test("the snap highlight is painted in the accent colour, its dots on the card b
 test.each([false, true])("an unset accent falls back to Home Assistant's default orange (dark %s)", (dark) => {
   expect(readMapPaint(document.body, dark).accent).toBe("rgba(255,152,0,1)");
 });
+
+test("rooms with a value get their own fill and a neutral edge, the others the plain ones", () => {
+  const paint = readMapPaint(document.body, false);
+  const colours = layerColours(paint, { a: "rgb(1,2,3)", b: undefined });
+  expect(colours["areas-2d"]["fill-color"]).toEqual(["match", ["get", "area_id"], "a", "rgb(1,2,3)", paint.roomFill]);
+  expect(colours["areas-outline"]["line-color"]).toEqual(["match", ["get", "area_id"], "a", "rgba(0,0,0,0.22)", paint.roomEdge]);
+  expect(layerColours(paint)["areas-2d"]["fill-color"]).toBe(paint.roomFill);
+  expect(readMapPaint(document.body, true).valueEdge).toBe("rgba(255,255,255,0.28)");
+});

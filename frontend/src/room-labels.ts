@@ -149,6 +149,7 @@ export class RoomLabels {
   private _rooms: Feature<Polygon>[] = [];
   private _outline?: Polygon;
   private _areas: Record<string, AreaInfo> = {};
+  private _values: Record<string, string> = {};
   private _pointed?: string;
   private _hidden = new Set<string>();
   private _labels = new Map<string, Label>();
@@ -170,9 +171,13 @@ export class RoomLabels {
     this.show([], undefined, {});
   }
 
-  /** The rooms of the floor on screen (none for all floors), the building outline and Home Assistant's areas. */
-  show(rooms: Feature<Polygon>[], outline: Polygon | undefined, areas: Record<string, AreaInfo>) {
+  /**
+   * The rooms of the floor on screen (none for all floors), the building outline and Home Assistant's areas.
+   * A room's value shows under its name where the m² would, so a card with values keeps the same fit steps.
+   */
+  show(rooms: Feature<Polygon>[], outline: Polygon | undefined, areas: Record<string, AreaInfo>, values: Record<string, string> = {}) {
     this._rooms = rooms;
+    this._values = values;
     this._outline = outline;
     this._areas = areas;
     this.update();
@@ -198,14 +203,15 @@ export class RoomLabels {
       if (this._hidden.has(areaId)) continue;
       const rings = room.geometry.coordinates.map((ring) => ring.map((position) => this._toScreen(position)));
       const space = labelSpace(rings);
-      const step = labelStep(rings, space.at, this._withSize);
+      const value = this._values[areaId];
+      const step = labelStep(rings, space.at, this._withSize || value !== undefined);
       if (step === "none") continue;
       kept.add(areaId);
       const label = this._labels.get(areaId) ?? this._newLabel(areaId);
       const area = this._areas[areaId];
       const name = area?.name ?? String(room.properties?.name ?? areaId);
       const icon = area?.icon || FALLBACK_ICON;
-      const size = step === "size" ? formatArea(Number(room.properties?.area_m2), this._units()) : "";
+      const size = step !== "size" ? "" : this._withSize ? formatArea(Number(room.properties?.area_m2), this._units()) : (value ?? "");
       const chip = step === "icon" && areaId === this._pointed;
       const shown = JSON.stringify([step, name, icon, size, chip, Math.floor(space.width)]);
       if (shown !== label.shown) {

@@ -85,6 +85,8 @@ export interface MapPaint {
   accent: string;
   roomFill: string;
   roomEdge: string;
+  // The edge of a room coloured by its data, neutral so the fill carries the meaning.
+  valueEdge: string;
   // Drawn over the room's own fill, so together they make the active fill.
   activeRoomFill: string;
   building: string;
@@ -127,6 +129,7 @@ export const readMapPaint = (element: Element, dark: boolean): MapPaint => {
     accent: rgba(color("--accent-color")),
     roomFill: rgba(primary, roomOpacity),
     roomEdge: rgba(primary, dark ? 0.75 : 0.7),
+    valueEdge: dark ? "rgba(255,255,255,0.28)" : "rgba(0,0,0,0.22)",
     activeRoomFill: rgba(primary, 1 - (1 - activeOpacity) / (1 - roomOpacity)),
     // A neutral grey between the two text colours: #5a5a5a on the light default, #bebebe on the dark one.
     building: rgba(mix(color("--primary-text-color"), color("--secondary-text-color"), dark ? 0.5 : 0.3)),
@@ -146,13 +149,27 @@ const apart = (warning: string, otherwise: string) => ["case", ["==", ["get", "a
 
 export type LayerColours = Record<string, Record<string, unknown>>;
 
+/** The fill of each room that has a value, by area id; the others keep the plain fill. */
+export type RoomFills = Record<string, string | undefined>;
+
+// A match on the area id, or the plain colour when no room has one.
+const perRoom = (fills: [string, string][], otherwise: string) =>
+  fills.length ? ["match", ["get", "area_id"], ...fills.flat(), otherwise] : otherwise;
+
 /** The colour paint of every layer the panel adds, by layer id; widths and dashes stay with each layer. */
-export const layerColours = (paint: MapPaint): LayerColours => ({
+export const layerColours = (paint: MapPaint, rooms: RoomFills = {}): LayerColours => {
+  const coloured = Object.entries(rooms).filter((entry): entry is [string, string] => entry[1] !== undefined);
+  return {
+    ...baseColours(paint),
+    "areas-2d": { "fill-color": perRoom(coloured, paint.roomFill) },
+    "areas-outline": { "line-color": perRoom(coloured.map(([id]) => [id, paint.valueEdge]), paint.roomEdge) },
+  };
+};
+
+const baseColours = (paint: MapPaint): LayerColours => ({
   "stack-outline": { "fill-extrusion-color": paint.building },
   "stack-rooms": { "fill-extrusion-color": paint.stackRoom },
   "stack-room-edges": { "fill-extrusion-color": paint.stackRoomEdge },
-  "areas-2d": { "fill-color": paint.roomFill },
-  "areas-outline": { "line-color": paint.roomEdge },
   "spatial-outline": { "line-color": paint.building },
   "spatial-wall": { "line-color": paint.primary },
   "spatial-active-fill": { "fill-color": paint.activeRoomFill },
@@ -180,8 +197,8 @@ export const layerColours = (paint: MapPaint): LayerColours => ({
 type PaintArguments = Parameters<MapLibreMap["setPaintProperty"]>;
 
 /** Repaints the layers already on the map, after a theme change. */
-export const repaint = (map: MapLibreMap, paint: MapPaint) => {
-  for (const [layerId, properties] of Object.entries(layerColours(paint))) {
+export const repaint = (map: MapLibreMap, paint: MapPaint, rooms: RoomFills = {}) => {
+  for (const [layerId, properties] of Object.entries(layerColours(paint, rooms))) {
     if (!map.getLayer(layerId)) continue;
     for (const [property, value] of Object.entries(properties)) {
       map.setPaintProperty(layerId, property as PaintArguments[1], value as PaintArguments[2]);
