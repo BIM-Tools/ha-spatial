@@ -1237,7 +1237,8 @@ def render_states(
                 results[key] = f"Skipped: {reason}"
                 print(f"SKIP {state.id} {theme} {width}: {reason}")
             except PlaywrightTimeoutError as error:
-                results[key] = f"Skipped: timeout, {str(error).splitlines()[0]}"
+                first_line = str(error).partition("\n")[0]
+                results[key] = f"Skipped: timeout, {first_line}"
                 print(f"SKIP {state.id} {theme} {width}: {results[key]}")
             finally:
                 shot.release()
