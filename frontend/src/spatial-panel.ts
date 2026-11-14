@@ -1152,7 +1152,7 @@ class SpatialPanel extends LitElement {
       null;
     const outline = this._state.outline.type === "Polygon" ? this._state.outline : undefined;
     const pixelM = metresForPixels(1, zoom, frame.fromLattice([0, 0])[1]);
-    this._stack = floorStack(rooms, outline, stackFloors(rooms, levelOf), frame, pixelM);
+    this._stack = floorStack(rooms, outline, stackFloors(rooms, levelOf, Object.keys(this.hass?.floors ?? {})), frame, pixelM);
     this._map?.getSource<GeoJSONSource>("stack")?.setData(this._stack.features);
     this._showFloorLabels();
   }
