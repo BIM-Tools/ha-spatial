@@ -5,12 +5,30 @@ import type { Feature, Polygon } from "geojson";
 import { css } from "lit";
 import { Marker, type Map as MapLibreMap } from "maplibre-gl";
 import polylabel from "polylabel";
+import { type ScreenBox, type Size, placeLabels } from "./draft-labels";
 import { type HassUnits, formatArea } from "./units";
 
 type Point = [number, number];
 
+// A name chip's centre from its label's centre; `legacy` leaves it to the CSS, above the label, for a room too large to be small.
+interface ChipPlace {
+  x: number;
+  y: number;
+  legacy?: boolean;
+}
+
 /** What a room's label shows: everything, icon and name, the icon, or nothing. */
 export type LabelStep = "size" | "name" | "icon" | "none";
+
+// How long a tap on a room keeps its name chip, in milliseconds.
+// The shorter side of a room on screen under which its chip is placed by the rule, as in `placeLabels`.
+const SMALL_PX = 60;
+const TAP_MS = 2000;
+// The chip's size where the element cannot be measured: 24 px high, about 7 px a letter.
+const chipSize = (element: HTMLElement | null, name: string): Size => ({
+  width: element?.offsetWidth || name.length * 7 + 16,
+  height: element?.offsetHeight || 24,
+});
 
 const FALLBACK_ICON = "mdi:home-outline";
 // Building label offset from the outline's top-left corner, in pixels.
@@ -117,6 +135,14 @@ export const roomLabelStyles = css`
   .room-label .size.live {
     color: var(--primary-text-color);
   }
+  /* Placed by the one rule: --chip-x and --chip-y are the chip's centre from the label's centre. */
+  .room-label .chip.placed {
+    bottom: auto;
+    margin: 0;
+    left: 50%;
+    top: 50%;
+    transform: translate(calc(-50% + var(--chip-x)), calc(-50% + var(--chip-y)));
+  }
   .room-label .chip {
     position: absolute;
     bottom: 100%;
@@ -155,6 +181,9 @@ export class RoomLabels {
   private _areas: Record<string, AreaInfo> = {};
   private _texts: Record<string, string> = {};
   private _pointed?: string;
+  private _active?: string;
+  private _tapTimer?: ReturnType<typeof setTimeout>;
+  private _boxes: ScreenBox[] = [];
   private _hidden = new Set<string>();
   private _labels = new Map<string, Label>();
   private _building?: Marker;
@@ -172,6 +201,7 @@ export class RoomLabels {
   destroy() {
     this._map.off("move", this.update);
     this._map.off("resize", this.update);
+    clearTimeout(this._tapTimer);
     this.show([], undefined, {});
   }
 
@@ -187,8 +217,32 @@ export class RoomLabels {
     this.update();
   }
 
-  /** The room under the pointer, or the last tapped one; an icon-only room then names itself in a chip. */
+  /** The room under the pointer; a room too small to name itself then does so in a chip. */
   point(areaId: string | undefined) {
+    clearTimeout(this._tapTimer);
+    this._set(areaId);
+  }
+
+  /** A tap on a room: its chip shows for 2 s. */
+  tap(areaId: string) {
+    clearTimeout(this._tapTimer);
+    this._set(areaId);
+    this._tapTimer = setTimeout(() => this._set(undefined), TAP_MS);
+  }
+
+  /** The room being edited; while small, it keeps its name chip. */
+  activate(areaId: string | undefined) {
+    if (areaId === this._active) return;
+    this._active = areaId;
+    this.update();
+  }
+
+  /** The screen boxes (map container pixels) of the labels and name chips shown now, for others to keep clear of. */
+  boxes(): ScreenBox[] {
+    return this._boxes;
+  }
+
+  private _set(areaId: string | undefined) {
     if (areaId === this._pointed) return;
     this._pointed = areaId;
     this.update();
@@ -202,6 +256,8 @@ export class RoomLabels {
 
   update = () => {
     const kept = new Set<string>();
+    const rooms = [];
+    const labelBoxes: ScreenBox[] = [];
     for (const room of this._rooms) {
       const areaId = String(room.properties?.area_id ?? room.id);
       if (this._hidden.has(areaId)) continue;
@@ -209,14 +265,53 @@ export class RoomLabels {
       const space = labelSpace(rings);
       const text = this._texts[areaId];
       const step = labelStep(rings, space.at, this._withSize || text !== undefined);
-      if (step === "none") continue;
-      kept.add(areaId);
-      const label = this._labels.get(areaId) ?? this._newLabel(areaId);
+      const [, width, height] = STEP_SPACE.find(([name]) => name === step) ?? [step, 0, 0];
+      if (step !== "none") labelBoxes.push({ centre: { x: space.at[0], y: space.at[1] }, size: { width, height } });
+      rooms.push({ room, areaId, rings, space, text, step, labelSize: { width, height } });
+    }
+    const chipBoxes: ScreenBox[] = [];
+    for (const { room, areaId, rings, space, text, step, labelSize } of rooms) {
       const area = this._areas[areaId];
       const name = area?.name ?? String(room.properties?.name ?? areaId);
+      const outer = rings[0].slice(0, -1);
+      const xs = outer.map(([x]) => x);
+      const ys = outer.map(([, y]) => y);
+      const box = { width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
+      const centre = { x: (Math.max(...xs) + Math.min(...xs)) / 2, y: (Math.max(...ys) + Math.min(...ys)) / 2 };
+      const small = Math.min(box.width, box.height) < SMALL_PX;
+      const named = step === "size" || step === "name";
+      // Pointed at or tapped, a room that cannot name itself does so in a chip; the active small room always does.
+      const wantChip = (areaId === this._pointed && !named) || (areaId === this._active && small);
+      let chip: ChipPlace | undefined;
+      if (wantChip && small) {
+        const label = this._labels.get(areaId)?.marker.getElement().querySelector<HTMLElement>(".chip") ?? null;
+        const size = chipSize(label, name);
+        const sides = outer.map(([x, y], index) => {
+          const [nx, ny] = outer[(index + 1) % outer.length];
+          return { midpoint: { x: (x + nx) / 2, y: (y + ny) / 2 }, edge: { x: nx - x, y: ny - y } };
+        });
+        const own = labelBoxes.filter(({ centre: c }) => !(c.x === space.at[0] && c.y === space.at[1]));
+        const container = this._map.getContainer();
+        const viewport = container.clientWidth ? { width: container.clientWidth, height: container.clientHeight } : undefined;
+        const { name: offset } = placeLabels({
+          sides,
+          sideSizes: sides.map(() => ({ width: 0, height: 0 })),
+          box,
+          area: { centre, size: labelSize },
+          controls: [...own, ...chipBoxes],
+          name: size,
+          viewport,
+        });
+        if (offset) {
+          chip = { x: centre.x - space.at[0] + offset.x, y: centre.y - space.at[1] + offset.y };
+          chipBoxes.push({ centre: { x: centre.x + offset.x, y: centre.y + offset.y }, size });
+        }
+      } else if (wantChip) chip = { x: 0, y: 0, legacy: true };
+      if (step === "none" && !chip) continue;
+      kept.add(areaId);
+      const label = this._labels.get(areaId) ?? this._newLabel(areaId);
       const icon = area?.icon || FALLBACK_ICON;
       const size = step !== "size" ? "" : (text ?? formatArea(Number(room.properties?.area_m2), this._units()));
-      const chip = step === "icon" && areaId === this._pointed;
       const shown = JSON.stringify([step, name, icon, size, text !== undefined, chip, Math.floor(space.width)]);
       if (shown !== label.shown) {
         label.shown = shown;
@@ -229,6 +324,7 @@ export class RoomLabels {
       label.marker.remove();
       this._labels.delete(areaId);
     }
+    this._boxes = [...labelBoxes, ...chipBoxes];
     this._placeBuildingLabel();
   };
 
@@ -248,7 +344,7 @@ export class RoomLabels {
 
   private _fill(
     element: HTMLElement,
-    { step, name, icon, size, live, chip, width }: { step: LabelStep; name: string; icon: string; size: string; live: boolean; chip: boolean; width: number },
+    { step, name, icon, size, live, chip, width }: { step: LabelStep; name: string; icon: string; size: string; live: boolean; chip?: ChipPlace; width: number },
   ) {
     element.dataset.step = step;
     // Named at every step, also when only the icon shows.
@@ -257,12 +353,17 @@ export class RoomLabels {
     element.style.setProperty("--label-width", `${Math.max(0, Math.floor(width) - 8)}px`);
     const iconElement = document.createElement("ha-icon");
     iconElement.setAttribute("icon", icon);
-    const parts: HTMLElement[] = [iconElement];
+    const parts: HTMLElement[] = step === "none" ? [] : [iconElement];
     const text = (className: string, content: string) =>
       Object.assign(document.createElement("span"), { className, textContent: content });
     if (step !== "icon") parts.push(text("name", name));
     if (size) parts.push(text(live ? "size live" : "size", size));
-    if (chip) parts.unshift(text("chip", name));
+    if (chip) {
+      const chipElement = text(chip.legacy ? "chip" : "chip placed", name);
+      chipElement.style.setProperty("--chip-x", `${chip.x}px`);
+      chipElement.style.setProperty("--chip-y", `${chip.y}px`);
+      parts.unshift(chipElement);
+    }
     element.replaceChildren(...parts);
   }
 
