@@ -2,7 +2,7 @@
 // Checks how the panel wires an edge or corner drag in Select: what it saves, records, hides and shows.
 import type { Polygon, Position } from "geojson";
 import { afterEach, expect, test, vi } from "vitest";
-import { EMPTY, buttonNamed, handlers, liveMarkers, mapCanvas, onUpdateOf, resetFakes, settle, sources } from "./panel-harness";
+import { EMPTY, buttonNamed, handlers, liveMarkers, mapCanvas, onUpdateOf, queryRenderedFeatures, resetFakes, settle, sources } from "./panel-harness";
 import {
   FRAME,
   KITCHEN,
@@ -62,6 +62,10 @@ const sideAt = (edgeIndex: number) => {
   const marker = liveMarkers().find((each) => each.element.firstElementChild === sideButtons()[edgeIndex])!;
   return FRAME.toLatticeUnits(marker.lngLat!).map((units) => Math.round(units));
 };
+// Where a side's Marker sits against its midpoint, in pixels, and whether its control shows.
+const sideOffset = (edgeIndex: number) => liveMarkers().find((each) => each.element.firstElementChild === sideButtons()[edgeIndex])!.offset;
+const sideShown = (edgeIndex: number) =>
+  liveMarkers().find((each) => each.element.firstElementChild === sideButtons()[edgeIndex])!.element.style.visibility !== "hidden";
 const kitchenLabelShown = () => liveMarkers().some((marker) => marker.element.matches('.room-label[data-area="kitchen"]'));
 
 const dragThrough = (points: [number, number][]) => {
@@ -87,8 +91,9 @@ test("an edge drag counts the width on its chip in place, rings the held side, h
   handlers.mousemove(mouse(-19.2, 25));
   expect(sideTexts()).toEqual(["", "", "7.00 m", "5.00 m"]);
   expect(sideAt(2)).toEqual([60, -200]);
-  expect(sideAt(3)).toEqual([-80, -100]);
-  expect(held()).toEqual([false, false, false, true]);
+  // The 5.00 m depth chip of this small room stands at the right side.
+  expect(sideAt(3)).toEqual([200, -100]);
+  expect(held()).toEqual([false, true, false, false]);
   expect(draftLabels()).toEqual([]);
   expect(kitchenLabelShown()).toBe(false);
   handlers.mouseup(mouse(-19.2, 25));
@@ -174,7 +179,7 @@ test("a refresh during an edge drag keeps the side controls on the draft, and th
   await onUpdateOf(connection)();
   await settle(panel);
   expect(sideTexts()).toEqual(["", "", "6.30 m", "5.00 m"]);
-  expect(held()).toEqual([false, false, false, true]);
+  expect(held()).toEqual([false, true, false, false]);
   handlers.mouseup(mouse(-19.2, 25));
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
   expect(cornerSet(saves(connection)[0].areas.kitchen)).toEqual(latticeBox(-80, -200, 200, 0));
@@ -228,19 +233,23 @@ const pressChip = (chip: HTMLElement, points: [number, number][]) => {
 };
 
 test("dragging a side chip stretches its own edge and saves once, without opening the field or pressing the map", async () => {
-  const { panel, connection } = await selectKitchen();
+  const { panel, connection, setFeed } = await selectKitchen();
+  // A room of 200 x 150 px, whose left chip stands at its own side.
+  setFeed([feature("kitchen", pixelBox(0, 0, 200, 150))]);
+  await onUpdateOf(connection)();
+  await settle(panel);
   // The left edge's chip, pressed 15 px inside the room: beyond the edge's snap radius.
   const left = sideButtons()[3];
   const reached: string[] = [];
   left.parentElement!.addEventListener("mousedown", () => reached.push("mousedown"));
   left.dispatchEvent(new MouseEvent("mousedown", { button: 0, bubbles: true }));
   pressChip(left, [
-    [15, 25],
-    [5, 25],
-    [-5, 25],
+    [15, 75],
+    [5, 75],
+    [-5, 75],
   ]);
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
-  expect(cornerSet(saves(connection)[0].areas.kitchen)).toEqual(latticeBox(-80, -200, 200, 0));
+  expect(cornerSet(saves(connection)[0].areas.kitchen)).toEqual(latticeBox(-80, -600, 800, 0));
   await settle(panel);
   expect(sideField()).toBeUndefined();
   expect(reached).toEqual([]);
@@ -254,14 +263,15 @@ test("a tap on a grip opens the length field filled with its side's length and s
   expect(saves(connection)).toEqual([]);
 });
 
-test("dragging a grip rings it and counts the length on the opposite side's chip", async () => {
+test("dragging the depth chip that stands at the right side rings it alone and counts the width on the bottom chip", async () => {
   const { panel, connection } = await selectKitchen();
-  const right = sideButtons()[1];
+  const right = sideButtons()[3];
   pointer(right, "pointerdown", [50, 25]);
   pointer(right, "pointermove", [60, 25]);
-  expect(held()).toEqual([false, true, false, false]);
+  // The chip stands at the right side and the right grip moved to the left: only the chip is ringed.
+  expect(held()).toEqual([false, false, false, true]);
   expect(sideTexts()).toEqual(["", "", "6.00 m", "5.00 m"]);
-  expect(sideAt(1)).toEqual([240, -100]);
+  expect(sideAt(3)).toEqual([240, -100]);
   pointer(right, "pointerup", [60, 25]);
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
   expect(cornerSet(saves(connection)[0].areas.kitchen)).toEqual(latticeBox(0, -200, 240, 0));
@@ -318,4 +328,54 @@ test.each<[string, boolean, string, boolean]>([
     [CHIP_LABEL, minimum, minimum, chipMark ? "" : null, "5.00 m"],
     [CHIP_LABEL, minimum, minimum, chipMark ? "" : null, "5.00 m"],
   ]);
+});
+
+// The placement rule at work on the side controls: an unmeasured pill is 0 x 0 px, so a chip sits 8 px off its edge.
+test("a room of 200 x 150 px keeps its two chips 8 px outside the bottom and left sides and its grips on their edges", async () => {
+  const { panel, connection, setFeed } = await selectKitchen();
+  setFeed([feature("kitchen", pixelBox(0, 0, 200, 150))]);
+  await onUpdateOf(connection)();
+  await settle(panel);
+  expect([0, 1, 2, 3].map(sideOffset).map((offset) => offset!.map((n) => Math.round(n) + 0))).toEqual([[0, 0], [0, 0], [0, 8], [-8, 0]]);
+  expect([0, 1, 2, 3].map(sideShown)).toEqual([true, true, true, true]);
+});
+
+test("a room under 60 px shows its width chip below and its depth chip right of it, and hides the grips", async () => {
+  await selectKitchen();
+  // The depth chip is the left side's, moved to the right side, where the rule puts it.
+  expect(sideOffset(2)).toEqual([0, 8]);
+  expect(sideOffset(3)).toEqual([8, 0]);
+  expect(FRAME.toLatticeUnits(liveMarkers().find((each) => each.element.firstElementChild === sideButtons()[3])!.lngLat!).map(Math.round)).toEqual([200, -100]);
+  expect([0, 1, 2, 3].map(sideShown)).toEqual([false, false, true, true]);
+});
+
+test("a press on a chip of a small room brings the grips back", async () => {
+  await selectKitchen();
+  pointer(sideButtons()[2], "pointerdown", [25, 50]);
+  expect([0, 1, 2, 3].map(sideShown)).toEqual([true, true, true, true]);
+});
+
+test("once the grips are revealed a small room has exactly one control on each of its four sides", async () => {
+  await selectKitchen();
+  pointer(sideButtons()[2], "pointerdown", [25, 50]);
+  // Top, left (the right grip moved over, as its chip left), bottom, right (the depth chip).
+  expect([0, 1, 2, 3].map(sideAt).map((at) => at.map((n) => n + 0))).toEqual([
+    [100, 0],
+    [0, -100],
+    [100, -200],
+    [200, -100],
+  ]);
+});
+
+test("after the room is deselected a map move leaves its removed side markers alone", async () => {
+  const { panel } = await selectKitchen();
+  const removed = liveMarkers().filter((marker) => marker.element.firstElementChild instanceof HTMLButtonElement);
+  expect(removed).toHaveLength(4);
+  queryRenderedFeatures.mockReturnValue([]);
+  handlers.click(mouse(300, 300));
+  await settle(panel);
+  expect(sideButtons()).toEqual([]);
+  for (const marker of removed) marker.offset = [99, 99];
+  handlers.move();
+  expect(removed.map((marker) => marker.offset)).toEqual([[99, 99], [99, 99], [99, 99], [99, 99]]);
 });

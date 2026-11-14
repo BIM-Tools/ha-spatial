@@ -48,6 +48,7 @@ export interface FakeMarker {
   removed: boolean;
   element: HTMLElement;
   lngLat?: [number, number];
+  offset?: [number, number];
 }
 export let markers: FakeMarker[] = [];
 export const liveMarkers = () => markers.filter((marker) => !marker.removed);
@@ -122,6 +123,7 @@ export const fakeMapLibre = {
     removed = false;
     element: HTMLElement;
     lngLat?: [number, number];
+    offset?: [number, number];
     constructor(options: { element?: HTMLElement } = {}) {
       this.element = options.element ?? document.createElement("div");
       markers.push(this);
@@ -133,7 +135,8 @@ export const fakeMapLibre = {
     getElement() {
       return this.element;
     }
-    setOffset() {
+    setOffset(offset?: [number, number]) {
+      this.offset = offset;
       return this;
     }
     addTo() {

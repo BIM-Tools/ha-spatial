@@ -265,6 +265,13 @@ test.each<[string, PlanFrame, [number, number][], LatticePoint[] | undefined]>([
   ],
   ["a wall a little over one map tile unit across, 5 degrees off over 4 m, stays diagonal", METRIC, [[0, 0], [400, 0], [415, 160], [415, 320], [0, 320]], [[6, 6], [395, 6], [409, 160], [409, 314], [6, 314]]],
   ["a 5 cm jog in a long wall straightens into one line", METRIC, [[0, 0], [100, 0], [100, 2], [400, 2], [400, 320], [0, 320]], [[6, 7], [394, 7], [394, 314], [6, 314]]],
+  // Jogs under 0.5 m (20 lattice units) merge into the longer neighbouring side's line; longer ones stay.
+  ["a 30 cm jog merges into the longer side before it", METRIC, [[0, 0], [300, 0], [300, 12], [400, 12], [400, 320], [0, 320]], [[6, 6], [394, 6], [394, 314], [6, 314]]],
+  ["a 30 cm jog merges into the longer side after it", METRIC, [[0, 0], [100, 0], [100, 12], [400, 12], [400, 320], [0, 320]], [[6, 18], [394, 18], [394, 314], [6, 314]]],
+  ["a 60 cm jog stays", METRIC, [[0, 0], [300, 0], [300, 24], [400, 24], [400, 320], [0, 320]], [[6, 6], [294, 6], [294, 30], [394, 30], [394, 314], [6, 314]]],
+  ["two 30 cm jogs on one wall merge", METRIC, [[0, 0], [100, 0], [100, 12], [250, 12], [250, 24], [400, 24], [400, 320], [0, 320]], [[6, 18], [394, 18], [394, 314], [6, 314]]],
+  ["a jog at the ring's start corner merges", METRIC, [[0, 12], [0, 320], [400, 320], [400, 0], [100, 0], [100, 12]], [[6, 6], [394, 6], [394, 314], [6, 314]]],
+  ["an L keeps its notch", METRIC, [[0, 0], [400, 0], [400, 160], [200, 160], [200, 320], [0, 320]], [[6, 6], [394, 6], [394, 154], [194, 154], [194, 314], [6, 314]]],
   ["150 mm is about six inches in a US customary frame", INCHES, [[0, 0], [400, 0], [400, 320], [0, 320]], [[6, 6], [394, 6], [394, 314], [6, 314]]],
   ["a 20 cm wide part disappears and the main body stays", METRIC, [[0, 0], [400, 0], [400, 320], [208, 320], [208, 400], [200, 400], [200, 320], [0, 320]], [[6, 6], [394, 6], [394, 314], [6, 314]]],
   ["a 20 cm neck splits the building and the larger part stays", METRIC, [[0, 0], [400, 0], [400, 100], [440, 100], [440, 0], [560, 0], [560, 200], [440, 200], [440, 108], [400, 108], [400, 320], [0, 320]], [[6, 6], [394, 6], [394, 314], [6, 314]]],

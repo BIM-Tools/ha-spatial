@@ -159,3 +159,71 @@ test("a second-line text replaces the m², is marked live, and goes before the n
   expect(shown("hall")).toMatchObject({ name: "Hall", size: undefined });
   expect(labelOf("living")?.querySelector(".size")?.classList.contains("live")).toBe(true);
 });
+
+// A tiny room pointed at, tapped or active names itself in a chip that the one placement rule puts above it.
+const chipOf = (areaId: string) => labelOf(areaId)?.querySelector<HTMLElement>(".chip");
+
+test.each([
+  ["pointed at", (labels: RoomLabels) => labels.point("shaft"), true],
+  ["tapped", (labels: RoomLabels) => labels.tap("shaft"), true],
+  ["not pointed", () => undefined, false],
+])("a room too small for any label: %s", (_case, act, chip) => {
+  const labels = mountLabels([pixelRoom("shaft", [500, 100], [515, 115])], true, AREAS);
+  act(labels);
+  expect(chipOf("shaft")?.textContent).toBe(chip ? "Shaft" : undefined);
+  if (chip) {
+    expect(labelOf("shaft")?.querySelector("ha-icon")).toBeNull();
+    // Above the room's box: the chip's centre is higher than the box's centre.
+    expect(Number(chipOf("shaft")?.style.getPropertyValue("--chip-y").replace("px", ""))).toBeLessThan(0);
+  }
+});
+
+test("a pointed room that is not small and shows only its icon gets its chip from the same rule, above its box", () => {
+  const labels = mountLabels([pixelRoom("wc", [400, 100], [465, 165])], true, AREAS);
+  expect(chipOf("wc")).toBeFalsy();
+  labels.point("wc");
+  expect(chipOf("wc")?.textContent).toBe("WC");
+  expect(Number(chipOf("wc")?.style.getPropertyValue("--chip-y").replace("px", ""))).toBeLessThan(-32);
+});
+
+test("a tap shows the chip for 2 s", () => {
+  vi.useFakeTimers();
+  try {
+    const labels = mountLabels([pixelRoom("shaft", [500, 100], [515, 115])], true, AREAS);
+    labels.tap("shaft");
+    vi.advanceTimersByTime(1999);
+    expect(chipOf("shaft")).toBeTruthy();
+    vi.advanceTimersByTime(2);
+    expect(labelOf("shaft")).toBeUndefined();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("an active small room shows its chip, a large one does not", () => {
+  const labels = mountLabels([pixelRoom("hall", [300, 100], [380, 150]), pixelRoom("living", [0, 0], [200, 120])], true, AREAS);
+  labels.activate("hall");
+  expect(chipOf("hall")?.textContent).toBe("Hall");
+  labels.activate("living");
+  expect(chipOf("hall")).toBeFalsy();
+  expect(chipOf("living")).toBeFalsy();
+});
+
+test("boxes leaves out the active room's own label", () => {
+  const labels = mountLabels([pixelRoom("living", [0, 0], [200, 120]), pixelRoom("hall", [300, 0], [500, 120])], true, AREAS);
+  expect(labels.boxes()).toHaveLength(2);
+  labels.activate("hall");
+  expect(labels.boxes()).toHaveLength(1);
+  expect(labels.boxes()[0].centre.x).toBeLessThan(250);
+});
+
+test("boxes lists every shown label and chip in map pixels", () => {
+  const labels = mountLabels([pixelRoom("living", [0, 0], [200, 120]), pixelRoom("shaft", [500, 100], [515, 115])], true, AREAS);
+  expect(labels.boxes()).toHaveLength(1);
+  expect(labels.boxes()[0].centre.y).toBeCloseTo(60);
+  labels.point("shaft");
+  const boxes = labels.boxes();
+  expect(boxes).toHaveLength(2);
+  expect(boxes[1].centre.x).toBeCloseTo(507.5);
+  expect(boxes[1].centre.y).toBeLessThan(100);
+});

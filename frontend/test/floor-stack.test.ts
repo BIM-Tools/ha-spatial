@@ -9,7 +9,10 @@ import {
   type StackScreen,
   fitStack,
   floorBase,
+  floorLabel,
   floorStack,
+  labelSide,
+  LABEL_SIDE_FREE_PX,
   OUTLINE_PX,
   ROOM_EDGE_PX,
   edgeStrips,
@@ -262,4 +265,41 @@ test("stackView looks from 45 degrees left of the site axis, 35 degrees above th
   const view = stackView(stack, FRAME, 30, { width: 800, height: 600, fovDeg: 36.87 }, { top: 0, right: 0, bottom: 0, left: 0 })!;
   // Site axis 30 lies to the right at map bearing 300.
   expect(view).toMatchObject({ bearing: 255, pitch: 55 });
+});
+
+test.each([
+  { name: "a drawn floor", rooms: 2, expected: { name: "Ground", count: "2 rooms", dashed: false } },
+  { name: "an undrawn floor", rooms: 0, expected: { name: "Ground \u00b7 not drawn", count: undefined, dashed: true } },
+])("floorLabel names $name", ({ rooms, expected }) => {
+  expect(floorLabel("Ground", rooms)).toEqual(expected);
+});
+
+test.each([
+  { right: 119, left: 500, side: "left" },
+  { right: 119, left: 20, side: "right" },
+  { right: 115, left: 20, side: "right" },
+  { right: 119, left: 119, side: "right" },
+  { right: 120, left: 500, side: "right" },
+  { right: 121, left: 500, side: "right" },
+])("labels go with $right px free right and $left left: $side", ({ right, left, side }) => {
+  expect(LABEL_SIDE_FREE_PX).toBe(120);
+  expect(labelSide(right, left)).toBe(side);
+});
+
+test("an undrawn floor joins the stack at its level and is labelled at the outline", () => {
+  const rooms = [room(rectangle(0, 0, 4, 3), "ground"), room(rectangle(0, 0, 4, 3), "attic")];
+  const floors = stackFloors(rooms, levelOf, ["first"]);
+  expect(floors).toEqual(["ground", "first", "attic"]);
+  const stack = floorStack(rooms, rectangle(0, 0, 8, 6), floors, FRAME, PIXEL_M);
+  const first = stack.floors[1];
+  expect(first.rooms).toBe(0);
+  expect(first.corners.length).toBeGreaterThan(0);
+  expect(first.corners.every((corner) => millimetres(corner[2]) === FLOOR_SPACING_M)).toBe(true);
+});
+
+test("an undrawn first floor counts the outline's corners once", () => {
+  const outline = rectangle(0, 0, 8, 6);
+  const stack = floorStack([], outline, ["ground"], FRAME, PIXEL_M);
+  expect(stack.corners).toHaveLength(outline.coordinates[0].length);
+  expect(stack.floors[0].corners).toHaveLength(outline.coordinates[0].length);
 });

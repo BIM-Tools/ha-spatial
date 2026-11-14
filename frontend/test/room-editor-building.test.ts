@@ -3,7 +3,7 @@
 import area from "@turf/area";
 import type { Polygon } from "geojson";
 import { afterEach, expect, test, vi } from "vitest";
-import { buttonNamed, handlers, settle, resetFakes, toasts } from "./panel-harness";
+import { buttonNamed, handlers, liveMarkers, settle, resetFakes, toasts } from "./panel-harness";
 import {
   FRAME,
   pixelBox,
@@ -220,4 +220,12 @@ test.each<[string, (panel: HTMLElement) => Promise<void>, () => void, (outline: 
   chip(panel, "Kitchen").click();
   await settle(panel);
   expect(buildingHighlight()).toBe("none");
+});
+test("a large outline of another shape with a side under 48 px shows a chip on every other side and none on that one", async () => {
+  const mounted = mountEditor(undefined, pixelShape([0, 100], [100, 100], [100, 200], [30, 200], [0, 170]));
+  await startSelecting(mounted.panel);
+  chip(mounted.panel, "Building").click();
+  await settle(mounted.panel);
+  const shown = sideButtons().map((button) => liveMarkers().find((marker) => marker.element.firstElementChild === button)!.element.style.visibility !== "hidden");
+  expect(shown).toEqual([true, true, true, false, true]);
 });
