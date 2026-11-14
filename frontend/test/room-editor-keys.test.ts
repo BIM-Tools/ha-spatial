@@ -39,8 +39,7 @@ afterEach(resetFakes);
 test("in Draw the map pans only while Space is held, and leaving Draw restores panning", async () => {
   const { panel } = mountEditor();
   await showFloor(panel);
-  expect(dragPan.isEnabled()).toBe(true);
-  buttonNamed(panel, "Draw")!.click();
+  // The guide asks to draw a room, so Draw is already current.
   expect(dragPan.isEnabled()).toBe(false);
   key("keydown", " ");
   expect(dragPan.isEnabled()).toBe(true);

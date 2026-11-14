@@ -45,7 +45,7 @@ def onboard():
         "/api/onboarding/users",
         {
             "client_id": CLIENT_ID,
-            "name": "E2E",
+            "name": "Steve",
             "username": USERNAME,
             "password": PASSWORD,
             "language": "en",

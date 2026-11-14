@@ -40,10 +40,11 @@ licence of every bundled package (listed in that workflow) and creates the relea
 | `src/map-stack.ts` | Address search button, map toggle, zoom and compass |
 | `src/address-search.ts` | The Find your home card: field, Search, up to five results, the no result and unavailable states; sends one `spatial/address/search` per Enter or press, never while typing |
 | `src/address.ts` | Pure rules of the address search: when a query may be sent, the street and town lines of a result, where the map goes for it, when Home Assistant has no home location, and whether to offer the home for a picked place (turf's distance, 25 m) |
-| `src/map-paint.ts` | The map layers' colours, read from Home Assistant's theme at style load and on a theme change |
+| `src/map-paint.ts` | The map layers' colours, read from Home Assistant's theme at style load and on a theme change; a room's fill by its value (MapLibre feature state) for a card with `colour_by` |
 | `src/map-cursor.ts` | The map's mouse pointer from the tool and what lies under the pointer |
 | `src/floor-stack.ts` | All floors as an exploded stack of their rooms, pure and in site frame metres: floor order, floor heights, room fills and walls, the outline on the ground, the camera fit from the front corner, and the floor labels beside each floor |
-| `src/room-labels.ts` | Room labels: area icon, name and (in the panel) net area, placed and stepped by the room's size on screen |
+| `src/room-values.ts` | `colour_by`: per area the brightest light that is on, or the temperature (the area's chosen sensor, else the average of its sensors), as the text under the name and the number its colour follows |
+| `src/room-labels.ts` | Room labels: area icon, name and net area in the panel, or the card's live value, placed and stepped by the room's size on screen |
 | `src/styles.ts` | The floating card, pill buttons and phone bar shared by the controls, from Home Assistant's theme tokens |
 | `src/onboarding.ts` | `nextStep`: the guide line's one step and its lit control, derived from the plan every time |
 | `src/room-editor.ts` | The space editor controller: the area strip, what the guide reads of the plan, the map's outline offered to the Building, undo and redo, saving each action, area creation and rename |
@@ -56,12 +57,12 @@ licence of every bundled package (listed in that workflow) and creates the relea
 | `src/edge-drag.ts` | Edge and corner drag of an axis rectangle, or of the outline in any shape, pure and in lattice units: where the dragged edge or corner lands (a rectangle stopped at the outline and the neighbours, an outline corner free and snapped, an outline edge along its normal), which one a pointer grabs, and its cursor |
 | `src/area-strip.ts` | The strip of pills, Building first: order, next area, new area names, rename field, long press, arrow keys |
 | `src/history.ts` | Session undo and redo of footprint and site changes; `clearChange` removes a floor's room shapes, `startOverChange` every shape, the outline, bearing and origin |
-| `src/spatial-card.ts` | The card: wraps the panel element, without the header and tools; loads the panel bundle when created |
-| `src/map-view.ts` | Pure helpers: map bearing, style URL, map tiles token, floor order, room bounds |
+| `src/spatial-card.ts` | The card: wraps the panel element, without the header and tools; validates `colour_by`, and its editor (`getConfigForm`) offers `colour_by` only; loads the panel bundle when created |
+| `src/map-view.ts` | Pure helpers: map bearing, style URL, map tiles token, floor order, room framing |
 | `src/outline.ts` | The OSM building under or nearest a click, the bearing of its nearest wall, with turf, and the fields an Align pick writes |
 | `src/site-frame.ts` | Applies the site frame from `spatial/site`: lon/lat to lattice units and back |
 | `src/plan.ts` | Boxes, side lengths, resizing and moving on the site lattice, and the outline copied from a map building; joining with turf |
-| `src/units.ts` | Lengths, map distances and areas shown in Home Assistant's unit system and number format (metric at lattice precision, US feet and inches with primes), typed lengths read back in metres, and the toast text of a refused gesture (`refusalMessage`) or save (`saveFailure`) |
+| `src/units.ts` | Lengths, map distances and areas shown in Home Assistant's unit system and number format (metric to two decimals, one for the outline size the guide offers, US feet and inches with primes), typed lengths read back in metres, and the toast text of a refused gesture (`refusalMessage`) or save (`saveFailure`) |
 | `test/` | Unit tests (vitest) |
 
 ### Serving
@@ -145,9 +146,10 @@ licence of every bundled package (listed in that workflow) and creates the relea
   question or length check, every floor with its areas and which have a shape, the floor in view,
   tool and active pill) and returns the one step: find the home, choose a floor (on All), align,
   the outline question or drawing it, the length check, the next area to draw, the floor done
-  with Next floor, or done. Its line is the only instruction on screen, and its one lit control
-  gets the tinted fill and 1.5 px ring (`litControl` in `styles.ts`). Nothing is stored: at start
+  with Next floor, or done. Its line is the only instruction on screen, and the one button on that line it
+  needs gets the tinted fill and 1.5 px ring (`litControl` in `styles.ts`); a tool it needs becomes the
+  current tool instead. Nothing is stored: at start
   a plan with work left opens on the step's floor, and a skipped or finished step follows from
-  the data. Before any Align the picked building shows dashed and Align is lit.
+  the data. Before any Align the picked building shows dashed and Align is the current tool.
 - Areas are created and renamed with Home Assistant's area registry commands; renaming the
   building sends `config/core/update` with `location_name`.

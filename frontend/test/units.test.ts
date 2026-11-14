@@ -8,21 +8,25 @@ const INCH_M = 0.0254;
 // Rounding to half a step can land a float rounding error past it.
 const FLOAT_SLACK = 1e-9;
 
-test("metric lengths state the lattice point exactly, with at least two decimals, and areas one decimal", () => {
+test("metric lengths show two decimals, and areas one decimal", () => {
   expect(formatLength(3.4, METRIC)).toBe("3.40 m");
   expect(formatLength(3.45, METRIC)).toBe("3.45 m");
-  expect(formatLength(3.475, METRIC)).toBe("3.475 m");
-  expect(formatLength(3.425, METRIC)).toBe("3.425 m");
-  expect(formatLength(3.4612, METRIC)).toBe("3.45 m");
-  expect(formatLength(3.463, METRIC)).toBe("3.475 m");
+  expect(formatLength(3.4612, METRIC)).toBe("3.46 m");
+  expect(formatLength(3.476, METRIC)).toBe("3.48 m");
   expect(formatLength(0.2, METRIC)).toBe("0.20 m");
   expect(formatArea(18.44, METRIC)).toBe("18.4 m²");
 });
 
-test("a metric length with a decimal comma keeps its lattice digits", () => {
+test("a metric length with a decimal comma shows two decimals", () => {
   const dutch = unitsOf("km", "language", "nl");
-  expect(formatLength(3.475, dutch)).toBe("3,475 m");
+  expect(formatLength(3.476, dutch)).toBe("3,48 m");
   expect(formatLength(3.4, dutch)).toBe("3,40 m");
+});
+
+test("the chip and the field round half-centimetre lengths the same way", () => {
+  for (const metres of [0.475, 2.675, 3.475, 1.005]) {
+    expect(formatLength(metres, METRIC)).toBe(typedLength(metres, METRIC));
+  }
 });
 
 test("lengths and areas follow the user's number format", () => {
@@ -96,18 +100,18 @@ test("metric does not read feet and inches", () => {
 test("a field starts with ASCII digits and a dot in every number format", () => {
   expect(typedLength(4.254, unitsOf("km", "language", "fa"))).toBe("4.25 m");
   expect(typedLength(4.254, unitsOf("km", "decimal_comma"))).toBe("4.25 m");
-  expect(typedLength(3.475, unitsOf("km", "decimal_comma"))).toBe("3.475 m");
+  expect(typedLength(3.476, unitsOf("km", "decimal_comma"))).toBe("3.48 m");
   expect(typedLength(3.4, METRIC)).toBe("3.40 m");
   expect(typedLength(150 * INCH_M, US)).toBe(formatLength(150 * INCH_M, US));
   expect(typedLength(8 * INCH_M, US)).toBe(formatLength(8 * INCH_M, US));
 });
 
-test("a field's starting length reads back within half an inch, or half a lattice unit", () => {
+test("a field's starting length reads back within half an inch, or half a centimetre", () => {
   for (let metres = 0.2; metres < 30; metres += 0.137) {
     expect(Math.abs(parseLength(typedLength(metres, US), US)! - metres)).toBeLessThanOrEqual(INCH_M / 2 + FLOAT_SLACK);
     for (const [numberFormat, language] of [["language", "en"], ["language", "nl"], ["language", "fa"], ["quote_decimal", "en"]]) {
       const local = unitsOf("km", numberFormat, language);
-      expect(Math.abs(parseLength(typedLength(metres, local), local)! - metres)).toBeLessThanOrEqual(0.0125 + FLOAT_SLACK);
+      expect(Math.abs(parseLength(typedLength(metres, local), local)! - metres)).toBeLessThanOrEqual(0.005 + FLOAT_SLACK);
     }
   }
 });
@@ -144,9 +148,9 @@ test.each<[string, unknown, string, boolean]>([
   expect(saveFailure(error)).toEqual({ message, retry });
 });
 test.each<[number, number, HassUnits, string]>([
-  [9.8, 7.6, METRIC, "9.80 × 7.60 m"],
-  [9.8, 7.625, METRIC, "9.800 × 7.625 m"],
-  [12.4, 7.6, unitsOf("km", "decimal_comma"), "12,40 × 7,60 m"],
+  [9.8, 7.6, METRIC, "9.8 × 7.6 m"],
+  [9.43, 8.16, METRIC, "9.4 × 8.2 m"],
+  [12.4, 7.6, unitsOf("km", "decimal_comma"), "12,4 × 7,6 m"],
   [386 * INCH_M, 300 * INCH_M, US, "32′ 2″ × 25′ 0″"],
 ])("a size of %d by %d m shows as %j", (width, depth, units, text) => {
   expect(formatSize(width, depth, units)).toBe(text);

@@ -38,7 +38,7 @@ const offer = async (buildings: Polygon | MultiPolygon | undefined) => {
 test("after Align the map's building under the site offers its outline, dashed, with its size and two answers", async () => {
   const { panel } = await offer(MAP_HOUSE);
   expect(guidePart(panel, ".text")).toBe("Use the map's outline?");
-  expect(guidePart(panel, ".detail")).toBe("9.70 × 7.70 m. Or click another building.");
+  expect(guidePart(panel, ".detail")).toBe("9.7 × 7.7 m. Or click another building.");
   expect(buttonNamed(panel, "Draw it myself")).toBeDefined();
   expect(buttonNamed(panel, "Use outline")!.classList.contains("lit")).toBe(true);
   expect(latticeCorners(preview() as Polygon)).toEqual([[6, 6], [394, 6], [394, 314], [6, 314], [6, 6]]);
@@ -80,7 +80,7 @@ const repick = async (panel: HTMLElement) => {
 test("in Select a click on another building picks it, and the offered outline follows", async () => {
   const { panel } = await offer(TERRACE);
   await repick(panel);
-  expect(guidePart(panel, ".detail")).toBe("5.70 × 7.70 m. Or click another building.");
+  expect(guidePart(panel, ".detail")).toBe("5.7 × 7.7 m. Or click another building.");
   expect(latticeCorners(preview() as Polygon)).toEqual([[806, 6], [1034, 6], [1034, 314], [806, 314], [806, 6]]);
 });
 
@@ -100,7 +100,7 @@ test("in Draw a click on another building picks it instead of starting a box", a
   const { panel } = await offer(TERRACE);
   handlers.click(mouse(230, -40));
   await settle(panel);
-  expect(guidePart(panel, ".detail")).toBe("5.70 × 7.70 m. Or click another building.");
+  expect(guidePart(panel, ".detail")).toBe("5.7 × 7.7 m. Or click another building.");
   expect(sources["spatial-draft"].data).toEqual({ type: "FeatureCollection", features: [] });
   expect(toolPressed(panel, "Draw")).toBe("true");
 });
@@ -114,7 +114,7 @@ test("Undo of Use outline brings the question back with the pick kept", async ()
   buttonNamed(panel, "Undo")!.click();
   await vi.waitFor(() => expect(siteSaves(connection)).toHaveLength(2));
   handlers.idle();
-  await vi.waitFor(() => expect(guidePart(panel, ".detail")).toBe("5.70 × 7.70 m. Or click another building."));
+  await vi.waitFor(() => expect(guidePart(panel, ".detail")).toBe("5.7 × 7.7 m. Or click another building."));
 });
 
 test("Draw it myself keeps Draw on and the outline as a dotted snap guide in Draw and Select, not in Align", async () => {

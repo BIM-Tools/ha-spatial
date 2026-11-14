@@ -58,6 +58,24 @@ Download `spatial.zip` from the
   [Known limits](docs/user-guide.md#known-limits).
 - Questions and bugs: [GitHub issues](https://github.com/BIM-Tools/ha-spatial/issues).
 
+## Room colours
+
+A dashboard card fixed to one floor can colour its rooms by live data and write the value under
+each room's name. `brightness` reads the brightest light that is on in the area, `temperature`
+the temperature sensor chosen for the area, else the average of its temperature sensors.
+
+```yaml
+type: custom:spatial-map-card
+floor: ground_floor
+colour_by: brightness
+```
+
+```yaml
+type: custom:spatial-map-card
+floor: ground_floor
+colour_by: temperature
+```
+
 ## Privacy
 
 Your footprints, floors and site stay in Home Assistant. One thing leaves it: an address

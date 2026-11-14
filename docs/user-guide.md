@@ -35,8 +35,9 @@ plan**. The Configure form also holds **Address search server**: leave it at Ope
 unless you run your own Nominatim server or OpenStreetMap asks you to change it.
 
 **One step at a time.** Until the plan is done, the panel opens on the floor where the next step
-is, north up, centred on your home location, and the line at the top says only that step; the
-one control it needs is lit with a ring. Nothing about the steps is stored: what is already
+is, north up and centred on your home location (framed on the house once it has an outline or
+rooms), and the line at the top says only that step; the one button it needs on that line is
+lit with a ring, and a step that needs a tool makes that tool current. Nothing about the steps is stored: what is already
 there is skipped, so a home on a building skips the search, a site with a direction skips
 clicking your home and Align, a stored outline skips the outline, and leaving and coming back resumes at the first
 unfinished step. Once every area has a shape, the panel opens on **All** and the line says only
@@ -60,11 +61,12 @@ click just beside a building picks it too; a click inside a building always pick
 on a terrace the side of the shared wall you click decides. Farther away a click says "No
 building here". When the map is zoomed out too far to tell buildings
 apart, the line says "Zoom in to your house." and a click zooms in on it. Nothing goes on until
-you click, and nothing about the building is stored.
+you click, and nothing about the building is stored. On a touch screen the guide says "Tap
+your home" and, throughout, tap where it says click.
 
 The building you picked shows dashed, and Align turns on at once (step 1 below). Wrong building?
 Press **Pick another building** on the line at the top: Select is back on, the pick stays dashed
-and **Align** is lit, and the next building you click replaces the pick.
+and Select is the current tool, and the next building you click replaces the pick.
 
 The pointer shows what a click does: a hand over a building a click would pick, a crosshair in
 Draw and Align, a move arrow over the selected shape in Select, a resize arrow on its sides, and
@@ -93,11 +95,11 @@ nothing is asked. This needs an administrator, like the panel.
 
 2. **Draw the building.** The strip at the bottom starts with the building, under Home
    Assistant's location name and highlighted while there is no outline. Without a building on
-   the map, the line says "Draw the outline of your home" with **Draw** lit. When a building
+   the map, the line says "Draw the outline of your home" with **Draw** current. When a building
    is picked, its own shape shows dashed, a little inside the map's line (the map shows the
    outer face of the walls, the outline is their axis), with walls along the site direction
    straightened. The line at the top asks "Use the map's outline?" with its size along the
-   site direction, for example "9.80 × 7.60 m. Or click another building.", or "9.80 × 7.60 m
+   site direction, for example "9.8 × 7.6 m. Or click another building.", or "9.8 × 7.6 m
    overall" for any shape but a rectangle. When nothing usable is left, nothing is offered and
    the line says "Draw the outline of your home ... Or click another building.". Until an
    outline is saved, the picked building stays as a thin line, buildings light up under the
@@ -134,7 +136,7 @@ nothing is asked. This needs an administrator, like the panel.
    outline is saved, a box drawn with the building's pill against it joins it, as for rooms.
 3. **Draw the rooms.** After an area's first shape, the next area of the floor without one is
    highlighted, and the line at the top says "Draw Kitchen" with how far the floor is, for
-   example "3 of 5 on the Ground floor", and **Draw** lit while another tool is on. Draw each
+   example "3 of 5 on the Ground floor", and Draw becomes the current tool. Draw each
    room on the wall axes, so neighbours share their edges and the outer rooms end on the
    outline. Use **New area** for a room that is not in Home Assistant yet. While you pick a room
    that has a shape to change it, the line stays empty.
@@ -181,7 +183,16 @@ shows the building's name until the floor has rooms.
 
 ### Tools
 
-Exactly one tool is active; **Select** is the default. The tools work on a floor, not on All.
+Only the current tool is filled. Before you pick your home none is current; the guide then makes
+Align current, and Draw when it asks you to draw. A finished floor leaves nothing selected. The
+tools work on a floor, not on All.
+
+While a message from Spatial shows at the bottom, the area strip and the phone's tool bar move up
+out of its way, and the map stays where it is. They move back when the message ends, or, for a
+message that waits, when you use its button or the guide moves to its next step.
+
+After a step the map frames the house between the line at the top and the area strip, so none
+of it is hidden.
 
 | Tool | Does |
 | --- | --- |
@@ -259,7 +270,8 @@ Exactly one tool is active; **Select** is the default. The tools work on a floor
   once, on a button on one of the two sides they measure: on the side that is not a wall shared
   with another room, else on the bottom for the width and the left for the depth. The other two
   sides carry a small grip. Tap a length or a grip, type the length of that side and press Enter
-  (at least 10 cm or 4 in; an unchanged length saves nothing). The length is rounded to the 2.5 cm (1 in) lattice, so 3.47 m becomes 3.475 m.
+  (at least 10 cm or 4 in; an unchanged length saves nothing). The length is rounded to the 2.5 cm (1 in) lattice, so 3.47 m is stored as 3.475 m and shows as 3.48 m (the display rounds to two decimals, so it can read a
+  hair above what is stored).
   The side's start corner stays, the opposite side follows. Escape closes the field.
 - Moving a room snaps it to its neighbours as in Draw, else shifts it by whole grid steps, and
   stops it at the outline and at the other rooms on this floor as in Draw. Rooms do not stop the
@@ -296,7 +308,7 @@ Exactly one tool is active; **Select** is the default. The tools work on a floor
 - A stretched side or dragged corner is one save and one undo step; one that ends where it
   started saves nothing.
 - Lengths and areas follow Home Assistant's unit system and number format. Metric lengths show
-  the stored value exactly, such as 3.40 m or 3.475 m. In US customary units a length shows as
+  two decimals, such as 3.40 m. In US customary units a length shows as
   feet and inches, such as 11′ 4″, and is typed as 12' 6", 12 6, 150" or 12.5'.
 - **Delete** and **Remove** remove the active shape here too.
 
@@ -380,6 +392,16 @@ show icon and name without the area. Without rooms it says "No rooms yet".
 | not set | No map under all floors (`floor: all`); the map under one floor or the floor buttons |
 | `true` | The map |
 | `false` | The plan on the card's own background |
+
+| `colour_by` | Colours each room of a card fixed to one floor, and writes the value under its name |
+| --- | --- |
+| not set | The rooms as they are |
+| `brightness` | The brightest `light` of the area that is on, 0 to 100 %, in Home Assistant's light colour (`Off` and no colour when none is on) |
+| `temperature` | The temperature sensor chosen for the area in Home Assistant, else the average of the area's `sensor` entities with device class temperature, on a scale from cool at 15 °C through a neutral grey at 21 °C to heat at 28 °C (shown to one decimal in the sensor's own unit) |
+
+An entity belongs to the area it is set to, else to the area of its device. Unavailable and unknown states
+are left out, and an area with nothing to show keeps its plain fill. The all-floors view and the panel
+ignore `colour_by`. The card editor offers `colour_by`; the other options are set in YAML.
 
 A fixed view has no buttons, frames the rooms' footprints and follows every change:
 

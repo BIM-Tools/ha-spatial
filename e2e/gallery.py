@@ -35,6 +35,7 @@ from draw_room import (
     Websocket,
     add_spatial,
     onboard,
+    post,
     wait_for_home_assistant,
 )
 from playwright.sync_api import Browser, Locator, Page, sync_playwright
@@ -63,6 +64,8 @@ DOCS_IMAGES = {
     "all": "all-floors-light-1440.png",
     "phone": "select-room-active-light-390.png",
     "card": "card-floor-light-1440.png",
+    "card-brightness": "card-brightness-light-1440.png",
+    "card-temperature": "card-temperature-light-1440.png",
 }
 # Per state id, theme and width: the file name, or why there is none.
 Results = dict[tuple[str, str, str], str]
@@ -819,14 +822,14 @@ def first_run_click_home(shot: Shot) -> None:
 
 def first_run_align(shot: Shot) -> None:
     first_run_click_home(shot)
+    # A click on the home's building picks it and turns Align on.
     shot.click(*home_building(shot))
-    shot.panel.get_by_text("Press Align, then click the front wall").wait_for()
+    shot.panel.get_by_text("Click the front wall of your home").wait_for()
     shot.settle()
 
 
 def first_run_outline(shot: Shot) -> None:
     first_run_align(shot)
-    shot.select_tool("Align")
     shot.click(*home_building(shot))
     try:
         shot.panel.get_by_role("button", name="Use outline", exact=True).wait_for(
@@ -887,7 +890,7 @@ FIRST_RUN = [
     State(
         "first-run-align",
         "first-run",
-        "The home clicked: the building dashed, Align lit",
+        "The home clicked: the building dashed, Align on, Click the front wall of your home",
         first_run_align,
     ),
     State(
@@ -1144,8 +1147,83 @@ STATES = [
     ),
     State("card-floor", "card", "Dashboard card fixed to the ground floor", card("floor")),
     State("card-all", "card", "Dashboard card with all floors", card("all")),
+    State(
+        "card-brightness",
+        "card",
+        "Dashboard card colouring the ground floor by brightness: "
+        "living room 80 %, kitchen 30 %, others Off",
+        card("brightness"),
+    ),
+    State(
+        "card-temperature",
+        "card",
+        "Dashboard card colouring the ground floor by temperature, 17.5 to 25.5 degrees",
+        card("temperature"),
+    ),
 ]
 ALL_STATES = FIRST_RUN + STATES
+
+
+# Fixed states for the room colours: area, light brightness 0..255 (0 is off), temperature in °C.
+ROOM_VALUES = [
+    ("Living room", 204, 21.5),
+    ("Kitchen", 77, 25.5),
+    ("Toilet", 0, 17.5),
+    ("Hall", 0, 19.5),
+    ("Utility", 0, None),
+]
+
+
+def create_template_helper(
+    websocket: Websocket, token: str, kind: str, area_id: str, **fields
+) -> None:
+    """Creates a template helper through the config flow and puts its entity in the area."""
+    path = "/api/config/config_entries/flow"
+    flow = post(path, {"handler": "template"}, token)
+    flow = post(f"{path}/{flow['flow_id']}", {"next_step_id": kind}, token)
+    done = post(f"{path}/{flow['flow_id']}", fields, token)
+    assert done["type"] == "create_entry", done
+    entry_id = done["result"]["entry_id"]
+    for entity in websocket.call("config/entity_registry/list"):
+        if entity["config_entry_id"] == entry_id:
+            websocket.call(
+                "config/entity_registry/update", entity_id=entity["entity_id"], area_id=area_id
+            )
+
+
+def add_room_values(websocket: Websocket, house: House) -> None:
+    """A light and a temperature sensor per room, with the states ROOM_VALUES lists."""
+    area_ids = {
+        normalize_name(area["name"]): area["area_id"]
+        for area in websocket.call("config/area_registry/list")
+    }
+    nothing = [{"delay": {"seconds": 0}}]
+    for area, brightness, celsius in ROOM_VALUES:
+        area_id = area_ids[normalize_name(area)]
+        create_template_helper(
+            websocket,
+            house.token,
+            "light",
+            area_id,
+            name=f"Gallery {area} light",
+            state="{{ true }}" if brightness else "{{ false }}",
+            level=f"{{{{ {brightness} }}}}",
+            set_level=nothing,
+            turn_on=nothing,
+            turn_off=nothing,
+        )
+        if celsius is not None:
+            create_template_helper(
+                websocket,
+                house.token,
+                "sensor",
+                area_id,
+                name=f"Gallery {area} temperature",
+                state=f"{{{{ {celsius} }}}}",
+                device_class="temperature",
+                state_class="measurement",
+                unit_of_measurement="°C",
+            )
 
 
 def load_house(token: str) -> House:
@@ -1155,12 +1233,17 @@ def load_house(token: str) -> House:
     websocket.call(
         "lovelace/dashboards/create",
         url_path=DASHBOARD,
-        title="Spatial gallery",
+        title="Home",
         mode="storage",
-        show_in_sidebar=True,
+        show_in_sidebar=False,
         require_admin=False,
     )
+    add_room_values(websocket, house)
     ground = house.floor_id("Ground floor")
+
+    def colour_card(kind: str) -> dict[str, str]:
+        return {"type": "custom:spatial-map-card", "floor": ground, "colour_by": kind}
+
     websocket.call(
         "lovelace/config/save",
         url_path=DASHBOARD,
@@ -1177,6 +1260,18 @@ def load_house(token: str) -> House:
                     "title": "All",
                     "type": "panel",
                     "cards": [{"type": "custom:spatial-map-card", "floor": "all"}],
+                },
+                {
+                    "path": "brightness",
+                    "title": "Brightness",
+                    "type": "panel",
+                    "cards": [colour_card("brightness")],
+                },
+                {
+                    "path": "temperature",
+                    "title": "Temperature",
+                    "type": "panel",
+                    "cards": [colour_card("temperature")],
                 },
             ]
         },
@@ -1236,6 +1331,10 @@ def render_states(
             except Skip as reason:
                 results[key] = f"Skipped: {reason}"
                 print(f"SKIP {state.id} {theme} {width}: {reason}")
+            except PlaywrightTimeoutError as error:
+                first_line = str(error).partition("\n")[0]
+                results[key] = f"Skipped: timeout, {first_line}"
+                print(f"SKIP {state.id} {theme} {width}: {results[key]}")
             finally:
                 shot.release()
         for page in pages.values():

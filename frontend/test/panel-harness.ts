@@ -11,6 +11,10 @@ import { METRIC_UNITS } from "./units-fixture";
 export const mapCreated = vi.fn();
 export const setBearing = vi.fn();
 export const easeTo = vi.fn();
+// A screen for the camera maths; happy-dom lays nothing out.
+Object.defineProperty(document.body, "clientWidth", { value: 390, configurable: true });
+Object.defineProperty(document.body, "clientHeight", { value: 800, configurable: true });
+
 export const fitBounds = vi.fn();
 export const flyTo = vi.fn();
 export const jumpTo = vi.fn();
@@ -20,8 +24,12 @@ export const setStyle = vi.fn();
 export const queryRenderedFeatures = vi.fn((): object[] => []);
 // Whether a flight lands at once; a test that holds it fires `moveend` itself.
 export const camera = { lands: true };
+// Whether the map's style has loaded; MapLibre's getStyle() is undefined until then.
+export const styleState = { loaded: true };
 export let handlers: Record<string, (event?: object) => void> = {};
 export let sources: Record<string, { data: unknown }> = {};
+// The MapLibre feature state of the areas source, by feature id.
+export let featureStates: Record<string, { value?: number }> = {};
 export let layers: {
   id: string;
   type: string;
@@ -72,7 +80,7 @@ export const unprojectPixel = ([x, y]: [number, number], screenUp = mapBearingNo
   return destination(east, (y + panned.y) * METRES_PER_PIXEL, screenUp + 180, { units: "meters" }).geometry
     .coordinates as [number, number];
 };
-const projectLngLat = ({ lng, lat }: { lng: number; lat: number }) => {
+export const projectLngLat = ({ lng, lat }: { lng: number; lat: number }) => {
   const pixels = distance(SITE, [lng, lat], { units: "meters" }) / METRES_PER_PIXEL;
   const turn = ((bearing(SITE, [lng, lat]) - mapBearingNow) * Math.PI) / 180;
   return { x: pixels * Math.sin(turn) - panned.x, y: -pixels * Math.cos(turn) - panned.y };
@@ -146,6 +154,7 @@ export const fakeMapLibre = {
       mapCreated(options);
       handlers = {};
       sources = {};
+      featureStates = {};
       layers = [];
       mapBearingNow = options.bearing ?? 0;
       mapFieldOfViewNow = 36.87;
@@ -178,6 +187,13 @@ export const fakeMapLibre = {
     addSource(id: string, source: { data: unknown }) {
       sources[id] = { data: source.data };
     }
+    setFeatureState({ id }: { id: string }, state: { value: number }) {
+      featureStates[id] = state;
+    }
+    removeFeatureState({ id }: { id?: string }) {
+      if (id === undefined) featureStates = {};
+      else delete featureStates[id];
+    }
     getSource(id: string) {
       const source = sources[id];
       return source && { setData: (data: unknown) => (source.data = data) };
@@ -192,6 +208,9 @@ export const fakeMapLibre = {
       const layer = layers.find((entry) => entry.id === id);
       if (layer) layer.layout = { ...layer.layout, [name]: value };
     }
+    getPaintProperty(id: string, name: string) {
+      return layers.find((entry) => entry.id === id)?.paint?.[name];
+    }
     setPaintProperty(id: string, name: string, value: unknown) {
       const layer = layers.find((entry) => entry.id === id);
       if (layer) layer.paint = { ...layer.paint, [name]: value };
@@ -201,10 +220,11 @@ export const fakeMapLibre = {
       if (layer) layer.filter = filter;
     }
     getStyle() {
+      if (!styleState.loaded) return undefined;
       return {
         layers: [
           { id: "water", type: "fill", "source-layer": "water" },
-          { id: "building-3d", type: "fill-extrusion", "source-layer": "buildings" },
+          { id: "building-3d", type: "fill", "source-layer": "buildings" },
         ],
       };
     }
@@ -331,6 +351,8 @@ export interface Mount extends Home {
   units?: HassUnits;
   /** Home Assistant's home location; at the site centre unless a test says otherwise. */
   homeLocation?: { latitude?: number; longitude?: number };
+  /** Home Assistant's dark theme; light unless a test says otherwise. */
+  dark?: boolean;
 }
 
 export const mountPanel = ({
@@ -341,6 +363,7 @@ export const mountPanel = ({
   showMap,
   units = METRIC_UNITS,
   homeLocation = { latitude: SITE[1], longitude: SITE[0] },
+  dark = false,
   ...home
 }: Mount = {}) => {
   const fromHome = homeReply(home);
@@ -370,7 +393,7 @@ export const mountPanel = ({
   };
   panel.floor = floor;
   panel.showMap = showMap;
-  panel.hass = { connection, floors: hassFloors, themes: { darkMode: false }, ...units, config: { ...units.config, ...homeLocation } };  panel.toggleAttribute("card", card);
+  panel.hass = { connection, floors: hassFloors, themes: { darkMode: dark }, ...units, config: { ...units.config, ...homeLocation } };  panel.toggleAttribute("card", card);
   document.body.append(panel);
   const tokenCalls = () =>
     sendMessagePromise.mock.calls.filter(([message]) => message.type === "map_tiles/access_token").length;
@@ -397,6 +420,7 @@ export const resetFakes = () => {
   queryRenderedFeatures.mockReset();
   queryRenderedFeatures.mockReturnValue([]);
   camera.lands = true;
+  styleState.loaded = true;
   handlers = {};
   markers = [];
   panned = { x: 0, y: 0 };

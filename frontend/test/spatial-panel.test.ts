@@ -7,9 +7,9 @@ import {
   buttonsIn,
   chooseFromMenu,
   headerButton,
-  fitBounds,
   floorButtonNames,
   handlers,
+  featureStates,
   layers,
   mapCreated,
   guideText,
@@ -22,12 +22,14 @@ import {
   rooms,
   setBearing,
   setStyle,
+  styleState,
   siteReply,
   settle,
   zoomIn,
   zoomOut,
   easeTo,
   fakeMapLibre,
+  areaEntry,
   floorEntry,
   jumpTo,
   liveMarkers,
@@ -35,6 +37,7 @@ import {
   touchZoomRotate,
   SITE,
   sources,
+  projectLngLat,
   unprojectPixel,
 } from "./panel-harness";
 import { US_UNIT_M, siteFrameData } from "./site-frame-fixture";
@@ -213,9 +216,50 @@ const square = (floor_id: string, west: number, south: number) => ({
   properties: { floor_id, level: 0 },
 });
 
+// The camera moves that frame a flat plan in the free area: a centre and zoom on a flat map.
+const cameraMoves = () => [...jumpTo.mock.calls, ...easeTo.mock.calls].map(([options]) => options);
+const framings = () => cameraMoves().filter((options) => options.center && options.pitch === 0);
+
 const TWO_FLOORS = rooms(square("ground", 5, 52), square("first", 6, 53));
 
 const mountStatic = (floor: string, geojson: () => object = () => TWO_FLOORS) => mountPanel({ geojson, card: true, floor });
+
+test("a coloured card gives each room its value as feature state and clears it when the light goes out", async () => {
+  const { panel } = mountStatic("ground");
+  const coloured = panel as typeof panel & { colourBy?: string; hass: object };
+  coloured.colourBy = "brightness";
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
+  const home = (state: string) => ({
+    ...coloured.hass,
+    states: { "light.a": { state, attributes: { brightness: 255 } } },
+    entities: { "light.a": { area_id: "living" } },
+    devices: {},
+  });
+  coloured.hass = home("on");
+  await vi.waitFor(() => expect(featureStates).toEqual({ living: { value: 100 } }));
+  coloured.hass = home("off");
+  await vi.waitFor(() => expect(featureStates).toEqual({}));
+});
+
+test.each([
+  ["the admin panel", { card: false, floor: "ground" }],
+  ["a card of all floors", { card: true, floor: "all" }],
+])("%s sets no room colour even with colourBy", async (_name, mount) => {
+  const { panel } = mountPanel({ geojson: () => TWO_FLOORS, ...mount });
+  const coloured = panel as typeof panel & { colourBy?: string; hass: object };
+  coloured.colourBy = "brightness";
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
+  coloured.hass = {
+    ...coloured.hass,
+    states: { "light.a": { state: "on", attributes: { brightness: 255 } } },
+    entities: { "light.a": { area_id: "living" } },
+    devices: {},
+  };
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(featureStates).toEqual({});
+});
 
 const buttons = (panel: HTMLElement) => buttonsIn(panel.shadowRoot!).length;
 
@@ -224,7 +268,7 @@ test("without a floor the map is interactive, with floor buttons", async () => {
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
   expect(mapCreated.mock.calls[0][0]).not.toHaveProperty("interactive", false);
   expect(buttons(panel)).toBeGreaterThan(0);
-  expect(fitBounds).not.toHaveBeenCalled();
+  expect(framings()).toEqual([]);
 });
 
 const floorLabels = () =>
@@ -242,7 +286,6 @@ test("a fixed floor all shows a static stack from the front corner, each floor n
   await vi.waitFor(() => expect(jumpTo).toHaveBeenCalled());
   expect(mapCreated.mock.calls[0][0]).toMatchObject({ interactive: false });
   expect(buttons(panel)).toBe(0);
-  expect(fitBounds).not.toHaveBeenCalled();
   // Site bearing 0 puts the site's x-axis to the right at map bearing 270; the front corner is 45 degrees less.
   expect(jumpTo.mock.calls[0][0]).toMatchObject({ bearing: 225, pitch: 55 });
   expect(floorLabels()).toEqual(["Ground floor, 1 room", "First floor, 1 room"]);
@@ -258,7 +301,8 @@ test("the card neither turns nor tilts and looks from afar; the panel's All view
   mountPanel();
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
   expect(mapCreated.mock.calls[0][0]).toMatchObject({ dragRotate: true, touchPitch: true });
-  expect(touchZoomRotate.isRotationEnabled()).toBe(true);
+  // The guide asks to draw a room, so Draw is current, which holds the map still.
+  expect(touchZoomRotate.isRotationEnabled()).toBe(false);
   expect(mapFieldOfViewNow).toBe(36.87);
 });
 
@@ -279,26 +323,27 @@ test("leaving All lays the plan flat with the wall horizontal and drops the floo
 
 test("a fixed floor id shows a static flat plan framed on that floor", async () => {
   const { panel } = mountStatic("first");
-  await vi.waitFor(() => expect(fitBounds).toHaveBeenCalled());
+  await vi.waitFor(() => expect(framings()).not.toEqual([]));
   expect(mapCreated.mock.calls[0][0]).toMatchObject({ interactive: false, pitch: 0 });
   expect(buttons(panel)).toBe(0);
-  expect(fitBounds.mock.calls[0][0]).toEqual([6, 53, 7, 54]);
+  // The fake map is linear in metres, so a house a degree away only lands near its centre.
+  expect(framings()[0].center).toMatchObject({ lng: expect.closeTo(6.5, 1), lat: expect.closeTo(53.5, 1) });
 });
 
 test("a static map frames the rooms again on every update", async () => {
   let geojson: object = TWO_FLOORS;
   const { connection } = mountStatic("ground", () => geojson);
-  await vi.waitFor(() => expect(fitBounds).toHaveBeenCalled());
+  await vi.waitFor(() => expect(framings()).not.toEqual([]));
   geojson = rooms(square("ground", 4, 51));
   const [[onUpdate]] = connection.subscribeMessage.mock.calls as unknown as [[() => Promise<void>]];
   await onUpdate();
-  expect(fitBounds.mock.calls.at(-1)?.[0]).toEqual([4, 51, 5, 52]);
+  expect(framings().at(-1)?.center).toMatchObject({ lng: expect.closeTo(4.5, 1), lat: expect.closeTo(51.5, 1) });
 });
 
 test("an unknown fixed floor says there are no rooms", async () => {
   const { panel } = mountStatic("attic");
   await vi.waitFor(() => expect(panel.shadowRoot?.textContent).toContain("No rooms yet"));
-  expect(fitBounds).not.toHaveBeenCalled();
+  expect(framings()).toEqual([]);
 });
 
 test("a new floor option rebuilds the map, as interactivity is fixed at creation", async () => {
@@ -591,6 +636,139 @@ test("in Align a save while Spatial is still starting says so and offers Retry",
   expect(toasts[0]).toMatchObject({ action: { text: "Retry" }, duration: -1, dismissable: true });
 });
 
+test("a toast replaced by another restarts the timer and keeps the chrome lifted until the second one ends", async () => {
+  const { panel } = mountPanel(UNALIGNED);
+  queryRenderedFeatures.mockReturnValue([]);
+  await showNoFloor(panel);
+  await vi.waitFor(() => expect(handlers.click).toBeDefined());
+  vi.useFakeTimers();
+  try {
+    click();
+    vi.advanceTimersByTime(2000);
+    click();
+    vi.advanceTimersByTime(2000);
+    expect(panel.hasAttribute("toasting")).toBe(true);
+    vi.advanceTimersByTime(1000);
+    expect(panel.hasAttribute("toasting")).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+const retryToast = async () => {
+  queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
+  const { panel } = mountPanel({
+    reply: async (message) => {
+      if (message.type === "spatial/site/update") throw { code: "unknown_command", message: "Unknown command." };
+    },
+  });
+  vi.spyOn(console, "error").mockImplementationOnce(() => {});
+  await startAligning(panel);
+  await vi.waitFor(() => expect(guideText(panel)).toMatch(/^Click the front wall/));
+  click();
+  await vi.waitFor(() => expect(toasts[0]).toMatchObject({ duration: -1 }));
+  return panel;
+};
+
+test("choosing a finished floor from All ends flat and without padding, so a later All is framed as the first", async () => {
+  const { panel } = mountPanel({ geojson: TWO_FLOORS, floors: [floorEntry("ground", "Ground floor")], areas: [areaEntry("hall", "Hall", "ground")], site: DONE_SITE });
+  await vi.waitFor(() => expect(buttonNamed(panel, "All")).toBeDefined());
+  await settle(panel);
+  buttonNamed(panel, "All")!.click();
+  await settle(panel);
+  const first = cameraMoves().at(-1)!;
+  expect(first).toMatchObject({ pitch: 55 });
+  jumpTo.mockClear();
+  easeTo.mockClear();
+  buttonNamed(panel, "Ground floor")!.click();
+  await settle(panel);
+  expect(framings().length).toBeGreaterThan(0);
+  expect(cameraMoves().at(-1)).toMatchObject({ pitch: 0 });
+  expect(jumpTo.mock.calls.find(([options]) => options.bearing !== undefined)![0]).toMatchObject({ pitch: 0 });
+  buttonNamed(panel, "All")!.click();
+  await settle(panel);
+  expect(cameraMoves().every((options) => !options.padding)).toBe(true);
+  expect(cameraMoves().at(-1)).toMatchObject({ zoom: first.zoom, center: first.center, pitch: 55 });
+});
+
+test("a card frames its rooms with 16 px all round", async () => {
+  mountStatic("ground");
+  await vi.waitFor(() => expect(framings()).not.toEqual([]));
+  const { zoom, center } = framings()[0];
+  const pixels = [[5, 52], [6, 53]].map(([lng, lat]) => projectLngLat({ lng, lat }));
+  const scale = 2 ** (zoom - 19);
+  const [boxW, boxH] = [Math.abs(pixels[1].x - pixels[0].x) * scale, Math.abs(pixels[1].y - pixels[0].y) * scale];
+  expect(Math.max(boxW / (390 - 32), boxH / (800 - 32))).toBeCloseTo(1, 1);
+  expect(center).toMatchObject({ lng: expect.closeTo(5.5, 1), lat: expect.closeTo(52.5, 1) });
+});
+
+test("a toast that waits keeps the chrome lifted until its action runs", async () => {
+  const panel = await retryToast();
+  expect(panel.hasAttribute("toasting")).toBe(true);
+  toasts[0].action!.action();
+  expect(panel.hasAttribute("toasting")).toBe(false);
+});
+
+test("a toast that waits keeps the chrome lifted until the guide changes step", async () => {
+  const panel = await retryToast();
+  expect(panel.hasAttribute("toasting")).toBe(true);
+  // The failed save left Align; asking for it again moves the guide to the align step.
+  await chooseFromMenu(panel, "Change alignment");
+  await settle(panel);
+  expect(panel.hasAttribute("toasting")).toBe(false);
+});
+
+test("entering the align step frames the picked building above the strip's own place, not where a toast lifted it", async () => {
+  queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
+  const { panel } = mountPanel(UNALIGNED);
+  await showNoFloor(panel);
+  await vi.waitFor(() => expect(handlers.click).toBeDefined());
+  await vi.waitFor(() => expect(guideText(panel)).toMatch(/^Click your home/));
+  // A stage 800 px tall; the strip is 72 px high at 712 px, and a toast has lifted it to 648 px.
+  const root = panel.shadowRoot!;
+  const rect = (top: number, height: number) => ({ top, bottom: top + height, height }) as DOMRect;
+  root.querySelector(".stage")!.getBoundingClientRect = () => rect(0, 800);
+  const strip = root.querySelector<HTMLElement>(".strip")!;
+  strip.getBoundingClientRect = () => rect(648, 72);
+  Object.defineProperty(strip, "offsetTop", { value: 712 });
+  jumpTo.mockClear();
+  easeTo.mockClear();
+  // Picking the home turns Align on, which is the step that frames the building.
+  click();
+  await settle(panel);
+  expect(framings()).toHaveLength(1);
+  // The free area (16 px under the guide, 112 px over the strip) has its middle 48 px above the map's: the
+  // camera looks that far below the house, in the pixels of the new zoom, and keeps no padding.
+  const { center, zoom } = framings()[0];
+  const mid = projectLngLat({ lng: 5.0001, lat: 52.00005 });
+  const looksAt = projectLngLat(center);
+  const scale = 2 ** (zoom - 19);
+  expect(looksAt.x).toBeCloseTo(mid.x, 3);
+  expect(looksAt.y).toBeCloseTo(mid.y + 48 / scale, 3);
+  expect(cameraMoves().every((options) => !options.padding)).toBe(true);
+});
+
+test("a panel opened on a floor with an outline frames the house in the free area at once, as a reload mid-way does", async () => {
+  const { panel } = mountPanel({ site: DONE_SITE, floors: [floorEntry("ground", "Ground floor")], areas: [areaEntry("hall", "Hall", "ground")] });
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
+  await settle(panel);
+  const { zoom, center } = framings()[0];
+  const padding = { top: 16, bottom: 16, left: 48, right: 48 };
+  // The fake map is linear: the house box in pixels grows by 2 ** (zoom - 19). It fills the free area in
+  // one direction, stays inside it in the other, and sits on the centre the camera looks at.
+  const pixels = HOUSE.coordinates[0].map(([lng, lat]) => projectLngLat({ lng, lat }));
+  const xs = pixels.map((p) => p.x);
+  const ys = pixels.map((p) => p.y);
+  const scale = 2 ** (zoom - 19);
+  const [boxW, boxH] = [(Math.max(...xs) - Math.min(...xs)) * scale, (Math.max(...ys) - Math.min(...ys)) * scale];
+  const [freeW, freeH] = [390 - padding.left - padding.right, 800 - padding.top - padding.bottom];
+  expect(Math.max(boxW / freeW, boxH / freeH)).toBeCloseTo(1, 6);
+  expect(Math.max(boxW / freeW, boxH / freeH)).toBeGreaterThanOrEqual(Math.min(boxW / freeW, boxH / freeH));
+  const middle = projectLngLat(center);
+  expect(middle.x).toBeCloseTo((Math.min(...xs) + Math.max(...xs)) / 2, 6);
+  expect(middle.y).toBeCloseTo((Math.min(...ys) + Math.max(...ys)) / 2, 6);
+});
+
 test("the header's Help opens a sheet of symbols and keys that Escape closes, giving focus back to Help", async () => {
   const { panel } = mountPanel();
   await vi.waitFor(() => expect(panel.shadowRoot?.querySelector("spatial-panel-header")).not.toBeNull());
@@ -720,11 +898,11 @@ const showNoFloor = async (panel: HTMLElement) => {
   await settle(panel);
 };
 
-test("Select is the default tool, and exactly one tool is active", async () => {
+test("no tool is current before the first pick; after that exactly one is", async () => {
   const { panel } = mountPanel(UNALIGNED);
   await showNoFloor(panel);
-  expect(pressedTools(panel)).toEqual(["Select"]);
-  for (const name of ["Draw", "Draw", "Align", "Select"]) {
+  expect(pressedTools(panel)).toEqual([]);
+  for (const name of ["Draw", "Draw", "Align"]) {
     buttonNamed(panel, name)!.click();
     await settle(panel);
     expect(pressedTools(panel)).toEqual([name]);
@@ -742,7 +920,7 @@ test("in All floors every tool is disabled and none is pressed; Align ends there
   buttonNamed(panel, "All")!.click();
   buttonNamed(panel, "No floor")!.click();
   await settle(panel);
-  expect(pressedTools(panel)).toEqual(["Select"]);
+  expect(pressedTools(panel)).toEqual([]);
 });
 
 test("the selected floor is pressed and stays enabled", async () => {
@@ -911,6 +1089,73 @@ test("on a phone the floors are chips under the header, the tools a bottom bar, 
 
 const paintOf = (layerId: string) => layers.find((layer) => layer.id === layerId)?.paint;
 
+test("on the dark map, buildings get a 1 px outline while the guide asks for the home, again after a style reload, and lose it once aligned", async () => {
+  let bearing: number | null = null;
+  const { panel, connection } = mountPanel({ dark: true, site: () => ({ bearing_deg: bearing }) });
+  panel.style.setProperty("--secondary-text-color", "rgb(10, 20, 30)");
+  queryRenderedFeatures.mockImplementation(((_where: unknown, options: { layers: string[] }) =>
+    options.layers.includes("building-3d") ? [{ geometry: HOUSE }] : []) as never);
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  const reload = () => {
+    layers.splice(0);
+    layers.push({ id: "building-3d", type: "fill", source: "tiles", paint: { "fill-outline-color": "original" } });
+    handlers["style.load"]();
+  };
+  reload();
+  await settle(panel);
+  const edge = () => paintOf("building-3d")?.["fill-outline-color"];
+  expect(edge()).toBe("rgba(10,20,30,1)");
+  reload();
+  expect(edge()).toBe("rgba(10,20,30,1)");
+  buttonNamed(panel, "No floor")!.click();
+  await settle(panel);
+  click();
+  await settle(panel);
+  expect(edge()).toBe("rgba(10,20,30,1)");
+  click();
+  queryRenderedFeatures.mockReturnValue([]);
+  bearing = (updates(connection)[0] as unknown as { bearing_deg: number }).bearing_deg;
+  await onUpdateOf(connection)();
+  await vi.waitFor(() => expect(guideText(panel)).toMatch(/^Use the map's outline\?/));
+  expect(edge()).toBe("original");
+});
+
+test("a pick step before the style has loaded does not throw, and the outline appears after style.load", async () => {
+  styleState.loaded = false;
+  const { panel } = mountPanel({ dark: true, site: () => ({ bearing_deg: null }) });
+  panel.style.setProperty("--secondary-text-color", "rgb(10, 20, 30)");
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  await settle(panel);
+  panel.hass = { ...panel.hass };
+  await expect(panel.updateComplete).resolves.toBe(true);
+  expect(paintOf("building-3d")).toBeUndefined();
+  styleState.loaded = true;
+  layers.push({ id: "building-3d", type: "fill", source: "tiles", paint: { "fill-outline-color": "original" } });
+  handlers["style.load"]();
+  await settle(panel);
+  expect(paintOf("building-3d")?.["fill-outline-color"]).toBe("rgba(10,20,30,1)");
+});
+
+test("on the light map the buildings keep their own outline during the pick step, and a switch to dark turns the outline on", async () => {
+  const { panel } = mountPanel({ site: () => ({ bearing_deg: null }) });
+  panel.style.setProperty("--secondary-text-color", "rgb(10, 20, 30)");
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  const reload = () => {
+    layers.splice(0);
+    layers.push({ id: "building-3d", type: "fill", source: "tiles", paint: { "fill-outline-color": "original" } });
+    handlers["style.load"]();
+  };
+  reload();
+  await settle(panel);
+  expect(guideText(panel)).toMatch(/^Click your home/);
+  expect(paintOf("building-3d")?.["fill-outline-color"]).toBe("original");
+  panel.hass = { ...panel.hass, themes: { darkMode: true } };
+  await panel.updateComplete;
+  reload();
+  await settle(panel);
+  expect(paintOf("building-3d")?.["fill-outline-color"]).toBe("rgba(10,20,30,1)");
+});
+
 test("the rooms are painted from the theme's primary colour and follow a changed theme", async () => {
   const { panel } = mountPanel();
   panel.style.setProperty("--primary-color", "rgb(0, 128, 0)");
@@ -944,9 +1189,26 @@ test("a dark Home Assistant without darkMode in its themes gets the dark map, an
   await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
   expect(fetchMock).toHaveBeenLastCalledWith("/static/map/dark.json");
   handlers["style.load"]();
-  expect(paintOf("areas-2d")).toEqual({ "fill-color": "rgba(0,128,0,0.12)" });
+  expect(paintOf("areas-2d")).toEqual({ "fill-color": "rgba(0,128,0,0.25)" });
+  expect(paintOf("areas-outline")).toMatchObject({ "line-color": "rgba(0,128,0,1)", "line-width": 2 });
   panel.hass = { ...panel.hass, themes: { ...unresolved, darkMode: false } };
   await vi.waitFor(() => expect(setStyle).toHaveBeenCalled());
   expect(fetchMock).toHaveBeenLastCalledWith("/static/map/light.json");
   query.mockRestore();
+});
+
+test("Spatial's own toast lifts the bottom chrome until its duration ends", async () => {
+  const { panel } = mountPanel(UNALIGNED);
+  queryRenderedFeatures.mockReturnValue([]);
+  await showNoFloor(panel);
+  await vi.waitFor(() => expect(handlers.click).toBeDefined());
+  vi.useFakeTimers();
+  try {
+    click();
+    expect(panel.hasAttribute("toasting")).toBe(true);
+    vi.advanceTimersByTime(3000);
+    expect(panel.hasAttribute("toasting")).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
 });

@@ -112,13 +112,13 @@ export const floorsByLevel = (collection: FeatureCollection): (string | null)[] 
 };
 
 /**
- * Custom: `[west, south, east, north]` around the outer rings of the polygon
- * features, for framing them; undefined without features.
+ * Custom: the padding that frames a house in the map's free area, from what the guide and the strip take
+ * from the top and bottom: 16 px under the guide, 24 px over the strip, 48 px at the sides. With no strip
+ * the bottom keeps the same 16 px gutter as the top.
  */
-export const bounds = (features: Feature[]): [number, number, number, number] | undefined => {
-  const points = features.flatMap((f) => (f.geometry as Polygon).coordinates[0]);
-  if (!points.length) return undefined;
-  const lons = points.map((p) => p[0]);
-  const lats = points.map((p) => p[1]);
-  return [Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)];
-};
+export const freeAreaPadding = ({ top, bottom }: { top: number; bottom: number }) => ({
+  top: top + 16,
+  bottom: bottom ? bottom + 24 : 16,
+  left: 48,
+  right: 48,
+});
