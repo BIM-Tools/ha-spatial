@@ -54,6 +54,10 @@ export interface EditorHost {
   canRenameBuilding(): boolean;
   // The rooms whose labels hide while a resize draft over them shows its lengths and area.
   hideLabels(areaIds: string[]): void;
+  // The active room, so a small one keeps its name chip; undefined when none is.
+  activateLabel(areaId: string | undefined): void;
+  // The screen boxes of the shown labels, which the side controls keep clear of.
+  labelBoxes(): readonly ScreenBox[];
   // The plan was emptied, back to picking the home's building.
   startedOver(): void;
 }
@@ -428,6 +432,7 @@ export class RoomEditor {
 
   private _setActive(areaId: string) {
     this._active = areaId;
+    this._host.activateLabel(areaId && areaId !== BUILDING ? areaId : undefined);
     if (areaId !== this._renaming) this._renaming = "";
     this._showHandles();
     this._showMapOutline();
@@ -569,7 +574,7 @@ export class RoomEditor {
       },
       close: () => this._select(areaId),
       resize: (resized) => this._resize(resized),
-    });
+    }, () => this._host.labelBoxes());
   }
 
   private _resize(resized: ChangeOrRefusal) {
