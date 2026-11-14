@@ -258,7 +258,8 @@ test("the card neither turns nor tilts and looks from afar; the panel's All view
   mountPanel();
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
   expect(mapCreated.mock.calls[0][0]).toMatchObject({ dragRotate: true, touchPitch: true });
-  expect(touchZoomRotate.isRotationEnabled()).toBe(true);
+  // The guide asks to draw a room, so Draw is current, which holds the map still.
+  expect(touchZoomRotate.isRotationEnabled()).toBe(false);
   expect(mapFieldOfViewNow).toBe(36.87);
 });
 
@@ -591,6 +592,77 @@ test("in Align a save while Spatial is still starting says so and offers Retry",
   expect(toasts[0]).toMatchObject({ action: { text: "Retry" }, duration: -1, dismissable: true });
 });
 
+test("a toast replaced by another restarts the timer and keeps the chrome lifted until the second one ends", async () => {
+  const { panel } = mountPanel(UNALIGNED);
+  queryRenderedFeatures.mockReturnValue([]);
+  await showNoFloor(panel);
+  await vi.waitFor(() => expect(handlers.click).toBeDefined());
+  vi.useFakeTimers();
+  try {
+    click();
+    vi.advanceTimersByTime(2000);
+    click();
+    vi.advanceTimersByTime(2000);
+    expect(panel.hasAttribute("toasting")).toBe(true);
+    vi.advanceTimersByTime(1000);
+    expect(panel.hasAttribute("toasting")).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+const retryToast = async () => {
+  queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
+  const { panel } = mountPanel({
+    reply: async (message) => {
+      if (message.type === "spatial/site/update") throw { code: "unknown_command", message: "Unknown command." };
+    },
+  });
+  vi.spyOn(console, "error").mockImplementationOnce(() => {});
+  await startAligning(panel);
+  await vi.waitFor(() => expect(guideText(panel)).toMatch(/^Click the front wall/));
+  click();
+  await vi.waitFor(() => expect(toasts[0]).toMatchObject({ duration: -1 }));
+  return panel;
+};
+
+test("a toast that waits keeps the chrome lifted until its action runs", async () => {
+  const panel = await retryToast();
+  expect(panel.hasAttribute("toasting")).toBe(true);
+  toasts[0].action!.action();
+  expect(panel.hasAttribute("toasting")).toBe(false);
+});
+
+test("a toast that waits keeps the chrome lifted until the guide changes step", async () => {
+  const panel = await retryToast();
+  expect(panel.hasAttribute("toasting")).toBe(true);
+  // The failed save left Align; asking for it again moves the guide to the align step.
+  await chooseFromMenu(panel, "Change alignment");
+  await settle(panel);
+  expect(panel.hasAttribute("toasting")).toBe(false);
+});
+
+test("entering the align step frames the picked building above the strip's own place, not where a toast lifted it", async () => {
+  queryRenderedFeatures.mockReturnValue([{ geometry: HOUSE }]);
+  const { panel } = mountPanel(UNALIGNED);
+  await showNoFloor(panel);
+  await vi.waitFor(() => expect(handlers.click).toBeDefined());
+  await vi.waitFor(() => expect(guideText(panel)).toMatch(/^Click your home/));
+  // A stage 800 px tall; the strip is 72 px high at 712 px, and a toast has lifted it to 648 px.
+  const root = panel.shadowRoot!;
+  const rect = (top: number, height: number) => ({ top, bottom: top + height, height }) as DOMRect;
+  root.querySelector(".stage")!.getBoundingClientRect = () => rect(0, 800);
+  const strip = root.querySelector<HTMLElement>(".strip")!;
+  strip.getBoundingClientRect = () => rect(648, 72);
+  Object.defineProperty(strip, "offsetTop", { value: 712 });
+  fitBounds.mockClear();
+  // Picking the home turns Align on, which is the step that frames the building.
+  click();
+  await settle(panel);
+  expect(fitBounds).toHaveBeenCalledTimes(1);
+  expect(fitBounds.mock.calls[0][1]).toMatchObject({ padding: { top: 16, bottom: 112, left: 48, right: 48 } });
+});
+
 test("the header's Help opens a sheet of symbols and keys that Escape closes, giving focus back to Help", async () => {
   const { panel } = mountPanel();
   await vi.waitFor(() => expect(panel.shadowRoot?.querySelector("spatial-panel-header")).not.toBeNull());
@@ -720,11 +792,11 @@ const showNoFloor = async (panel: HTMLElement) => {
   await settle(panel);
 };
 
-test("Select is the default tool, and exactly one tool is active", async () => {
+test("no tool is current before the first pick; after that exactly one is", async () => {
   const { panel } = mountPanel(UNALIGNED);
   await showNoFloor(panel);
-  expect(pressedTools(panel)).toEqual(["Select"]);
-  for (const name of ["Draw", "Draw", "Align", "Select"]) {
+  expect(pressedTools(panel)).toEqual([]);
+  for (const name of ["Draw", "Draw", "Align"]) {
     buttonNamed(panel, name)!.click();
     await settle(panel);
     expect(pressedTools(panel)).toEqual([name]);
@@ -742,7 +814,7 @@ test("in All floors every tool is disabled and none is pressed; Align ends there
   buttonNamed(panel, "All")!.click();
   buttonNamed(panel, "No floor")!.click();
   await settle(panel);
-  expect(pressedTools(panel)).toEqual(["Select"]);
+  expect(pressedTools(panel)).toEqual([]);
 });
 
 test("the selected floor is pressed and stays enabled", async () => {
@@ -949,4 +1021,26 @@ test("a dark Home Assistant without darkMode in its themes gets the dark map, an
   await vi.waitFor(() => expect(setStyle).toHaveBeenCalled());
   expect(fetchMock).toHaveBeenLastCalledWith("/static/map/light.json");
   query.mockRestore();
+});
+
+test("before the first pick no tool is current", async () => {
+  const { panel } = mountPanel(UNALIGNED);
+  await showNoFloor(panel);
+  expect(pressedTools(panel)).toEqual([]);
+});
+
+test("Spatial's own toast lifts the bottom chrome until its duration ends", async () => {
+  const { panel } = mountPanel(UNALIGNED);
+  queryRenderedFeatures.mockReturnValue([]);
+  await showNoFloor(panel);
+  await vi.waitFor(() => expect(handlers.click).toBeDefined());
+  vi.useFakeTimers();
+  try {
+    click();
+    expect(panel.hasAttribute("toasting")).toBe(true);
+    vi.advanceTimersByTime(3000);
+    expect(panel.hasAttribute("toasting")).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
 });

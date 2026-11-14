@@ -51,7 +51,7 @@ test.each<[string, Partial<Plan>, object]>([
     { aligned: false, tool: "align" },
     { kind: "align", text: "Click the front wall of your home", buttons: [{ control: "pick-again", label: "Pick another building" }], lit: undefined, floor: "ground" },
   ],
-  ["the home picked, back in Select: pick again with Align lit", { aligned: false }, { kind: "pick", text: "Click your home", lit: "align" }],
+  ["the home picked, back in Select: the pick step stays, nothing lit", { aligned: false, picked: true }, { kind: "pick", text: "Click your home", lit: undefined }],
   ["Change alignment says what to click, with nothing to pick again", { tool: "align" }, { kind: "align", buttons: undefined }],
   ["All with work left opens the first floor with an area to draw", { floor: "all" }, { kind: "choose-floor", text: "Choose a floor to edit its rooms", floor: "ground" }],
   ["All on a done plan opens nothing", { floor: "all", floors: DONE }, { kind: "done", text: "Choose a floor to edit its rooms", floor: undefined }],
@@ -104,4 +104,16 @@ test.each<[string, Partial<Plan>, object]>([
 ])("%s", (_name, change, expected) => {
   // A step leaves out what it has not, which `undefined` in `expected` then matches.
   expect({ text: undefined, lit: undefined, floor: undefined, ...nextStep({ ...PLAN, ...change }) }).toMatchObject(expected);
+});
+
+test("a coarse pointer is told to tap where a fine one is told to click", () => {
+  const pick = nextStep({ ...PLAN, aligned: false, coarse: true });
+  expect(pick).toMatchObject({ kind: "pick", text: "Tap your home", detail: "Tap its building on the map" });
+  expect(nextStep({ ...PLAN, aligned: false, tool: "align", coarse: true }).text).toBe("Tap the front wall of your home");
+  expect(nextStep({ ...PLAN, aligned: false, coarse: false }).text).toBe("Click your home");
+  const offer = nextStep({ ...PLAN, outlineStored: false, active: BUILDING, outlineOffer: "9.80 x 7.60 m", coarse: true });
+  expect(offer.detail).toBe("9.80 x 7.60 m. Or tap another building.");
+  const draw = nextStep({ ...PLAN, outlineStored: false, active: BUILDING, coarse: true });
+  expect(draw.detail).toBe("Tap each corner; tap the first corner to finish. Or tap another building.");
+  expect(nextStep({ ...PLAN, outlineStored: false, active: BUILDING, outlineOffer: "9.80 x 7.60 m" }).detail).toBe("9.80 x 7.60 m. Or click another building.");
 });

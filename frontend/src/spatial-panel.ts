@@ -35,11 +35,11 @@ import "./floor-selector";
 import { mapCursor } from "./map-cursor";
 import "./map-stack";
 import { type MapPaint, layerColours, readMapPaint, repaint } from "./map-paint";
-import { type ThemeState, bounds, darkModeOf, mapBearing, styleUrl, withMapTilesToken, workerUrl } from "./map-view";
+import { type ThemeState, bounds, darkModeOf, freeAreaPadding, mapBearing, styleUrl, withMapTilesToken, workerUrl } from "./map-view";
 import { type AlignFields, type TileBuildings, alignFields, nearestBuilding, reachesUnreadTiles, wallAt } from "./outline";
 import "./panel-header";
 import type { MenuItem } from "./panel-header";
-import { type Control, type Step, nextStep } from "./onboarding";
+import { type Control, FITTED_STEPS, type Step, nextStep } from "./onboarding";
 import { EMPTY, PanelState, alignPlace } from "./panel-state";
 import { mapOutline } from "./plan";
 import type { PlanFrame } from "./site-frame";
@@ -117,6 +117,11 @@ type HomeLocation = { latitude: number; longitude: number };
 // Core rotates the map tiles token every 30 minutes and keeps two live; this
 // is the interval Home Assistant's own frontend refreshes at.
 const TOKEN_REFRESH_MS = 20 * 60 * 1000;
+// How far a Spatial toast lifts the bottom chrome, in px; the toast sits in the 64 px under it.
+const TOAST_LIFT_PX = 64;
+// Custom: how long a toast shows when Spatial passes no duration. It mirrors Home Assistant's default
+// toast duration (3 s) and drifts if Home Assistant changes it; Home Assistant sends no close event to follow.
+const TOAST_MS = 3000;
 
 // Storage can be blocked; the map toggle then lasts only this visit.
 const readMapShown = (): boolean => {
@@ -323,6 +328,7 @@ class SpatialPanel extends LitElement {
     }
     /* Centred by its margins, so it can grow to the full stage width before it scrolls. */
     .strip {
+      transition: transform 200ms ease;
       ${floatingSurface}
       position: absolute;
       right: var(--ha-space-4);
@@ -334,6 +340,11 @@ class SpatialPanel extends LitElement {
       max-width: min(1352px, calc(100% - 32px));
       margin-inline: auto;
       border-radius: 26px;
+    }
+    /* Spatial's own toast lifts the bottom chrome out of its way; the map stays. */
+    :host([toasting]) .strip,
+    :host([toasting]) spatial-editor-toolbar[bar] {
+      transform: translateY(-${TOAST_LIFT_PX}px);
     }
     .strip > * {
       min-width: 0;
@@ -404,6 +415,9 @@ class SpatialPanel extends LitElement {
   private _pointerToRead?: MapMouseEvent;
   // The building lit under the pointer, if any.
   private _pointedBuilding?: Polygon;
+  // The step the guide was at on the last update, to act once when it changes.
+  private _lastStep?: Step["kind"];
+  private _toastTimer?: ReturnType<typeof setTimeout>;
   // The place the address search found last, pinned until a building is picked or the site has a direction; never stored.
   private _place?: Position;
 
@@ -450,7 +464,6 @@ class SpatialPanel extends LitElement {
     const phone = this._phone && !this.card;
     const step = this._step();
     const searching = this._searchOpen || step?.kind === "find";
-    const lit = step?.lit === "align" || step?.lit === "draw" ? step.lit : undefined;
     return html`
       <link rel="stylesheet" href="/static/map/maplibre-gl.css" />
       ${this.card ? nothing : html`<spatial-panel-header ?narrow=${phone} .menu=${this._menu()}></spatial-panel-header>`}
@@ -459,7 +472,7 @@ class SpatialPanel extends LitElement {
         <div id="map"></div>
         <div class="top ${phone ? "phone" : ""}">
           ${phone ? nothing : this._floorSelector(false)}
-          ${editor && !phone ? this._toolbar(editor, false, lit) : nothing}
+          ${editor && !phone ? this._toolbar(editor, false) : nothing}
           ${searching && !phone ? html`<div class="guide-row">${this._searchCard(false)}</div>` : this._guide(step)}
         </div>
         ${editor
@@ -481,7 +494,7 @@ class SpatialPanel extends LitElement {
         ${searching && phone ? this._searchCard(true) : nothing}
       </div>
       ${editor && phone ? html`<div class="strip-bar" @area-hover=${this._hoverFromStrip}>${editor.render(this._hovered)}</div>` : nothing}
-      ${editor && phone ? this._toolbar(editor, true, lit) : nothing}
+      ${editor && phone ? this._toolbar(editor, true) : nothing}
     `;
   }
 
@@ -496,14 +509,15 @@ class SpatialPanel extends LitElement {
     ></spatial-floor-selector>`;
   }
 
-  private _toolbar(editor: RoomEditor, bar: boolean, lit: Tool | undefined) {
+  // No tool is current before the first pick, so none is shown pressed.
+  private _toolbar(editor: RoomEditor, bar: boolean) {
+    const current = this._state.bearing === null && !this._pickedBuilding && editor.tool === "select" ? undefined : editor.tool;
     return html`<spatial-editor-toolbar
       class=${bar ? "" : "toolbar"}
       ?bar=${bar}
       ?disabled=${this._state.floor === "all"}
       ?align=${alignPlace(this._state.bearing) === "toolbar"}
-      .lit=${lit}
-      .tool=${editor.tool}
+      .tool=${current}
       .canUndo=${editor.canUndo}
       .canRedo=${editor.canRedo}
       .canRemove=${editor.canRemove}
@@ -551,6 +565,7 @@ class SpatialPanel extends LitElement {
       picked: this._pickedBuilding !== undefined,
       zoomedOut: this._zoomedOut,
       aligned: bearing !== null,
+      coarse: window.matchMedia(COARSE_QUERY).matches,
       floor: this._state.floor,
       ...editor.plan((floor) => this._floorName(floor)),
     });
@@ -763,8 +778,20 @@ class SpatialPanel extends LitElement {
     }
   }
 
-  /** Fires Home Assistant's toast, which its notification manager shows and announces. */
+  /**
+   * Fires Home Assistant's toast, which its notification manager shows and announces. While it shows the
+   * bottom chrome lifts out of its way, until its duration ends. Custom: a toast that waits (duration
+   * -1) lifts the chrome until its action runs, another toast replaces it or the guide changes step; Close
+   * is not seen, so after Close the chrome stays lifted until one of those.
+   */
   private _toast(toast: Toast) {
+    this._lowerToast();
+    this.setAttribute("toasting", "");
+    if (toast.duration !== -1) this._toastTimer = setTimeout(() => this._lowerToast(), toast.duration ?? TOAST_MS);
+    if (toast.action) {
+      const run = toast.action.action;
+      toast = { ...toast, action: { ...toast.action, action: () => (this._lowerToast(), run()) } };
+    }
     this.dispatchEvent(new CustomEvent("hass-notification", { detail: toast, bubbles: true, composed: true }));
   }
 
@@ -783,6 +810,7 @@ class SpatialPanel extends LitElement {
   updated(changed: PropertyValues<this>) {
     // MapLibre fixes interactivity at creation, so a new option rebuilds the map.
     if (changed.has("floor") && this._started) this._stop();
+    this._followStep();
     const previous = changed.get("hass") as Hass | undefined;
     if (previous && this.hass) {
       // Home Assistant hands over a new themes object only when the theme changes.
@@ -808,8 +836,34 @@ class SpatialPanel extends LitElement {
     }
   }
 
+  // Acts once when the guide moves to a new kind of step: Draw becomes current when it asks to draw, a finished
+  // floor leaves nothing selected, and the house is framed in the free area after the home pick, Align,
+  // Use outline, Looks right and a finished floor. Not on the first step seen, which is a reload.
+  private _followStep() {
+    const step = this._step();
+    const editor = this._editor;
+    const last = this._lastStep;
+    this._lastStep = step?.kind;
+    if (!step || !editor || last === step.kind) return;
+    // A toast that waits (no timer) lowers the chrome when the guide moves on.
+    if (!this._toastTimer) this._lowerToast();
+    // Not from editing: a user who picked an area in Select to edit it keeps Select after a click on empty map.
+    if (step.lit === "draw" && last !== "editing") this._selectTool("draw");
+    if (step.kind === "floor-done") editor.deselect();
+    if (last && FITTED_STEPS.includes(step.kind)) {
+      this._fit(true);
+    }
+  }
+
+  private _lowerToast() {
+    clearTimeout(this._toastTimer);
+    this._toastTimer = undefined;
+    this.removeAttribute("toasting");
+  }
+
   disconnectedCallback() {
     super.disconnectedCallback();
+    clearTimeout(this._toastTimer);
     this._phoneQuery.removeEventListener("change", this._phoneChanged);
     this._stop();
   }
@@ -1015,16 +1069,29 @@ class SpatialPanel extends LitElement {
     if (stack) stack.bearing = bearingDeg;
   }
 
-  // Frames the rooms in view: all floors from the front corner, one floor with the picked wall horizontal.
-  private _fit() {
+  // Frames the house in view: all floors from the front corner, one floor with the picked wall horizontal
+  // and the whole house in the free area between the guide and the strip. Before an outline or a room
+  // exists it frames the picked building.
+  private _fit(animate = false) {
     if (this._state.floor === "all") {
       this._viewStack(false);
       return;
     }
-    const box = bounds(this._state.roomsInView());
-    if (box) {
-      this._map?.fitBounds(box, { bearing: mapBearing(this._state.axisDeg), padding: 16, animate: false });
-    }
+    const outline = this._state.outline;
+    const shapes: Feature<Polygon>[] = this._state.roomsInView();
+    if (outline.type === "Polygon") shapes.push({ type: "Feature", properties: {}, geometry: outline });
+    else if (!shapes.length && this._pickedBuilding) shapes.push({ type: "Feature", properties: {}, geometry: this._pickedBuilding });
+    const box = bounds(shapes);
+    if (box) this._fitToFreeArea(box, animate);
+  }
+
+  // Custom: fits the box between the guide and the strip.
+  private _fitToFreeArea(box: [number, number, number, number], animate = false) {
+    const map = this._map;
+    if (!map) return;
+    const padding = freeAreaPadding(this._freeSpace());
+    const bearing = this._state.bearing === null ? map.getBearing() : mapBearing(this._state.axisDeg);
+    map.fitBounds(box, { bearing, padding, animate });
   }
 
   // All floors look at the house from its front corner; one floor keeps the picked wall horizontal.
@@ -1074,6 +1141,7 @@ class SpatialPanel extends LitElement {
   // Custom: what the controls floating over the map take from each side, and room for the floor labels on the right.
   private _freeSpace() {
     const stage = this.renderRoot.querySelector(".stage")?.getBoundingClientRect();
+    const stripEl = this.renderRoot.querySelector<HTMLElement>(".strip");
     const covers = (selector: string) => this.renderRoot.querySelector(selector)?.getBoundingClientRect();
     if (!stage) return { top: 0, right: 0, bottom: 0, left: 0 };
     const top = covers(".top");
@@ -1084,7 +1152,8 @@ class SpatialPanel extends LitElement {
     return {
       top: top && top.height ? top.bottom - stage.top : 0,
       right: labels + (controls && controls.width ? stage.right - controls.left : 0),
-      bottom: strip && strip.height ? stage.bottom - strip.top : 0,
+      // From offsetTop, which ignores the toast's lift, so a fit right after a toast frames the house above the strip's place.
+      bottom: strip && strip.height && stripEl ? stage.height - stripEl.offsetTop : 0,
       left: 0,
     };
   }

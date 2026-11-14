@@ -43,10 +43,12 @@ export interface Plan {
   tool: "align" | "draw" | "select";
   // The area id of the active pill, or the Building's.
   active: string;
+  // The pointer is a finger, so the guide says tap.
+  coarse?: boolean;
 }
 
 /** A control the guide can light: a tool in the toolbar or a button on the guide line. */
-export type Control = "align" | "draw" | "pick-again" | "draw-myself" | "use-outline" | "looks-right" | "next-floor";
+export type Control = "draw" | "pick-again" | "draw-myself" | "use-outline" | "looks-right" | "next-floor";
 
 export interface GuideButton {
   control: Control;
@@ -75,6 +77,9 @@ export interface Step {
   floor?: Floor;
 }
 
+/** The steps after which the house is framed in the free area between the guide and the strip. */
+export const FITTED_STEPS: Step["kind"][] = ["align", "outline-question", "check-length", "room", "floor-done"];
+
 const CHOOSE_FLOOR = "Choose a floor to edit its rooms";
 const ZOOM_IN = "Zoom in to your house.";
 
@@ -92,8 +97,7 @@ const nextFloor = (floors: PlanFloor[], current: Floor): PlanFloor | undefined =
 
 /**
  * Custom. The one step the plan is at, in this order: find the home when Home Assistant has none or
- * the map draws no building there; pick the home's building in any tool but Align, with Align lit once
- * one is picked (a pick turns Align on); on All, which floor to open; align, with Pick another building
+ * the map draws no building there; pick the home's building in any tool but Align; on All, which floor to open; align, with Pick another building
  * before the first Align once a building is picked; check one length after a new outline; the outline, as
  * the map's question or drawn by hand; the active area while it has no shape; the floor done with Next
  * floor; done. An area the user picked to edit, while others wait, says nothing. While the building is
@@ -102,16 +106,17 @@ const nextFloor = (floors: PlanFloor[], current: Floor): PlanFloor | undefined =
 export function nextStep(plan: Plan): Step {
   const floor = plan.floor === "all" ? workFloor(plan.floors) : plan.floor;
   if (!plan.aligned && !plan.searched && (!plan.homeKnown || plan.buildingAtHome === false)) return { kind: "find", floor };
+  const tap = plan.coarse ? "Tap" : "Click";
   if (!plan.aligned && plan.tool !== "align") {
-    const detail = plan.zoomedOut ? ZOOM_IN : "Point at a building to light it up, then click it.";
-    return { kind: "pick", text: "Click your home", detail, lit: plan.picked ? "align" : undefined, floor };
+    const detail = plan.zoomedOut ? ZOOM_IN : plan.coarse ? "Tap its building on the map" : "Point at a building to light it up, then click it.";
+    return { kind: "pick", text: `${tap} your home`, detail, floor };
   }
   const done = plan.aligned && plan.outlineStored && !plan.floors.some(unshaped);
   if (plan.floor === "all") return done ? { kind: "done", text: CHOOSE_FLOOR } : { kind: "choose-floor", text: CHOOSE_FLOOR, floor };
   if (plan.tool === "align") {
     return {
       kind: "align",
-      text: "Click the front wall of your home",
+      text: `${tap} the front wall of your home`,
       detail: "The view turns so that wall lies flat.",
       buttons: !plan.aligned && plan.picked ? [{ control: "pick-again", label: "Pick another building" }] : undefined,
       floor,
@@ -133,7 +138,7 @@ export function nextStep(plan: Plan): Step {
       return {
         kind: "outline-question",
         text: "Use the map's outline?",
-        detail: `${plan.outlineOffer}. Or click another building.`,
+        detail: `${plan.outlineOffer}. Or ${tap.toLowerCase()} another building.`,
         buttons: [
           { control: "draw-myself", label: "Draw it myself" },
           { control: "use-outline", label: "Use outline" },
@@ -142,7 +147,7 @@ export function nextStep(plan: Plan): Step {
         floor,
       };
     }
-    return { kind: "draw-outline", text: "Draw the outline of your home", detail: "Click each corner; click the first corner to finish. Or click another building.", lit: drawLit, floor };
+    return { kind: "draw-outline", text: "Draw the outline of your home", detail: `${tap} each corner; ${tap.toLowerCase()} the first corner to finish. Or ${tap.toLowerCase()} another building.`, lit: drawLit, floor };
   }
   const here = plan.floors.find((entry) => entry.floor === floor) ?? { floor, name: "", areas: [] };
   const active = here.areas.find((area) => area.area_id === plan.active);

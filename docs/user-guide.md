@@ -55,11 +55,12 @@ picks it too; a click inside a building always picks that one, so on a terrace t
 shared wall you click decides. A building cut by the map's tile edges is taken whole. Farther
 away a click says "No building here". When the map is zoomed out too far to tell buildings
 apart, the line says "Zoom in to your house." and a click zooms in on it. Nothing goes on until
-you click, and nothing about the building is stored.
+you click, and nothing about the building is stored. On a touch screen the guide says "Tap
+your home" and, throughout, tap where it says click.
 
 The building you picked shows dashed, and Align turns on at once (step 1 below). Wrong building?
 Press **Pick another building** on the line at the top: Select is back on, the pick stays dashed
-and **Align** is lit, and the next building you click replaces the pick.
+and no tool is current yet, and the next building you click replaces the pick.
 
 The pointer shows what a click does: a hand over a building a click would pick, a crosshair in
 Draw and Align, a move arrow over the selected shape in Select, a resize arrow on its sides, and
@@ -133,7 +134,7 @@ nothing is asked. This needs an administrator, like the panel.
    outline is saved, a box drawn with the building's pill against it joins it, as for rooms.
 3. **Draw the rooms.** After an area's first shape, the next area of the floor without one is
    highlighted, and the line at the top says "Draw Kitchen" with how far the floor is, for
-   example "3 of 5 on the Ground floor", and **Draw** lit while another tool is on. Draw each
+   example "3 of 5 on the Ground floor", and Draw becomes the current tool. Draw each
    room on the wall axes, so neighbours share their edges and the outer rooms end on the
    outline. Use **New area** for a room that is not in Home Assistant yet. While you pick a room
    that has a shape to change it, the line stays empty.
@@ -180,7 +181,16 @@ shows the building's name until the floor has rooms.
 
 ### Tools
 
-Exactly one tool is active; **Select** is the default. The tools work on a floor, not on All.
+Only the current tool is filled. Before you pick your home none is current; the guide then makes
+Align current, and Draw when it asks you to draw. A finished floor leaves nothing selected. The
+tools work on a floor, not on All.
+
+While a message from Spatial shows at the bottom, the area strip and the phone's tool bar move up
+out of its way, and the map stays where it is. They move back when the message ends, or, for a
+message that waits, when you use its button or the guide moves to its next step.
+
+After a step the map frames the house between the line at the top and the area strip, so none
+of it is hidden.
 
 | Tool | Does |
 | --- | --- |

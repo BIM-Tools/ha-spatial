@@ -145,16 +145,15 @@ const litControls = (panel: HTMLElement) =>
     .filter((button) => button.classList.contains("lit"))
     .map((button) => button.textContent?.trim());
 
-test("the panel opens on the floor with work left and shows only its step, one line with one lit control", async () => {
+test("the panel opens on the floor with work left and shows only its step, one line, with Draw current", async () => {
   const { panel, connection } = mountEditor();
   await showFloor(panel);
   expect(buttonNamed(panel, "Ground floor")!.getAttribute("aria-pressed")).toBe("true");
   expect(panel.shadowRoot!.querySelectorAll(".guide")).toHaveLength(1);
   expect(guideText(panel)).toBe("Draw Bath 2 of 3 on the Ground floor");
-  expect(litControls(panel)).toEqual(["Draw"]);
-  buttonNamed(panel, "Draw")!.click();
-  await settle(panel);
-  expect(litControls(panel)).toEqual([]);
+  // The guide asks to draw, so Draw is current and the only filled tool.
+  expect(buttonNamed(panel, "Draw")!.getAttribute("aria-pressed")).toBe("true");
+  expect(buttonNamed(panel, "Select")!.getAttribute("aria-pressed")).toBe("false");
   tap(100, 0);
   tap(140, 30);
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
@@ -177,6 +176,8 @@ test("a floor done offers Next floor, lit, which opens the next floor with an ar
   await settle(panel);
   expect(guideText(panel)).toBe("Ground floor done Next floor");
   expect(litControls(panel)).toEqual(["Next floor"]);
+  // A finished floor leaves nothing selected.
+  expect(activeChip(panel)).toBeUndefined();
   buttonNamed(panel, "Next floor")!.click();
   await settle(panel);
   expect(buttonNamed(panel, "Loft")!.getAttribute("aria-pressed")).toBe("true");
