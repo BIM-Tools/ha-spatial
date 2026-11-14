@@ -44,6 +44,7 @@ licence of every bundled package (listed in that workflow) and creates the relea
 | `src/map-cursor.ts` | The map's mouse pointer from the tool and what lies under the pointer |
 | `src/floor-stack.ts` | All floors as an exploded stack of their rooms, pure and in site frame metres: floor order, floor heights, room fills and walls, the outline on the ground, the camera fit from the front corner, and the floor labels beside each floor |
 | `src/room-values.ts` | `colour_by`: per area the brightest light that is on, or the temperature (the area's chosen sensor, else the average of its sensors), as the text under the name and the number its colour follows |
+| `src/draft-labels.ts` | The one placement rule for length chips and room names on screen: outside the sides, apart from each other and from other labels, kept on screen, moved off a small shape |
 | `src/room-labels.ts` | Room labels: area icon, name and net area in the panel, or the card's live value, placed and stepped by the room's size on screen |
 | `src/styles.ts` | The floating card, pill buttons and phone bar shared by the controls, from Home Assistant's theme tokens |
 | `src/onboarding.ts` | `nextStep`: the guide line's one step and its lit control, derived from the plan every time |

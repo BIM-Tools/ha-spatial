@@ -5,7 +5,7 @@ import { feature } from "@turf/helpers";
 import type { FeatureCollection, LineString, Point, Polygon, Position } from "geojson";
 import { type GeoJSONSource, Marker, type MapMouseEvent, type Map as MapLibreMap } from "maplibre-gl";
 import { BUILDING } from "./area-strip";
-import { type DraftLabelPlaces, type ScreenBox, placeDraftLabels } from "./draft-labels";
+import { type LabelPlaces, type ScreenBox, placeLabels, screenShape, viewportOf } from "./draft-labels";
 import { type Pixel, type ResizeTarget, isResizable, resizeCursor, resizeShape, resizeTargetAt } from "./edge-drag";
 import type { LayerColours } from "./map-paint";
 import { mapBearing } from "./map-view";
@@ -631,7 +631,7 @@ export class BoxInteraction {
   // A box under one grid step shows only its start, as a dot.
   private _draft({ corner, frame }: Start, end: LatticePoint) {
     const box = boxFromCorners(frame, corner, end);
-    if (box) this._preview(box, frame, this._apartFromActive(box, frame));
+    if (box) this._preview(box, frame, this._apartFromActive(box, frame), undefined, true);
     else this._preview({ type: "Point", coordinates: frame.fromLattice(corner) }, frame);
   }
 
@@ -655,7 +655,7 @@ export class BoxInteraction {
   }
 
   // A resize leaves the side lengths to its side controls.
-  private _preview(draft: Polygon | LineString | Point | undefined, frame?: PlanFrame, apart = false, controls?: readonly ScreenBox[]) {
+  private _preview(draft: Polygon | LineString | Point | undefined, frame?: PlanFrame, apart = false, controls?: readonly ScreenBox[], drawing = false) {
     const map = this._map;
     this._kept = undefined;
     map.getSource<GeoJSONSource>("spatial-draft")?.setData(draft ? feature(draft, { apart }) : EMPTY);
@@ -677,7 +677,7 @@ export class BoxInteraction {
       this._labels[index].setLngLat(at as [number, number]);
       this._labels[index].getElement().textContent = text;
     });
-    const places = this._placeLabels(draft, controls);
+    const places = this._placeLabels(draft, controls, drawing);
     [...places.sides, places.area].forEach((offset, index) => {
       this._labels[index].setOffset(offset ? [offset.x, offset.y] : [0, 0]);
       this._labels[index].getElement().style.visibility = offset ? "" : "hidden";
@@ -685,23 +685,15 @@ export class BoxInteraction {
   }
 
   // Measured after the texts are set, so each label's own size keeps it clear of its edge.
-  private _placeLabels(draft: Polygon, controls: readonly ScreenBox[] | undefined): DraftLabelPlaces {
-    const corners = draft.coordinates[0].slice(0, -1).map((corner) => this._map.project(corner as [number, number]));
-    const screenSides = !controls
-      ? corners.map((corner, index) => {
-          const next = corners[(index + 1) % corners.length];
-          return { midpoint: { x: (corner.x + next.x) / 2, y: (corner.y + next.y) / 2 }, edge: { x: next.x - corner.x, y: next.y - corner.y } };
-        })
-      : [];
-    const xs = corners.map(({ x }) => x);
-    const ys = corners.map(({ y }) => y);
-    const box = { width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
+  private _placeLabels(draft: Polygon, controls: readonly ScreenBox[] | undefined, drawing: boolean): LabelPlaces {
+    const shape = screenShape(draft.coordinates[0].slice(0, -1).map((corner) => this._map.project(corner as [number, number])));
+    const screenSides = controls ? [] : shape.sides;
     const sizes = this._labels.map((label) => {
       const element = label.getElement();
       return { width: element.offsetWidth, height: element.offsetHeight };
     });
-    const area = { centre: { x: (Math.max(...xs) + Math.min(...xs)) / 2, y: (Math.max(...ys) + Math.min(...ys)) / 2 }, size: sizes[screenSides.length] };
-    return placeDraftLabels(screenSides, sizes, box, area, controls);
+    const area = { centre: shape.centre, size: sizes[screenSides.length] };
+    return placeLabels({ sides: screenSides, sideSizes: sizes, box: shape.box, area, controls, viewport: viewportOf(this._map.getContainer()), drawing });
   }
 
   // A box under one grid step is not created, without a toast: while drawn it showed only its start.

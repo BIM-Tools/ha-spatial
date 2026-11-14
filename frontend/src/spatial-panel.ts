@@ -971,6 +971,8 @@ class SpatialPanel extends LitElement {
           // Renaming writes Home Assistant's core config, which only an admin may change.
           canRenameBuilding: () => this.hass?.user?.is_admin === true,
           hideLabels: (areaIds) => this._labels?.hide(areaIds),
+          activateLabel: (areaId) => this._labels?.activate(areaId),
+          labelBoxes: () => this._labels?.boxes() ?? [],
           startedOver: () => this._startedOver(),
         });
     this._editor = editor;
@@ -1071,6 +1073,11 @@ class SpatialPanel extends LitElement {
     }
     // Before the editor, so a click that picks a building does not also start a box.
     map.on("click", (event) => this._clickBuilding(event));
+    // A finger has no hover, so a tap on a room shows its name for a moment.
+    map.on("click", (event) => {
+      const areaId = isTouch(event) ? this._roomUnder(event) : undefined;
+      if (areaId) this._labels?.tap(areaId);
+    });
     editor?.attach(map);
     // After the editor: the cursor follows what its hover found, and the click that ends Align is not
     // also a room pick in Select.
@@ -1152,7 +1159,7 @@ class SpatialPanel extends LitElement {
       null;
     const outline = this._state.outline.type === "Polygon" ? this._state.outline : undefined;
     const pixelM = metresForPixels(1, zoom, frame.fromLattice([0, 0])[1]);
-    this._stack = floorStack(rooms, outline, stackFloors(rooms, levelOf), frame, pixelM);
+    this._stack = floorStack(rooms, outline, stackFloors(rooms, levelOf, Object.keys(this.hass?.floors ?? {})), frame, pixelM);
     this._map?.getSource<GeoJSONSource>("stack")?.setData(this._stack.features);
     this._showFloorLabels();
   }

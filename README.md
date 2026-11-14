@@ -6,6 +6,8 @@ Draw your rooms on Home Assistant's own map, and let Home Assistant know which r
 
 ![The ground floor of the example house in the Spatial panel, the living room active with its side lengths](https://raw.githubusercontent.com/BIM-Tools/ha-spatial/main/docs/images/hero.png)
 
+![The dashboard card fixed to the ground floor, each room coloured by the brightest light that is on](https://raw.githubusercontent.com/BIM-Tools/ha-spatial/main/docs/images/card-brightness.png)
+
 It is not a 3D house model: no walls, doors, furniture or device positions.
 
 ## Install
@@ -60,21 +62,8 @@ Download `spatial.zip` from the
 
 ## Room colours
 
-A dashboard card fixed to one floor can colour its rooms by live data and write the value under
-each room's name. `brightness` reads the brightest light that is on in the area, `temperature`
-the temperature sensor chosen for the area, else the average of its temperature sensors.
-
-```yaml
-type: custom:spatial-map-card
-floor: ground_floor
-colour_by: brightness
-```
-
-```yaml
-type: custom:spatial-map-card
-floor: ground_floor
-colour_by: temperature
-```
+A dashboard card fixed to one floor can colour its rooms by live data with `colour_by`: see the
+[user guide](docs/user-guide.md#dashboard-card).
 
 ## Privacy
 

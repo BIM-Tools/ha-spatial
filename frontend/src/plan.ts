@@ -55,6 +55,10 @@ const MAP_OUTLINE_INSET_M = 0.15;
 // on it; the rest is noise in the map.
 const STRAIGHTEN_TANGENT = Math.tan((3 * Math.PI) / 180);
 const EQUATOR_M = 40075016.686;
+// A step shorter than this between two near-parallel sides is a jog, merged before the outline is offered.
+const JOG_MAX_M = 0.5;
+// Two sides are near-parallel when the sine of the angle between them is under this (about 20 degrees).
+const JOG_PARALLEL_SINE = 0.35;
 
 // Home Assistant's map tiles carry buildings at zoom 14 at most, 4096 units across a tile, so a map
 // corner is only known to one such unit: a short wall reads several degrees crooked or as a stair step.
@@ -82,6 +86,46 @@ function withoutShortEdges(corners: FloatRing, shortest: number): FloatRing {
     const short = ring.findIndex((corner, index) => edgeUnits(corner, ring[(index + 1) % ring.length]) < shortest);
     if (short < 0 || ring.length < 3) return ring;
     ring = ring.filter((_, index) => index !== (short + 1) % ring.length);
+  }
+}
+
+/**
+ * Custom. Merges each jog, an edge shorter than `longest` that joins two near-parallel sides running the same
+ * way and that is not itself near-parallel to them, so the two sides become one straight side. The longer
+ * neighbouring side keeps its line (the earlier one on a tie); the other side, with the corner at its far end,
+ * moves along the jog onto it, so the wall beyond keeps its direction. One jog at a time until none is left;
+ * a merge that would leave fewer than four corners, a ring that crosses itself or a new jog is skipped.
+ * Limit: a jog on a diagonal pair of sides within 20 degrees of parallel is merged the same way.
+ */
+function withoutJogs(corners: FloatRing, longest: number): FloatRing {
+  const skipped = new Set<string>();
+  for (;;) {
+    const count = corners.length;
+    if (count < 6) return corners;
+    const at = (index: number) => corners[(index + count) % count];
+    const found = corners.findIndex((from, i) => {
+      const [to, before, next] = [at(i + 1), at(i - 1), at(i + 2)];
+      const [jog, p, n] = [edgeUnits(from, to), edgeUnits(before, from), edgeUnits(to, next)];
+      if (!jog || !p || !n || jog >= longest || skipped.has(`${from}|${to}`)) return false;
+      const cross = (a: number[], b: number[]) => Math.abs(a[0] * b[1] - a[1] * b[0]);
+      const [jv, pv, nv] = [[to[0] - from[0], to[1] - from[1]], [from[0] - before[0], from[1] - before[1]], [next[0] - to[0], next[1] - to[1]]];
+      return pv[0] * nv[0] + pv[1] * nv[1] > 0 && cross(pv, nv) < JOG_PARALLEL_SINE * p * n && cross(jv, pv) > JOG_PARALLEL_SINE * jog * p;
+    });
+    if (found < 0) return corners;
+    const [from, to] = [at(found), at(found + 1)];
+    const pLonger = edgeUnits(at(found - 1), from) >= edgeUnits(to, at(found + 2));
+    // Indices of the two corners the jog drops, and of the far corner that moves by the jog.
+    const [dropped, moved, by] = pLonger
+      ? [[found, found + 1], found + 2, [from[0] - to[0], from[1] - to[1]]]
+      : [[found, found + 1], found - 1, [to[0] - from[0], to[1] - from[1]]];
+    const merged = corners.map((c, i): [number, number] => (i === (moved + count) % count ? [c[0] + by[0], c[1] + by[1]] : c));
+    const result = merged.filter((_, i) => !dropped.map((d) => d % count).includes(i));
+    // The moved corner's other edge must not become a jog itself, or merging cascades through real recesses.
+    const movedAt = result.findIndex((c) => c[0] === corners[(moved + count) % count][0] + by[0] && c[1] === corners[(moved + count) % count][1] + by[1]);
+    const rest = result[(movedAt + (pLonger ? 1 : -1) + result.length) % result.length];
+    const shortened = edgeUnits(result[movedAt], rest) < longest;
+    if (result.length < 4 || shortened || !isSimpleRing(result)) skipped.add(`${from}|${to}`);
+    else corners = result;
   }
 }
 
@@ -184,7 +228,7 @@ function isSimpleRing(corners: Ring): boolean {
  */
 export function mapOutline(frame: PlanFrame, building: Polygon): Polygon | undefined {
   const corners: FloatRing = building.coordinates[0].slice(0, -1).map((corner) => frame.toLatticeUnits(corner));
-  const kept = withoutShortEdges(corners, frame.unitsPerStep);
+  const kept = withoutJogs(withoutShortEdges(corners, frame.unitsPerStep), JOG_MAX_M / frame.unitM);
   if (kept.length < 3) return undefined;
   const tileUnits = mapTileUnitM(building.coordinates[0][0][1]) / frame.unitM;
   const inset = insetShell(straighten(kept, tileUnits), MAP_OUTLINE_INSET_M / frame.unitM);

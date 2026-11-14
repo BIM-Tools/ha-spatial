@@ -171,14 +171,14 @@ The menu closes with Escape or a click elsewhere.
 
 | Button | Shows |
 | --- | --- |
-| All | Every floor's rooms, stacked with a gap between floors over the building outline on the ground and seen from the front corner of the house, each floor named right of its rooms with its number of rooms. Turn it with the right mouse button or two fingers; the compass returns to the view from the front corner. A view only: the tools, Undo and Redo are off, the strip shows only the Building pill, and the line at the top says "Choose a floor to edit its rooms" |
+| All | Every floor's rooms, stacked with a gap between floors over the building outline on the ground and seen from the front corner of the house, each floor named beside its rooms, on the left when the right is cramped, with its number of rooms; a floor without rooms shows "<floor> · not drawn" with a dashed outline and keeps its place in the stack. Turn it with the right mouse button or two fingers; the compass returns to the view from the front corner. A view only: the tools, Undo and Redo are off, the strip shows only the Building pill, and the line at the top says "Choose a floor to edit its rooms" |
 | A floor | That floor as a flat plan; every floor of Home Assistant is listed, ordered by level, also an empty one |
 | No floor | Areas without a floor |
 
 ### Room labels
 
 Each room on a floor shows its area's icon, name and net area, in m² or ft² as Home Assistant's
-unit system says. A smaller room drops the area, then the name; pointing at it or tapping it shows the name. A tiny room has no label. The outline
+unit system says. A smaller room drops the area, then the name; a tiny room shows its name while pointed at, for 2 s after a tap, or while it is active. The outline
 shows the building's name until the floor has rooms.
 
 ### Tools
@@ -221,7 +221,7 @@ of it is hidden.
 ### Draw
 
 - **Draw a box:** press and drag from corner to corner, or click two corners (two taps on a
-  phone). While drawing, the box shows its side lengths just outside its sides, and its area inside
+  phone). While drawing, the box shows one length per direction, on the side facing the middle of the view and kept on screen, and its area inside
   once the box is large enough on screen to hold it.
 - **Join:** a box that touches the active space's shape joins it, so an L-shaped room is two
   boxes. A box apart from it is refused with the toast "A room is one shape: draw against it".
@@ -269,7 +269,9 @@ of it is hidden.
 - When the active room is a rectangle along the site direction, its width and depth each show
   once, on a button on one of the two sides they measure: on the side that is not a wall shared
   with another room, else on the bottom for the width and the left for the depth. The other two
-  sides carry a small grip. Tap a length or a grip, type the length of that side and press Enter
+  sides carry a small grip; a room that is small on screen shows its name, width and depth
+  outside its sides instead, and in a room too small for grips, the grips show once a length is
+  pressed. Tap a length or a grip, type the length of that side and press Enter
   (at least 10 cm or 4 in; an unchanged length saves nothing). The length is rounded to the 2.5 cm (1 in) lattice, so 3.47 m is stored as 3.475 m and shows as 3.48 m (the display rounds to two decimals, so it can read a
   hair above what is stored).
   The side's start corner stays, the opposite side follows. Escape closes the field.
@@ -290,11 +292,12 @@ of it is hidden.
   snapping. The pointer turns into a resize arrow over an edge or a corner. **Escape** cancels;
   undo, redo and **Delete** do nothing while a side or corner is held.
 - **The length or grip on a side is its handle:** drag it to stretch that side as above; the
-  handle held turns the theme's primary colour. A click or tap without a drag opens the length
+  handle held turns the theme's primary colour. A length may stand on the opposite side when
+  its own is taken. A click or tap without a drag opens the length
   field. On a touch screen, where the thin edge is hard to hit with a finger, a length also
   carries a grip mark, and every handle takes a fingertip-sized touch around it.
 - **Correct the outline:** when the building outline is not a rectangle, as when it came from the
-  map with a slanted wall, every side shows its length on a button, and its corners and sides can
+  map with a slanted wall, every side of at least about 48 px on screen shows its length on a button (a small room shows two), and its corners and sides can
   be dragged with the **Building** pill active in Select. A corner moves freely and its two sides
   follow: it snaps like a drawn corner, so also to the lines through the outline's other corners
   and the rooms' corners across and down the site direction, and a crooked corner drops straight
@@ -371,10 +374,14 @@ At 600 px wide or less:
 - Of the map controls only the round address search and map toggle stay; pinch to zoom and turn.
 - The address search card spans the width under the header.
 - Two taps draw a box; a long press on a pill renames it.
+- The guide card fits the screen width, and lengths and names stay on screen: a tiny room shows
+  its name for 2 s after a tap.
 
 ## Dashboard card
 
 ![The card fixed to the ground floor in a panel view](images/card.png)
+
+![The same card with colour_by: brightness, each room coloured by its light](images/card-brightness.png)
 
 Add a card with `type: custom:spatial-map-card`, best in a view of type Panel, so the map fills
 it; elsewhere the card is 400 px high. Everyone who can see the dashboard sees the map, also
@@ -384,7 +391,7 @@ show icon and name without the area. Without rooms it says "No rooms yet".
 | `floor` | Shows |
 | --- | --- |
 | not set | Floor buttons for the floors with rooms; pan and zoom |
-| `all` | All floors' rooms stacked from the front corner, fixed, every floor at the same scale like an axonometric drawing |
+| `all` | All floors' rooms stacked from the front corner, fixed, every floor at the same scale like an axonometric drawing; a floor without rooms shows "<floor> · not drawn" with a dashed outline |
 | a `floor_id` | That floor as a plan, fixed |
 
 | `show_map` | Shows |
@@ -482,7 +489,9 @@ The numbers behind the steps above.
   picks it. A building cut by the map's tile edges is taken whole.
 - The map's outline is taken 150 mm inside the map's line. Walls within 3 degrees of the site
   direction, or at most one unit of the map tiles (about 40 cm) across it, are straightened onto
-  it; diagonal walls stay. A part narrower than about 30 cm disappears when the shape moves
+  it, steps under 0.5 m between near-parallel walls are merged into the longer wall, and diagonal
+  walls stay. A real recess shallower than 0.5 m is merged away too; draw it back with the
+  outline tools. A part narrower than about 30 cm disappears when the shape moves
   inward; when that splits the building, the largest piece is offered. Nothing is offered for a
   building under about 40 cm across, or with a side shorter than 10 cm.
 - Clicking the first corner again to close an outline works within the snap reach.
