@@ -385,3 +385,15 @@ test("Escape cancels an in-progress draft", () => {
   window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
   expect(sources["spatial-draft"].data).toEqual({ type: "FeatureCollection", features: [] });
 });
+
+test("a box being drawn shows one length chip per axis and its area", () => {
+  mountInteraction();
+  handlers.mousedown(pointEvent(100, 0));
+  handlers.mousemove(pointEvent(110, 10));
+  handlers.mousemove(pointEvent(260, 100));
+  const shown = liveMarkers().map((marker) => marker.element.style.visibility !== "hidden");
+  // Four side chips and the area: two side chips hide, whichever sides they sit on.
+  expect(shown).toHaveLength(5);
+  expect(shown.filter((visible) => !visible)).toHaveLength(2);
+  expect(shown[4]).toBe(true);
+});
