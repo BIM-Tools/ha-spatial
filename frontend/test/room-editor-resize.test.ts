@@ -93,7 +93,7 @@ test("an edge drag counts the width on its chip in place, rings the held side, h
   expect(sideAt(2)).toEqual([60, -200]);
   // The 5.00 m depth chip of this small room stands at the right side.
   expect(sideAt(3)).toEqual([200, -100]);
-  expect(held()).toEqual([false, false, false, true]);
+  expect(held()).toEqual([false, true, false, false]);
   expect(draftLabels()).toEqual([]);
   expect(kitchenLabelShown()).toBe(false);
   handlers.mouseup(mouse(-19.2, 25));
@@ -179,7 +179,7 @@ test("a refresh during an edge drag keeps the side controls on the draft, and th
   await onUpdateOf(connection)();
   await settle(panel);
   expect(sideTexts()).toEqual(["", "", "6.30 m", "5.00 m"]);
-  expect(held()).toEqual([false, false, false, true]);
+  expect(held()).toEqual([false, true, false, false]);
   handlers.mouseup(mouse(-19.2, 25));
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
   expect(cornerSet(saves(connection)[0].areas.kitchen)).toEqual(latticeBox(-80, -200, 200, 0));
@@ -263,15 +263,15 @@ test("a tap on a grip opens the length field filled with its side's length and s
   expect(saves(connection)).toEqual([]);
 });
 
-test("dragging a grip rings it and counts the length on the opposite side's chip", async () => {
+test("dragging the depth chip that stands at the right side rings it alone and counts the width on the bottom chip", async () => {
   const { panel, connection } = await selectKitchen();
-  const right = sideButtons()[1];
+  const right = sideButtons()[3];
   pointer(right, "pointerdown", [50, 25]);
   pointer(right, "pointermove", [60, 25]);
-  // The depth chip stands at the right side too, so it takes the ring with the grip.
-  expect(held()).toEqual([false, true, false, true]);
+  // The chip stands at the right side and the right grip moved to the left: only the chip is ringed.
+  expect(held()).toEqual([false, false, false, true]);
   expect(sideTexts()).toEqual(["", "", "6.00 m", "5.00 m"]);
-  expect(sideAt(1)).toEqual([240, -100]);
+  expect(sideAt(3)).toEqual([240, -100]);
   pointer(right, "pointerup", [60, 25]);
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
   expect(cornerSet(saves(connection)[0].areas.kitchen)).toEqual(latticeBox(0, -200, 240, 0));
@@ -353,6 +353,18 @@ test("a press on a chip of a small room brings the grips back", async () => {
   await selectKitchen();
   pointer(sideButtons()[2], "pointerdown", [25, 50]);
   expect([0, 1, 2, 3].map(sideShown)).toEqual([true, true, true, true]);
+});
+
+test("once the grips are revealed a small room has exactly one control on each of its four sides", async () => {
+  await selectKitchen();
+  pointer(sideButtons()[2], "pointerdown", [25, 50]);
+  // Top, left (the right grip moved over, as its chip left), bottom, right (the depth chip).
+  expect([0, 1, 2, 3].map(sideAt).map((at) => at.map((n) => n + 0))).toEqual([
+    [100, 0],
+    [0, -100],
+    [100, -200],
+    [200, -100],
+  ]);
 });
 
 test("after the room is deselected a map move leaves its removed side markers alone", async () => {

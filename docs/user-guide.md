@@ -93,7 +93,7 @@ nothing is asked. This needs an administrator, like the panel.
    the map, the line says "Draw the outline of your home" with **Draw** current. When a building
    is picked, its own shape shows dashed, 150 mm inside the map's line (the map shows the outer
    face of the walls, the outline is their axis), with walls within 3 degrees of the site
-   direction, or at most one unit of the map tiles (about 40 cm) across it, straightened onto it and diagonal walls kept. The line at the top asks "Use the
+   direction, or at most one unit of the map tiles (about 40 cm) across it, straightened onto it, steps under 0.5 m between near-parallel walls merged into the longer wall, and diagonal walls kept. The line at the top asks "Use the
    map's outline?" with its size along the site direction, for example "9.8 × 7.6 m. Or click
    another building.", or "9.8 × 7.6 m overall" for any shape but a rectangle. A part
    narrower than about 30 cm disappears when the shape moves inward; when that splits the
@@ -170,14 +170,14 @@ The menu closes with Escape or a click elsewhere.
 
 | Button | Shows |
 | --- | --- |
-| All | Every floor's rooms, stacked with a gap between floors over the building outline on the ground and seen from the front corner of the house, each floor named right of its rooms with its number of rooms. Turn it with the right mouse button or two fingers; the compass returns to the view from the front corner. A view only: the tools, Undo and Redo are off, the strip shows only the Building pill, and the line at the top says "Choose a floor to edit its rooms" |
+| All | Every floor's rooms, stacked with a gap between floors over the building outline on the ground and seen from the front corner of the house, each floor named beside its rooms, on the left when the right is cramped, with its number of rooms; a floor without rooms shows "<floor> · not drawn" with a dashed outline and keeps its place in the stack. Turn it with the right mouse button or two fingers; the compass returns to the view from the front corner. A view only: the tools, Undo and Redo are off, the strip shows only the Building pill, and the line at the top says "Choose a floor to edit its rooms" |
 | A floor | That floor as a flat plan; every floor of Home Assistant is listed, ordered by level, also an empty one |
 | No floor | Areas without a floor |
 
 ### Room labels
 
 Each room on a floor shows its area's icon, name and net area, in m² or ft² as Home Assistant's
-unit system says. A smaller room drops the area, then the name; pointing at it or tapping it shows the name. A tiny room has no label. The outline
+unit system says. A smaller room drops the area, then the name; a tiny room shows its name while pointed at, for 2 s after a tap, or while it is active. The outline
 shows the building's name until the floor has rooms.
 
 ### Tools
@@ -220,7 +220,7 @@ of it is hidden.
 ### Draw
 
 - **Draw a box:** press and drag from corner to corner, or click two corners (two taps on a
-  phone). While drawing, the box shows its side lengths just outside its sides, and its area inside
+  phone). While drawing, the box shows one length per direction, on the side facing the middle of the view and kept on screen, and its area inside
   once the box is large enough on screen to hold it.
 - **Join:** a box that touches the active space's shape joins it, so an L-shaped room is two
   boxes. A box apart from it is refused with the toast "A room is one shape: draw against it".
@@ -294,7 +294,7 @@ of it is hidden.
   field. On a touch screen, where the thin edge is hard to hit with a finger, a length also
   carries a grip mark, and every handle takes a fingertip-sized touch around it.
 - **Correct the outline:** when the building outline is not a rectangle, as when it came from the
-  map with a slanted wall, every side shows its length on a button, and its corners and sides can
+  map with a slanted wall, every side of at least about 48 px on screen shows its length on a button (a small room shows two), and its corners and sides can
   be dragged with the **Building** pill active in Select. A corner moves freely and its two sides
   follow: it snaps like a drawn corner, so also to the lines through the outline's other corners
   and the rooms' corners across and down the site direction, and a crooked corner drops straight
@@ -457,7 +457,7 @@ each one means, and the [importer](../tools/README.md) sets floor heights.
 - Align needs a building in the map tiles. A building cut by a tile border gives only the part
   in that tile.
 - The map's outline follows the map's shape: a wall more than 3 degrees off the site direction
-  and more than about 40 cm across it (one unit of the map tiles) stays slanted, a step in a wall under one grid step (10 cm, 4 in) is straightened away, and a
+  and more than about 40 cm across it (one unit of the map tiles) stays slanted, a real recess shallower than 0.5 m is merged away too and can be drawn back with the outline tools, and a
   house the map joins to its neighbours is offered with them. On any shape
   but a rectangle its side lengths only show, they cannot be typed. It is offered for the building picked in this visit, else, after leaving and coming back, for
   the building the map shows at the grid origin, which Align on an empty plan puts on the

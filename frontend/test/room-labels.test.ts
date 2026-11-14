@@ -209,6 +209,14 @@ test("an active small room shows its chip, a large one does not", () => {
   expect(chipOf("living")).toBeFalsy();
 });
 
+test("boxes leaves out the active room's own label", () => {
+  const labels = mountLabels([pixelRoom("living", [0, 0], [200, 120]), pixelRoom("hall", [300, 0], [500, 120])], true, AREAS);
+  expect(labels.boxes()).toHaveLength(2);
+  labels.activate("hall");
+  expect(labels.boxes()).toHaveLength(1);
+  expect(labels.boxes()[0].centre.x).toBeLessThan(250);
+});
+
 test("boxes lists every shown label and chip in map pixels", () => {
   const labels = mountLabels([pixelRoom("living", [0, 0], [200, 120]), pixelRoom("shaft", [500, 100], [515, 115])], true, AREAS);
   expect(labels.boxes()).toHaveLength(1);

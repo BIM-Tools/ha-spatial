@@ -5,7 +5,7 @@ import type { Feature, Polygon } from "geojson";
 import { css } from "lit";
 import { Marker, type Map as MapLibreMap } from "maplibre-gl";
 import polylabel from "polylabel";
-import { type ScreenBox, type Size, isSmall, placeLabels, screenShape } from "./draft-labels";
+import { type ScreenBox, type Size, isSmall, placeLabels, screenShape, viewportOf } from "./draft-labels";
 import { type HassUnits, formatArea } from "./units";
 
 type Point = [number, number];
@@ -276,8 +276,6 @@ export class RoomLabels {
         const label = this._labels.get(areaId)?.marker.getElement().querySelector<HTMLElement>(".chip") ?? null;
         const size = chipSize(label, name);
         const own = [...labelBoxes].filter(([id]) => id !== areaId).map(([, labelBox]) => labelBox);
-        const container = this._map.getContainer();
-        const viewport = container.clientWidth ? { width: container.clientWidth, height: container.clientHeight } : undefined;
         const { name: offset } = placeLabels({
           sides,
           sideSizes: sides.map(() => ({ width: 0, height: 0 })),
@@ -285,7 +283,7 @@ export class RoomLabels {
           area: { centre, size: labelSize },
           controls: [...own, ...chipBoxes],
           name: size,
-          viewport,
+          viewport: viewportOf(this._map.getContainer()),
         });
         if (offset) {
           chip = { x: centre.x - space.at[0] + offset.x, y: centre.y - space.at[1] + offset.y };
@@ -309,7 +307,8 @@ export class RoomLabels {
       label.marker.remove();
       this._labels.delete(areaId);
     }
-    this._boxes = [...labelBoxes.values(), ...chipBoxes];
+    // The active room is edited under its own label, which its side chips need not keep clear of.
+    this._boxes = [...[...labelBoxes].filter(([id]) => id !== this._active).map(([, labelBox]) => labelBox), ...chipBoxes];
     this._placeBuildingLabel();
   };
 

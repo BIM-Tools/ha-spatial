@@ -29,6 +29,9 @@ export interface LabelPlaces {
   name: Pixel | undefined;
 }
 
+/** The size of a map container, or undefined while it is unmeasured (width or height 0), so nothing is clamped to it. */
+export const viewportOf = ({ clientWidth: width, clientHeight: height }: HTMLElement): Size | undefined => (width && height ? { width, height } : undefined);
+
 export interface LabelRequest {
   /** The sides on screen; empty on a resized draft, whose side controls carry the lengths. */
   sides: readonly ScreenSide[];

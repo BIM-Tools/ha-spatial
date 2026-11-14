@@ -1,6 +1,6 @@
 // Checks where the chips and names around a shape go on screen: outside its sides, apart, off a small shape, and on screen while drawn.
 import { expect, test } from "vitest";
-import { type ScreenBox, type Size, isSmall, placeLabels, screenShape } from "../src/draft-labels";
+import { type ScreenBox, type Size, isSmall, placeLabels, screenShape, viewportOf } from "../src/draft-labels";
 import type { Pixel } from "../src/edge-drag";
 
 type Corners = [number, number][];
@@ -123,4 +123,13 @@ test("screenShape gives the sides, the box size and the box centre of a ring of 
   expect(shape.centre).toEqual({ x: 60, y: 45 });
   expect(shape.sides[0]).toEqual({ midpoint: { x: 60, y: 20 }, edge: { x: 100, y: 0 } });
   expect(shape.sides[3]).toEqual({ midpoint: { x: 10, y: 45 }, edge: { x: 0, y: -50 } });
+});
+
+test.each<[number, number, Size | undefined]>([
+  [0, 0, undefined],
+  [300, 0, undefined],
+  [0, 200, undefined],
+  [300, 200, { width: 300, height: 200 }],
+])("a container of %i x %i px gives the viewport %j", (clientWidth, clientHeight, expected) => {
+  expect(viewportOf({ clientWidth, clientHeight } as HTMLElement)).toEqual(expected);
 });

@@ -5,7 +5,7 @@ import { feature } from "@turf/helpers";
 import type { FeatureCollection, LineString, Point, Polygon, Position } from "geojson";
 import { type GeoJSONSource, Marker, type MapMouseEvent, type Map as MapLibreMap } from "maplibre-gl";
 import { BUILDING } from "./area-strip";
-import { type LabelPlaces, type ScreenBox, placeLabels, screenShape } from "./draft-labels";
+import { type LabelPlaces, type ScreenBox, placeLabels, screenShape, viewportOf } from "./draft-labels";
 import { type Pixel, type ResizeTarget, isResizable, resizeCursor, resizeShape, resizeTargetAt } from "./edge-drag";
 import type { LayerColours } from "./map-paint";
 import { mapBearing } from "./map-view";
@@ -693,10 +693,7 @@ export class BoxInteraction {
       return { width: element.offsetWidth, height: element.offsetHeight };
     });
     const area = { centre: shape.centre, size: sizes[screenSides.length] };
-    const container = this._map.getContainer();
-    // An unmeasured container (width 0) gives no viewport, so nothing is clamped to it.
-    const viewport = container.clientWidth ? { width: container.clientWidth, height: container.clientHeight } : undefined;
-    return placeLabels({ sides: screenSides, sideSizes: sizes, box: shape.box, area, controls, viewport, drawing });
+    return placeLabels({ sides: screenSides, sideSizes: sizes, box: shape.box, area, controls, viewport: viewportOf(this._map.getContainer()), drawing });
   }
 
   // A box under one grid step is not created, without a toast: while drawn it showed only its start.

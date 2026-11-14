@@ -4,7 +4,7 @@ import { mdiDragVertical } from "@mdi/js";
 import type { Polygon, Position } from "geojson";
 import { type Map as MapLibreMap, Marker } from "maplibre-gl";
 import { type BoxInteraction, coarsePointer } from "./box-interaction";
-import { type ScreenBox, type Size, isSmall, placeLabels, screenShape } from "./draft-labels";
+import { type ScreenBox, type Size, isSmall, placeLabels, screenShape, viewportOf } from "./draft-labels";
 import { type Pixel, type ResizeTarget, resizeCursor } from "./edge-drag";
 import { type ChangeOrRefusal, type SideHandle, axisSides, edgeLengths, isAxisRectangle, resizeChange, sideHandles, sideLabels } from "./plan";
 import type { LatticePoint, PlanFrame } from "./site-frame";
@@ -142,22 +142,25 @@ export function showSideControls(
       const { element, face } = controls[chipOf(edgeIndex)];
       return { width: (face ?? element).offsetWidth, height: (face ?? element).offsetHeight };
     };
-    const container = map.getContainer();
     const given = placeLabels({
       sides: controls.map((_, edgeIndex) => shape.sides[drawnIndex(edgeIndex)]),
       sideSizes: controls.map((_, edgeIndex) => sizeOf(edgeIndex)),
       box: shape.box,
       area: { centre: shape.centre, size: { width: 0, height: 0 } },
       controls: avoid?.(),
-      viewport: container.clientWidth && container.clientHeight ? { width: container.clientWidth, height: container.clientHeight } : undefined,
+      viewport: viewportOf(map.getContainer()),
     }).sides;
     // A small room's chips stand apart and its grips wait to be pressed; a side without a chip has none.
     const small = isSmall(shape.box);
+    const count = controls.length;
+    // The chip of a pair the rule put on the opposite side stands there, and drags that side.
+    const chipFlipped = (edgeIndex: number) =>
+      small && rectangle && controls[edgeIndex].length !== undefined && given[edgeIndex] === undefined && given[(edgeIndex + 2) % count] !== undefined;
     markers.forEach((marker, edgeIndex) => {
       const control = controls[edgeIndex];
       const chip = control.length !== undefined;
-      // The chip of a pair the rule put on the opposite side stands there, and drags that side.
-      const stands = chip && small && given[edgeIndex] === undefined && rectangle && given[(edgeIndex + 2) % controls.length] ? (edgeIndex + 2) % controls.length : edgeIndex;
+      // The grip of a flipped chip's pair takes the side the chip left, so each side keeps one control.
+      const stands = chipFlipped(edgeIndex) || (!chip && chipFlipped((edgeIndex + 2) % count)) ? (edgeIndex + 2) % count : edgeIndex;
       control.edge = stands;
       const offset = chip ? given[stands] : small && !revealed ? undefined : { x: 0, y: 0 };
       marker.setLngLat(labelOf(stands).at as [number, number]);
@@ -173,8 +176,8 @@ export function showSideControls(
   return {
     follow(draft, held) {
       place(draft);
-      controls.forEach(({ face, edge }, edgeIndex) => {
-        if (face && held.kind === "edge" && (held.index === edge || held.index === edgeIndex)) Object.assign(face.style, planPillHeld);
+      controls.forEach(({ face, edge }) => {
+        if (face && held.kind === "edge" && held.index === edge) Object.assign(face.style, planPillHeld);
       });
       const mapBox = map.getContainer().getBoundingClientRect();
       return controls.flatMap(({ element, face }, edgeIndex) => {
