@@ -147,7 +147,7 @@ test("a label is named with its m² for screen readers", () => {
   expect(labelOf("living")?.getAttribute("aria-label")).toBe("Living room, 12.3 m²");
 });
 
-test("a second-line text replaces the m², in the primary text colour, and goes before the name when the room is small", () => {
+test("a second-line text replaces the m², is marked live, and goes before the name when the room is small", () => {
   const labels = new RoomLabels(new fakeMapLibre.Map({}) as never, false, () => METRIC_UNITS, () => "Building");
   labels.show(
     [pixelRoom("living", [0, 0], [200, 120]), pixelRoom("hall", [300, 0], [380, 50])],

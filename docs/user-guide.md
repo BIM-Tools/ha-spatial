@@ -382,7 +382,7 @@ show icon and name without the area.
 | --- | --- |
 | not set | The rooms as they are |
 | `brightness` | The brightest `light` of the area that is on, 0 to 100 %, in Home Assistant's light colour (`Off` and no colour when none is on) |
-| `temperature` | The temperature sensor chosen for the area in Home Assistant, else the average of the area's `sensor` entities with device class temperature, on a scale from cool at 15 °C through the plain fill at 21 °C to heat at 28 °C (shown to one decimal in the sensor's own unit) |
+| `temperature` | The temperature sensor chosen for the area in Home Assistant, else the average of the area's `sensor` entities with device class temperature, on a scale from cool at 15 °C through a neutral grey at 21 °C to heat at 28 °C (shown to one decimal in the sensor's own unit) |
 
 An entity belongs to the area it is set to, else to the area of its device. Unavailable and unknown states
 are left out, and an area with nothing to show keeps its plain fill. The all-floors view and the panel

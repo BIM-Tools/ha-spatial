@@ -184,8 +184,9 @@ export const fakeMapLibre = {
     setFeatureState({ id }: { id: string }, state: { value: number }) {
       featureStates[id] = state;
     }
-    removeFeatureState({ id }: { id: string }) {
-      delete featureStates[id];
+    removeFeatureState({ id }: { id?: string }) {
+      if (id === undefined) featureStates = {};
+      else delete featureStates[id];
     }
     getSource(id: string) {
       const source = sources[id];

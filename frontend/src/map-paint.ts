@@ -141,7 +141,7 @@ export const readMapPaint = (element: Element, dark: boolean): MapPaint => {
     roomFill: rgba(primary, roomOpacity),
     neutral: rgba(color("--secondary-text-color"), 0.15),
     roomEdge: rgba(primary, dark ? 0.75 : 0.7),
-    valueEdge: dark ? "rgba(255,255,255,0.28)" : "rgba(0,0,0,0.22)",
+    valueEdge: rgba(color("--primary-text-color"), dark ? 0.28 : 0.22),
     lightLow: rgba(color("--state-light-active-color"), 0.12),
     lightHigh: rgba(color("--state-light-active-color"), 0.72),
     cool: rgba(color("--state-climate-cool-color"), 0.6),

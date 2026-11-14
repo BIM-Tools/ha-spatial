@@ -4,8 +4,6 @@
 /** What the card's `colour_by` option can show. */
 export type ColourBy = "brightness" | "temperature";
 
-export const COLOUR_BY: readonly ColourBy[] = ["brightness", "temperature"];
-
 /** The parts of Home Assistant's `hass` object this module reads. */
 export interface RoomHass {
   states: Record<string, { state: string; attributes: Record<string, unknown> }>;
@@ -59,8 +57,9 @@ const temperature = (hass: RoomHass): Record<string, RoomValue> => {
   // Per area the readings of its temperature sensors; the unit of the first one is the one the text uses.
   const readings: Record<string, { celsius: number[]; fahrenheit: boolean }> = {};
   for (const [entityId, { attributes }] of Object.entries(hass.states)) {
+    if (!entityId.startsWith("sensor.") || attributes.device_class !== "temperature") continue;
     const area = areaOf(hass, entityId);
-    const value = entityId.startsWith("sensor.") && attributes.device_class === "temperature" && area ? reading(hass, entityId) : undefined;
+    const value = area ? reading(hass, entityId) : undefined;
     if (!area || !value) continue;
     (readings[area] ??= { celsius: [], fahrenheit: value.fahrenheit }).celsius.push(value.celsius);
   }

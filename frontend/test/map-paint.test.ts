@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 // Checks that the map colours keep what the theme says, including translucent theme colours.
 import { afterEach, expect, test } from "vitest";
+import { createPropertyExpression, latest } from "@maplibre/maplibre-gl-style-spec";
 import { layerColours, readMapPaint } from "../src/map-paint";
 
 afterEach(() => document.body.removeAttribute("style"));
@@ -33,19 +34,27 @@ test.each([false, true])("an unset accent falls back to Home Assistant's default
   expect(readMapPaint(document.body, dark).accent).toBe("rgba(255,152,0,1)");
 });
 
-test("a coloured card paints rooms by their feature state, a plain one with the fixed fill", () => {
-  const paint = readMapPaint(document.body, false);
-  const plain = ["==", ["feature-state", "value"], null];
-  expect(layerColours(paint)["areas-2d"]["fill-color"]).toBe(paint.roomFill);
-  expect(layerColours(paint)["areas-outline"]["line-color"]).toBe(paint.roomEdge);
-  expect(layerColours(paint, "brightness")["areas-2d"]["fill-color"]).toEqual([
-    "case", plain, paint.roomFill, ["interpolate", ["linear"], ["feature-state", "value"], 0, paint.lightLow, 100, paint.lightHigh],
-  ]);
-  expect(layerColours(paint, "temperature")["areas-2d"]["fill-color"]).toEqual([
-    "case", plain, paint.roomFill, ["interpolate", ["linear"], ["feature-state", "value"], 15, paint.cool, 21, paint.neutral, 28, paint.heat],
-  ]);
-  expect(layerColours(paint, "temperature")["areas-outline"]["line-color"]).toEqual(["case", plain, paint.roomEdge, "rgba(0,0,0,0.22)"]);
-  expect(readMapPaint(document.body, true).valueEdge).toBe("rgba(255,255,255,0.28)");
+// Evaluates a room's fill the way MapLibre does, for a room whose feature state is `state`.
+const fillOf = (kind: "brightness" | "temperature" | undefined, state: object) => {
+  const expression = createPropertyExpression(layerColours(readMapPaint(document.body, false), kind)["areas-2d"]["fill-color"], "fill-color", latest.paint_fill["fill-color"] as never);
+  if (expression.result !== "success") throw new Error("not a valid fill expression");
+  const { r, g, b, a } = expression.value.evaluate({ zoom: 0 }, { properties: {} } as never, state) as { r: number; g: number; b: number; a: number };
+  return { r: Math.round(r * a * 255), g: Math.round(g * a * 255), b: Math.round(b * a * 255), a };
+};
+
+test("a room without a value keeps the plain fill, a room with one follows the scale", () => {
+  const plain = fillOf(undefined, {});
+  expect(fillOf("brightness", {})).toEqual(plain);
+  expect(fillOf("temperature", {})).toEqual(plain);
+  expect(fillOf("brightness", { value: 100 })).not.toEqual(plain);
+  expect(fillOf("brightness", { value: 0 }).a).toBeLessThan(fillOf("brightness", { value: 100 }).a);
+  expect(fillOf("temperature", { value: 15 })).not.toEqual(fillOf("temperature", { value: 28 }));
+});
+
+test("the value edge follows the primary text colour, lighter in the dark theme", () => {
+  document.body.style.setProperty("--primary-text-color", "rgb(10, 20, 30)");
+  expect(readMapPaint(document.body, false).valueEdge).toBe("rgba(10,20,30,0.22)");
+  expect(readMapPaint(document.body, true).valueEdge).toBe("rgba(10,20,30,0.28)");
 });
 
 test("the room colours come from Home Assistant's state colours, with its defaults", () => {

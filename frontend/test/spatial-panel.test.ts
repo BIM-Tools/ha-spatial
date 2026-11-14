@@ -236,6 +236,25 @@ test("a coloured card gives each room its value as feature state and clears it w
   await vi.waitFor(() => expect(featureStates).toEqual({}));
 });
 
+test.each([
+  ["the admin panel", { card: false, floor: "ground" }],
+  ["a card of all floors", { card: true, floor: "all" }],
+])("%s sets no room colour even with colourBy", async (_name, mount) => {
+  const { panel } = mountPanel({ geojson: () => TWO_FLOORS, ...mount });
+  const coloured = panel as typeof panel & { colourBy?: string; hass: object };
+  coloured.colourBy = "brightness";
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
+  coloured.hass = {
+    ...coloured.hass,
+    states: { "light.a": { state: "on", attributes: { brightness: 255 } } },
+    entities: { "light.a": { area_id: "living" } },
+    devices: {},
+  };
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(featureStates).toEqual({});
+});
+
 const buttons = (panel: HTMLElement) => buttonsIn(panel.shadowRoot!).length;
 
 test("without a floor the map is interactive, with floor buttons", async () => {

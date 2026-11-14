@@ -36,7 +36,7 @@ Without HACS: download `spatial.zip` from the
 
 A dashboard card fixed to one floor can colour its rooms by live data and write the value under
 each room's name. `brightness` reads the brightest light that is on in the area, `temperature`
-the average of its temperature sensors.
+the temperature sensor chosen for the area, else the average of its temperature sensors.
 
 ```yaml
 type: custom:spatial-map-card

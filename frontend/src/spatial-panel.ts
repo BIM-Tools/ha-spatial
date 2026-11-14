@@ -398,9 +398,6 @@ class SpatialPanel extends LitElement {
   private _labels?: RoomLabels;
   // The live value of each room, when a card of one floor colours by data.
   private _roomValues: Record<string, RoomValue> = {};
-  // The kind the room layers are painted for, and the areas that hold a feature state.
-  private _paintedKind?: ColourBy;
-  private _withState = new Set<string>();
   private _floorLabels?: FloorLabels;
   // All floors as a stack of their rooms, built again with every load of the rooms.
   private _stack?: FloorStack;
@@ -792,14 +789,18 @@ class SpatialPanel extends LitElement {
   updated(changed: PropertyValues<this>) {
     // MapLibre fixes interactivity at creation, so a new option rebuilds the map.
     if (changed.has("floor") && this._started) this._stop();
-    if (changed.has("colourBy") && this._map) this._colourRooms();
+    if (changed.has("colourBy") && this._map) {
+      if (this._map.getLayer("areas-2d")) repaint(this._map, this._readPaint(), this._kind);
+      this._colourRooms();
+    }
     const previous = changed.get("hass") as Hass | undefined;
     if (previous && this.hass) {
       // Home Assistant hands over a new themes object only when the theme changes.
       if (previous.themes !== this.hass.themes) this._repaint();
       const unitsChanged = previous.config !== this.hass.config || previous.locale !== this.hass.locale;
       if (previous.areas !== this.hass.areas || unitsChanged) this._showLabels();
-      if (previous.states !== this.hass.states || previous.entities !== this.hass.entities || previous.devices !== this.hass.devices) {
+      // A new chosen temperature sensor lives in the areas.
+      if (previous.states !== this.hass.states || previous.entities !== this.hass.entities || previous.devices !== this.hass.devices || previous.areas !== this.hass.areas) {
         this._colourRooms();
       }
       if (previous.floors !== this.hass.floors) this._showFloorLabels();
@@ -1106,8 +1107,7 @@ class SpatialPanel extends LitElement {
   // "All" stacks the floors' rooms; one floor is a flat plan with room outlines.
   private _addAreas() {
     const map = this._map!;
-    this._paintedKind = this._kind;
-    const colours = layerColours(this._readPaint(), this._paintedKind);
+    const colours = layerColours(this._readPaint(), this._kind);
     map.addSource("stack", { type: "geojson", data: this._stack?.features ?? EMPTY });
     for (const [id, kind] of STACK_LAYERS) {
       map.addLayer({
@@ -1124,7 +1124,6 @@ class SpatialPanel extends LitElement {
     }
     // promoteId makes the area id the feature id, so a room's value is feature state and no paint is rebuilt for it.
     map.addSource("areas", { type: "geojson", data: this._state.areas, promoteId: "area_id" });
-    this._withState.clear();
     this._applyValues();
     map.addLayer({ id: "areas-2d", type: "fill", source: "areas", paint: colours["areas-2d"] });
     map.addLayer({
@@ -1244,31 +1243,20 @@ class SpatialPanel extends LitElement {
     return this.card && this.floor && this.floor !== "all" ? this.colourBy : undefined;
   }
 
-  // Sets the value of each room as feature state and clears the rooms that lost theirs.
+  // Sets the value of each room as feature state, after clearing the rooms that lost theirs.
   private _applyValues() {
     const map = this._map;
     if (!map?.getSource("areas")) return;
-    for (const id of this._withState) {
-      if (this._roomValues[id]?.value === undefined) {
-        map.removeFeatureState({ source: "areas", id });
-        this._withState.delete(id);
-      }
-    }
+    map.removeFeatureState({ source: "areas" });
     for (const [id, { value }] of Object.entries(this._roomValues)) {
-      if (value === undefined) continue;
-      map.setFeatureState({ source: "areas", id }, { value });
-      this._withState.add(id);
+      if (value !== undefined) map.setFeatureState({ source: "areas", id }, { value });
     }
   }
 
-  // hass changes on every state, so nothing is applied unless a room's value did; the paint changes only with the kind.
+  // hass changes on every state, so nothing is applied unless a room's value did.
   private _colourRooms() {
     const kind = this._kind;
     const values = kind && this.hass?.states && this.hass.entities && this.hass.devices ? roomValues(kind, this.hass as RoomHass) : {};
-    if (kind !== this._paintedKind && this._map?.getLayer("areas-2d")) {
-      this._paintedKind = kind;
-      repaint(this._map, this._readPaint(), kind);
-    }
     if (JSON.stringify(values) === JSON.stringify(this._roomValues)) return;
     this._roomValues = values;
     this._applyValues();

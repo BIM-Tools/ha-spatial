@@ -51,6 +51,11 @@ test.each([
   expect(roomValues("temperature", hass(states, SENSORS, {}, areas)).x).toEqual(expected);
 });
 
+test("an entity's own area beats the area of its device", () => {
+  const rooms = roomValues("brightness", hass({ "light.a": light("on", 255) }, { "light.a": { area_id: "own", device_id: "dev" } }, { dev: { area_id: "other" } }));
+  expect(Object.keys(rooms)).toEqual(["own"]);
+});
+
 test("an area without a matching entity is left out", () => {
   expect(roomValues("temperature", hass({ "light.a": light("on") }, { "light.a": { area_id: "x" } }))).toEqual({});
 });

@@ -1,7 +1,8 @@
 // Puts the rooms map on dashboards. Home Assistant loads this on every page, so it stays
 // small: the panel bundle, with MapLibre, loads only when a card is created.
 
-import { COLOUR_BY } from "./room-values";
+// A literal, not an import of room-values: a shared module would make the card, which loads on every page, pull a chunk.
+const COLOUR_BY = ["brightness", "temperature"];
 
 /** The panel bundle next to the card, with the same `?v=` as its registration, so both share one module. */
 export const panelUrl = (cardUrl: string): string => {
@@ -67,7 +68,7 @@ class SpatialMapCard extends HTMLElement {
     if (config.show_map !== undefined && typeof config.show_map !== "boolean") {
       throw new Error("show_map must be true or false");
     }
-    if (config.colour_by !== undefined && !COLOUR_BY.includes(config.colour_by as never)) {
+    if (config.colour_by !== undefined && !COLOUR_BY.includes(config.colour_by as string)) {
       throw new Error("colour_by must be brightness or temperature");
     }
     this._panel.floor = config.floor;

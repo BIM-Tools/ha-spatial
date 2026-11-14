@@ -52,7 +52,7 @@ flowchart LR
 | Home Assistant registries | Own areas and floors: ids, names, icons, levels, floor assignment | |
 | Integration | Stores footprints, room properties, floor heights and the site; computes areas, neighbours, facade and outdoor flags and point lookups; the only API | [Integration README](../custom_components/spatial/README.md): data, websocket API, geometry rules, modules |
 | Panel | The admin-only editor, saving each action at once | [Frontend README](../frontend/README.md): files, serving, the commands each action sends |
-| Card | The same map on a dashboard, read-only, for every user | [Frontend README](../frontend/README.md#serving) |
+| Card | The same map on a dashboard, read-only, for every user; optionally colours rooms from the areas' lights or temperature sensors in Home Assistant's states | [Frontend README](../frontend/README.md#serving) |
 | Tools | Import GeoJSON over the websocket API; keep frontend package versions in step | [Tools README](../tools/README.md) |
 
 - Tools, bridges and frontends use only the websocket API; nothing else reads `.storage/spatial`.
