@@ -1150,7 +1150,8 @@ STATES = [
     State(
         "card-brightness",
         "card",
-        "Dashboard card colouring the ground floor by brightness: living room 80 %, kitchen 30 %, others Off",
+        "Dashboard card colouring the ground floor by brightness: "
+        "living room 80 %, kitchen 30 %, others Off",
         card("brightness"),
     ),
     State(
@@ -1173,7 +1174,9 @@ ROOM_VALUES = [
 ]
 
 
-def create_template_helper(websocket: Websocket, token: str, kind: str, area_id: str, **fields) -> None:
+def create_template_helper(
+    websocket: Websocket, token: str, kind: str, area_id: str, **fields
+) -> None:
     """Creates a template helper through the config flow and puts its entity in the area."""
     path = "/api/config/config_entries/flow"
     flow = post(path, {"handler": "template"}, token)
@@ -1183,7 +1186,9 @@ def create_template_helper(websocket: Websocket, token: str, kind: str, area_id:
     entry_id = done["result"]["entry_id"]
     for entity in websocket.call("config/entity_registry/list"):
         if entity["config_entry_id"] == entry_id:
-            websocket.call("config/entity_registry/update", entity_id=entity["entity_id"], area_id=area_id)
+            websocket.call(
+                "config/entity_registry/update", entity_id=entity["entity_id"], area_id=area_id
+            )
 
 
 def add_room_values(websocket: Websocket, house: House) -> None:
@@ -1235,6 +1240,10 @@ def load_house(token: str) -> House:
     )
     add_room_values(websocket, house)
     ground = house.floor_id("Ground floor")
+
+    def colour_card(kind: str) -> dict[str, str]:
+        return {"type": "custom:spatial-map-card", "floor": ground, "colour_by": kind}
+
     websocket.call(
         "lovelace/config/save",
         url_path=DASHBOARD,
@@ -1256,17 +1265,13 @@ def load_house(token: str) -> House:
                     "path": "brightness",
                     "title": "Brightness",
                     "type": "panel",
-                    "cards": [
-                        {"type": "custom:spatial-map-card", "floor": ground, "colour_by": "brightness"}
-                    ],
+                    "cards": [colour_card("brightness")],
                 },
                 {
                     "path": "temperature",
                     "title": "Temperature",
                     "type": "panel",
-                    "cards": [
-                        {"type": "custom:spatial-map-card", "floor": ground, "colour_by": "temperature"}
-                    ],
+                    "cards": [colour_card("temperature")],
                 },
             ]
         },
