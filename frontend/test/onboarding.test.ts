@@ -1,7 +1,7 @@
 // Checks the guide's one step for every state of a plan, with the steps a plan's data skips.
 import { expect, test } from "vitest";
 import { BUILDING } from "../src/area-strip";
-import { type Plan, type PlanFloor, nextStep } from "../src/onboarding";
+import { type Plan, type PlanFloor, clearsSelection, nextStep } from "../src/onboarding";
 
 const area = (area_id: string, shaped = false) => ({ area_id, name: area_id[0].toUpperCase() + area_id.slice(1), shaped });
 const GROUND: PlanFloor = { floor: "ground", name: "Ground floor", areas: [area("kitchen", true), area("hall"), area("bath")] };
@@ -116,4 +116,13 @@ test("a coarse pointer is told to tap where a fine one is told to click", () => 
   const draw = nextStep({ ...PLAN, outlineStored: false, active: BUILDING, coarse: true });
   expect(draw.detail).toBe("Tap each corner; tap the first corner to finish. Or tap another building.");
   expect(nextStep({ ...PLAN, outlineStored: false, active: BUILDING, outlineOffer: "9.80 x 7.60 m" }).detail).toBe("9.80 x 7.60 m. Or click another building.");
+});
+
+// Picking a room in Select can move the guide to floor-done too; that must not undo the pick.
+test("drawing the last room clears the selection, picking a room in Select does not", () => {
+  expect(clearsSelection("room", "floor-done")).toBe(true);
+  expect(clearsSelection(undefined, "floor-done")).toBe(false);
+  expect(clearsSelection("draw-outline", "floor-done")).toBe(false);
+  expect(clearsSelection("editing", "floor-done")).toBe(false);
+  expect(clearsSelection("room", "room")).toBe(false);
 });

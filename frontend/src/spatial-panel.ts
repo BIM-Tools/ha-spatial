@@ -39,7 +39,7 @@ import { type ThemeState, bounds, darkModeOf, freeAreaPadding, mapBearing, style
 import { type AlignFields, type TileBuildings, alignFields, nearestBuilding, reachesUnreadTiles, wallAt } from "./outline";
 import "./panel-header";
 import type { MenuItem } from "./panel-header";
-import { type Control, FITTED_STEPS, type Step, nextStep } from "./onboarding";
+import { type Control, FITTED_STEPS, type Step, clearsSelection, nextStep } from "./onboarding";
 import { EMPTY, PanelState, alignPlace } from "./panel-state";
 import { mapOutline } from "./plan";
 import type { PlanFrame } from "./site-frame";
@@ -850,7 +850,7 @@ class SpatialPanel extends LitElement {
     if (!this._toastTimer) this._lowerToast();
     // Not from editing: a user who picked an area in Select to edit it keeps Select after a click on empty map.
     if (step.lit === "draw" && last !== "editing") this._selectTool("draw");
-    if (step.kind === "floor-done") editor.deselect();
+    if (clearsSelection(last, step.kind)) editor.deselect();
     if (last && FITTED_STEPS.includes(step.kind)) {
       this._fit(true);
     }

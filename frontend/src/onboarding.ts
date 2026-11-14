@@ -80,6 +80,12 @@ export interface Step {
 /** The steps after which the house is framed in the free area between the guide and the strip. */
 export const FITTED_STEPS: Step["kind"][] = ["align", "outline-question", "check-length", "room", "floor-done"];
 
+/**
+ * Drawing the floor's last room leaves nothing selected. Only that step: floor-done is also reached by
+ * picking a room in Select (for example while the outline is still to draw), and that pick stays.
+ */
+export const clearsSelection = (last: Step["kind"] | undefined, kind: Step["kind"]) => kind === "floor-done" && last === "room";
+
 const CHOOSE_FLOOR = "Choose a floor to edit its rooms";
 const ZOOM_IN = "Zoom in to your house.";
 
