@@ -378,6 +378,15 @@ show icon and name without the area.
 | `true` | The map |
 | `false` | The plan on the card's own background |
 
+| `colour_by` | Colours each room of a card fixed to one floor, and writes the value under its name |
+| not set | The rooms as they are |
+| `brightness` | The brightest `light` of the area that is on, 0 to 100 %, in amber (`Off` and no colour when none is on) |
+| `temperature` | The average of the area's `sensor` entities with device class temperature, on a blue, grey, red scale from 15 to 21 to 28 °C (shown to one decimal in the sensor's own unit) |
+
+An entity belongs to the area it is set to, else to the area of its device. Unavailable and unknown states
+are left out, and an area with nothing to show keeps its plain fill. The all-floors view and the panel
+ignore `colour_by`. The card editor offers `colour_by`; the other options are set in YAML.
+
 A fixed view has no buttons, frames the rooms' footprints and follows every change:
 
 ```yaml
