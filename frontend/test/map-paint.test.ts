@@ -13,7 +13,7 @@ test("a translucent text colour keeps its alpha in the Building outline", () => 
 
 test("an unset theme falls back to Home Assistant's default colours", () => {
   const paint = readMapPaint(document.body, true);
-  expect(paint.roomFill).toBe("rgba(3,169,244,0.12)");
+  expect(paint.roomFill).toBe("rgba(3,169,244,0.25)");
   expect(paint.building).toBe("rgba(190,190,190,1)");
 });
 
@@ -31,4 +31,21 @@ test("the snap highlight is painted in the accent colour, its dots on the card b
 
 test.each([false, true])("an unset accent falls back to Home Assistant's default orange (dark %s)", (dark) => {
   expect(readMapPaint(document.body, dark).accent).toBe("rgba(255,152,0,1)");
+});
+
+test("dark rooms get a 25 % fill, a 40 % active fill and an opaque stroke; light stays", () => {
+  const dark = readMapPaint(document.body, true);
+  expect(dark.roomEdge).toBe("rgba(3,169,244,1)");
+  // Active fill drawn over the room fill: 1 - (1 - 0.25)(1 - x) = 0.4.
+  expect(dark.activeRoomFill).toBe("rgba(3,169,244,0.2)");
+  const light = readMapPaint(document.body, false);
+  expect(light.roomFill).toBe("rgba(3,169,244,0.1)");
+  expect(light.roomEdge).toBe("rgba(3,169,244,0.7)");
+});
+
+test("map buildings are outlined in the secondary text colour", () => {
+  document.body.style.setProperty("--secondary-text-color", "rgb(10, 20, 30)");
+  const paint = readMapPaint(document.body, true);
+  expect(paint.mapBuildingEdge).toBe("rgba(10,20,30,1)");
+  expect(layerColours(paint)["spatial-map-buildings"]).toEqual({ "line-color": "rgba(10,20,30,1)" });
 });

@@ -1016,7 +1016,7 @@ test("a dark Home Assistant without darkMode in its themes gets the dark map, an
   await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
   expect(fetchMock).toHaveBeenLastCalledWith("/static/map/dark.json");
   handlers["style.load"]();
-  expect(paintOf("areas-2d")).toEqual({ "fill-color": "rgba(0,128,0,0.12)" });
+  expect(paintOf("areas-2d")).toEqual({ "fill-color": "rgba(0,128,0,0.25)" });
   panel.hass = { ...panel.hass, themes: { ...unresolved, darkMode: false } };
   await vi.waitFor(() => expect(setStyle).toHaveBeenCalled());
   expect(fetchMock).toHaveBeenLastCalledWith("/static/map/light.json");
