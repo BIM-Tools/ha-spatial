@@ -68,7 +68,7 @@ flowchart LR
 | `custom_components/spatial/` | The integration ([README](../custom_components/spatial/README.md)) |
 | `frontend/` | Panel and card source, built into the integration ([README](../frontend/README.md)) |
 | `tests/` | Integration tests against a real Home Assistant |
-| `e2e/` | Browser scripts: the smoke test and the state gallery, which also renders the documentation images |
+| `e2e/` | Browser script: the smoke test |
 | `tools/` | GeoJSON importer, example house, version sync ([README](../tools/README.md)) |
 | `docs/` | This page, the user guide and their images |
 
