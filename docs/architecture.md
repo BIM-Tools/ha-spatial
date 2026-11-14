@@ -61,6 +61,18 @@ flowchart LR
 - The concepts follow the W3C Building Topology Ontology (BOT); the feed marks each footprint as
   `bot:Space` and conforms to JSON-FG.
 
+## Building a bridge
+
+A bridge is a tool outside Home Assistant that reads or writes the plan over the websocket API
+(commands and rules in the [integration README](../custom_components/spatial/README.md#websocket-api)).
+
+- Call `spatial/site` first and check that `api_version` is 1; stop or warn on any other value.
+- Read footprints with `spatial/geojson` (JSON-FG, one BOT `Space` feature per area) and ask
+  which room a point lies in with `spatial/query_point`.
+- Follow changes with `spatial/subscribe`.
+- Writes (`spatial/area/update_geometries`, `spatial/site/update`, `spatial/floor/update`) need
+  an administrator.
+
 ## Repository layout
 
 | Path | Content |
@@ -68,7 +80,7 @@ flowchart LR
 | `custom_components/spatial/` | The integration ([README](../custom_components/spatial/README.md)) |
 | `frontend/` | Panel and card source, built into the integration ([README](../frontend/README.md)) |
 | `tests/` | Integration tests against a real Home Assistant |
-| `e2e/` | Browser scripts: the smoke test and the state gallery, which also renders the documentation images |
+| `e2e/` | Browser scripts: the smoke test and the screenshot script, which also renders the documentation images |
 | `tools/` | GeoJSON importer, example house, version sync ([README](../tools/README.md)) |
 | `docs/` | This page, the user guide and their images |
 

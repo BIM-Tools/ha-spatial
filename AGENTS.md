@@ -17,7 +17,7 @@ someone and understood by the people who install it.
 ## Commands
 
 Home Assistant runs on Linux only, so everything runs in Docker. In Git Bash on Windows,
-prefix `docker` commands with `MSYS_NO_PATHCONV=1`.
+prefix `docker` commands with `MSYS_NO_PATHCONV=1` and use `$(pwd -W)` instead of `$PWD`.
 
 | Task | Command |
 | --- | --- |
@@ -29,11 +29,11 @@ prefix `docker` commands with `MSYS_NO_PATHCONV=1`.
 | Coverage (fails under 99%) | `docker compose run --rm test pytest --cov=custom_components.spatial` |
 | Type check (mypy strict) | `docker compose run --rm test mypy` |
 | Lint and format | `docker compose run --rm test sh -c "ruff format . && ruff check ."` |
-| hassfest | `docker run --rm -v "$(pwd -W)":/github/workspace:ro ghcr.io/home-assistant/hassfest` |
+| hassfest | `docker run --rm --platform linux/amd64 -v "$PWD":/github/workspace:ro ghcr.io/home-assistant/hassfest` |
 | Panel build, rebuilt on change | `docker compose up -d frontend` |
 | Real Home Assistant | `docker compose up homeassistant` |
 | Debug in VS Code | `debugpy:` in `.ha-config/configuration.yaml`, then launch config "Attach to Home Assistant" (starts the test server first) or "Restart and attach to Home Assistant"; the `frontend` service adds panel source maps. Tasks "Start test server" and "Restart test server" do the same without the debugger |
-| Frontend (typecheck, test, build) | `MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/frontend":/app -v "$(pwd -W)/custom_components":/custom_components -w /app node:24-alpine sh -c "npm ci && npm run typecheck && npm test && npm run build"` |
+| Frontend (typecheck, test, build) | `docker run --rm -v "$PWD/frontend":/app -v "$PWD/custom_components":/custom_components -w /app node:24-alpine sh -c "npm ci && npm run typecheck && npm test && npm run build"` |
 | E2E smoke test (build the panel first) | `docker compose run --rm e2e; docker compose rm -sf homeassistant-e2e` |
 | State gallery: screenshots and contact sheets of every UI state in `gallery-out/`, and the documentation images in `docs/images/` (build the panel first; commit `docs/images/` only in a `docs:` pull request) | `docker compose run --rm gallery; docker compose rm -sf homeassistant-e2e` |
 | Release | `git tag -a vX.Y.Z -m "<release notes>" && git push origin vX.Y.Z`; the workflow builds `spatial.zip` and publishes the full release with it |
