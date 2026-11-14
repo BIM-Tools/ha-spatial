@@ -77,8 +77,20 @@ export interface Step {
   floor?: Floor;
 }
 
-/** The steps after which the house is framed in the free area between the guide and the strip. */
-export const FITTED_STEPS: Step["kind"][] = ["align", "outline-question", "check-length", "room", "floor-done"];
+/**
+ * The guide moves that frame the house in the free area: the home pick (pick to align), Align done (align
+ * to the outline question, its length check, drawing the outline or the first room), Use outline and Looks
+ * right (out of the outline question or the length check), the floor done (room to floor-done) and a floor
+ * chosen from All. Picking
+ * or editing a room moves the guide too, but the map stays where it is under the pointer.
+ */
+export const fitsAfter = (last: Step["kind"] | undefined, kind: Step["kind"]) => {
+  if (last === "choose-floor") return true;
+  if (last === "pick") return kind === "align";
+  if (last === "align") return ["outline-question", "check-length", "draw-outline", "room"].includes(kind);
+  if (last === "outline-question" || last === "check-length") return ["check-length", "room", "draw-outline", "floor-done"].includes(kind);
+  return last === "room" && kind === "floor-done";
+};
 
 /**
  * Drawing the floor's last room leaves nothing selected. Only that step: floor-done is also reached by

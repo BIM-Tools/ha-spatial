@@ -30,8 +30,9 @@ plan**. The Configure form also holds **Address search server**: leave it at Ope
 unless you run your own Nominatim server or OpenStreetMap asks you to change it.
 
 **One step at a time.** Until the plan is done, the panel opens on the floor where the next step
-is, north up, centred on your home location, and the line at the top says only that step; the
-one control it needs is lit with a ring. Nothing about the steps is stored: what is already
+is, north up and centred on your home location (framed on the house once it has an outline or
+rooms), and the line at the top says only that step; the one button it needs on that line is
+lit with a ring, and a step that needs a tool makes that tool current. Nothing about the steps is stored: what is already
 there is skipped, so a home on a building skips the search, a site with a direction skips
 clicking your home and Align, a stored outline skips the outline, and leaving and coming back resumes at the first
 unfinished step. Once every area has a shape, the panel opens on **All** and says nothing.
@@ -60,7 +61,7 @@ your home" and, throughout, tap where it says click.
 
 The building you picked shows dashed, and Align turns on at once (step 1 below). Wrong building?
 Press **Pick another building** on the line at the top: Select is back on, the pick stays dashed
-and no tool is current yet, and the next building you click replaces the pick.
+and Select is the current tool, and the next building you click replaces the pick.
 
 The pointer shows what a click does: a hand over a building a click would pick, a crosshair in
 Draw and Align, a move arrow over the selected shape in Select, a resize arrow on its sides, and
@@ -89,12 +90,12 @@ nothing is asked. This needs an administrator, like the panel.
 
 2. **Draw the building.** The strip at the bottom starts with the building, under Home
    Assistant's location name and highlighted while there is no outline. Without a building on
-   the map, the line says "Draw the outline of your home" with **Draw** lit. When a building
+   the map, the line says "Draw the outline of your home" with **Draw** current. When a building
    is picked, its own shape shows dashed, 150 mm inside the map's line (the map shows the outer
    face of the walls, the outline is their axis), with walls within 3 degrees of the site
    direction, or at most one unit of the map tiles (about 40 cm) across it, straightened onto it and diagonal walls kept. The line at the top asks "Use the
-   map's outline?" with its size along the site direction, for example "9.80 × 7.60 m. Or click
-   another building.", or "9.80 × 7.60 m overall" for any shape but a rectangle. A part
+   map's outline?" with its size along the site direction, for example "9.8 × 7.6 m. Or click
+   another building.", or "9.8 × 7.6 m overall" for any shape but a rectangle. A part
    narrower than about 30 cm disappears when the shape moves inward; when that splits the
    building, the largest piece is offered. Only when nothing usable is left (a building under
    about 40 cm across, or a side shorter than 10 cm), nothing is offered and the line says
@@ -267,7 +268,8 @@ of it is hidden.
   once, on a button on one of the two sides they measure: on the side that is not a wall shared
   with another room, else on the bottom for the width and the left for the depth. The other two
   sides carry a small grip. Tap a length or a grip, type the length of that side and press Enter
-  (at least 10 cm or 4 in; an unchanged length saves nothing). The length is rounded to the 2.5 cm (1 in) lattice, so 3.47 m becomes 3.475 m.
+  (at least 10 cm or 4 in; an unchanged length saves nothing). The length is rounded to the 2.5 cm (1 in) lattice, so 3.47 m is stored as 3.475 m and shows as 3.48 m (the display rounds to two decimals, so it can read a
+  hair above what is stored).
   The side's start corner stays, the opposite side follows. Escape closes the field.
 - Moving a room snaps it to its neighbours as in Draw, else shifts it by whole grid steps, and
   stops it at the outline and at the other rooms on this floor as in Draw. Rooms do not stop the

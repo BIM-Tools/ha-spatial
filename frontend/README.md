@@ -59,7 +59,7 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/outline.ts` | The OSM building under or nearest a click, the bearing of its nearest wall, with turf, and the fields an Align pick writes |
 | `src/site-frame.ts` | Applies the site frame from `spatial/site`: lon/lat to lattice units and back |
 | `src/plan.ts` | Boxes, side lengths, resizing and moving on the site lattice, and the outline copied from a map building; joining with turf |
-| `src/units.ts` | Lengths, map distances and areas shown in Home Assistant's unit system and number format (metric at lattice precision, US feet and inches with primes), and typed lengths read back in metres |
+| `src/units.ts` | Lengths, map distances and areas shown in Home Assistant's unit system and number format (metric to two decimals, one for the outline size the guide offers, US feet and inches with primes), and typed lengths read back in metres |
 | `test/` | Unit tests (vitest) |
 
 ### Serving
@@ -138,9 +138,10 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
   question or length check, every floor with its areas and which have a shape, the floor in view,
   tool and active pill) and returns the one step: find the home, choose a floor (on All), align,
   the outline question or drawing it, the length check, the next area to draw, the floor done
-  with Next floor, or done. Its line is the only instruction on screen, and its one lit control
-  gets the tinted fill and 1.5 px ring (`litControl` in `styles.ts`). Nothing is stored: at start
+  with Next floor, or done. Its line is the only instruction on screen, and the one button on that line it
+  needs gets the tinted fill and 1.5 px ring (`litControl` in `styles.ts`); a tool it needs becomes the
+  current tool instead. Nothing is stored: at start
   a plan with work left opens on the step's floor, and a skipped or finished step follows from
-  the data. Before any Align the picked building shows dashed and Align is lit.
+  the data. Before any Align the picked building shows dashed and Align is the current tool.
 - Areas are created and renamed with Home Assistant's area registry commands; renaming the
   building sends `config/core/update` with `location_name`.

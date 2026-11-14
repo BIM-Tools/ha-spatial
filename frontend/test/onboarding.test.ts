@@ -1,7 +1,7 @@
 // Checks the guide's one step for every state of a plan, with the steps a plan's data skips.
 import { expect, test } from "vitest";
 import { BUILDING } from "../src/area-strip";
-import { type Plan, type PlanFloor, clearsSelection, nextStep } from "../src/onboarding";
+import { type Plan, type PlanFloor, clearsSelection, fitsAfter, nextStep } from "../src/onboarding";
 
 const area = (area_id: string, shaped = false) => ({ area_id, name: area_id[0].toUpperCase() + area_id.slice(1), shaped });
 const GROUND: PlanFloor = { floor: "ground", name: "Ground floor", areas: [area("kitchen", true), area("hall"), area("bath")] };
@@ -106,15 +106,15 @@ test.each<[string, Partial<Plan>, object]>([
   expect({ text: undefined, lit: undefined, floor: undefined, ...nextStep({ ...PLAN, ...change }) }).toMatchObject(expected);
 });
 
-test("a coarse pointer is told to tap where a fine one is told to click", () => {
-  const pick = nextStep({ ...PLAN, aligned: false, coarse: true });
-  expect(pick).toMatchObject({ kind: "pick", text: "Tap your home", detail: "Tap its building on the map" });
-  expect(nextStep({ ...PLAN, aligned: false, tool: "align", coarse: true }).text).toBe("Tap the front wall of your home");
-  expect(nextStep({ ...PLAN, aligned: false, coarse: false }).text).toBe("Click your home");
-  const offer = nextStep({ ...PLAN, outlineStored: false, active: BUILDING, outlineOffer: "9.80 x 7.60 m", coarse: true });
-  expect(offer.detail).toBe("9.80 x 7.60 m. Or tap another building.");
-  const draw = nextStep({ ...PLAN, outlineStored: false, active: BUILDING, coarse: true });
-  expect(draw.detail).toBe("Tap each corner; tap the first corner to finish. Or tap another building.");
+test.each([
+  [true, "Tap your home", "Tap its building on the map", "Tap the front wall of your home", "Or tap another building.", "Tap each corner; tap the first corner to finish. Or tap another building."],
+  [false, "Click your home", "Point at a building to light it up, then click it.", "Click the front wall of your home", "Or click another building.", "Click each corner; click the first corner to finish. Or click another building."],
+])("with coarse %s the guide says tap or click", (coarse, pick, pickDetail, align, offerEnd, drawDetail) => {
+  expect(nextStep({ ...PLAN, aligned: false, coarse })).toMatchObject({ kind: "pick", text: pick, detail: pickDetail });
+  expect(nextStep({ ...PLAN, aligned: false, tool: "align", coarse }).text).toBe(align);
+  const offer = nextStep({ ...PLAN, outlineStored: false, active: BUILDING, outlineOffer: "9.8 × 7.6 m", coarse });
+  expect(offer.detail).toBe(`9.8 × 7.6 m. ${offerEnd}`);
+  expect(nextStep({ ...PLAN, outlineStored: false, active: BUILDING, coarse }).detail).toBe(drawDetail);
   expect(nextStep({ ...PLAN, outlineStored: false, active: BUILDING, outlineOffer: "9.80 x 7.60 m" }).detail).toBe("9.80 x 7.60 m. Or click another building.");
 });
 
@@ -125,4 +125,31 @@ test("drawing the last room clears the selection, picking a room in Select does 
   expect(clearsSelection("draw-outline", "floor-done")).toBe(false);
   expect(clearsSelection("editing", "floor-done")).toBe(false);
   expect(clearsSelection("room", "room")).toBe(false);
+});
+
+// Only the plan's moments frame the house; moving between rooms must not ease the map under the pointer.
+test.each([
+  ["pick", "align", true],
+  ["align", "outline-question", true],
+  ["align", "check-length", true],
+  ["align", "draw-outline", true],
+  ["align", "room", true],
+  ["outline-question", "check-length", true],
+  ["outline-question", "draw-outline", true],
+  ["check-length", "room", true],
+  ["check-length", "draw-outline", true],
+  ["room", "floor-done", true],
+  ["choose-floor", "room", true],
+  ["choose-floor", "floor-done", true],
+  ["editing", "room", false],
+  ["room", "editing", false],
+  ["floor-done", "room", false],
+  ["editing", "floor-done", false],
+  ["draw-outline", "room", false],
+  ["find", "pick", false],
+  ["align", "pick", false],
+  [undefined, "room", false],
+  ["room", "room", false],
+] as const)("fitsAfter(%s, %s) is %s", (last, kind, fits) => {
+  expect(fitsAfter(last, kind)).toBe(fits);
 });

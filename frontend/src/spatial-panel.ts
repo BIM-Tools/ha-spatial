@@ -35,11 +35,12 @@ import "./floor-selector";
 import { mapCursor } from "./map-cursor";
 import "./map-stack";
 import { type MapPaint, layerColours, readMapPaint, repaint } from "./map-paint";
+import { coarsePointer } from "./box-interaction";
 import { type ThemeState, darkModeOf, freeAreaPadding, mapBearing, styleUrl, withMapTilesToken, workerUrl } from "./map-view";
 import { type AlignFields, type TileBuildings, alignFields, nearestBuilding, reachesUnreadTiles, wallAt } from "./outline";
 import "./panel-header";
 import type { MenuItem } from "./panel-header";
-import { type Control, FITTED_STEPS, type Step, clearsSelection, nextStep } from "./onboarding";
+import { type Control, type Step, clearsSelection, fitsAfter, nextStep } from "./onboarding";
 import { EMPTY, PanelState, alignPlace } from "./panel-state";
 import { mapOutline } from "./plan";
 import type { PlanFrame } from "./site-frame";
@@ -92,12 +93,11 @@ const PICK_TOLERANCE_PX = { mouse: 8, touch: 22 };
 // Below this zoom buildings are too small to point at; a click there zooms in to PICK_ZOOM instead.
 const PICK_MIN_ZOOM = 16;
 const PICK_ZOOM = 18;
-const COARSE_QUERY = "(pointer: coarse)";
 
 // A finger, when the browser says which pointer clicked, else when the main pointer is coarse.
 const isTouch = (event: MapMouseEvent) => {
   const pointerType = (event.originalEvent as Partial<PointerEvent> | undefined)?.pointerType;
-  return pointerType ? pointerType === "touch" : window.matchMedia(COARSE_QUERY).matches;
+  return pointerType ? pointerType === "touch" : coarsePointer();
 };
 
 const tileId = (tile: TileBuildings) => `${tile.z}/${tile.x}/${tile.y}`;
@@ -567,7 +567,7 @@ class SpatialPanel extends LitElement {
       picked: this._pickedBuilding !== undefined,
       zoomedOut: this._zoomedOut,
       aligned: bearing !== null,
-      coarse: window.matchMedia(COARSE_QUERY).matches,
+      coarse: coarsePointer(),
       floor: this._state.floor,
       ...editor.plan((floor) => this._floorName(floor)),
     });
@@ -840,8 +840,7 @@ class SpatialPanel extends LitElement {
   }
 
   // Acts once when the guide moves to a new kind of step: Draw becomes current when it asks to draw, a finished
-  // floor leaves nothing selected, and the house is framed in the free area after the home pick, Align,
-  // Use outline, Looks right and a finished floor. Not on the first step seen, which is a reload.
+  // floor leaves nothing selected, and the house is framed in the free area on the moves fitsAfter names. Not on the first step seen, which is a reload.
   private _followStep() {
     const step = this._step();
     const editor = this._editor;
@@ -853,9 +852,7 @@ class SpatialPanel extends LitElement {
     // Not from editing: a user who picked an area in Select to edit it keeps Select after a click on empty map.
     if (step.lit === "draw" && last !== "editing") this._selectTool("draw");
     if (clearsSelection(last, step.kind)) editor.deselect();
-    if (last && FITTED_STEPS.includes(step.kind)) {
-      this._fit(true);
-    }
+    if (fitsAfter(last, step.kind)) this._fit(true);
   }
 
   private _lowerToast() {
@@ -1099,9 +1096,11 @@ class SpatialPanel extends LitElement {
   private _fitToFreeArea(points: Position[], animate = false) {
     const map = this._map;
     if (!map || !points.length) return;
-    const padding = freeAreaPadding(this._freeSpace());
+    // A card keeps an even 16 px margin; the panel leaves the guide and the strip out.
+    const padding = this.card ? { top: 16, bottom: 16, left: 16, right: 16 } : freeAreaPadding(this._freeSpace());
     const bearing = this._state.bearing === null ? map.getBearing() : mapBearing(this._state.axisDeg);
-    map.jumpTo({ bearing });
+    // Flat as well: a jump stops a running ease, such as the one that lays the plan flat when leaving All.
+    map.jumpTo({ bearing, pitch: 0 });
     const container = map.getContainer();
     const freeW = container.clientWidth - padding.left - padding.right;
     const freeH = container.clientHeight - padding.top - padding.bottom;
@@ -1109,9 +1108,12 @@ class SpatialPanel extends LitElement {
     const pixels = points.map((point) => map.project(point as [number, number]));
     const [west, east] = [Math.min(...pixels.map((p) => p.x)), Math.max(...pixels.map((p) => p.x))];
     const [north, south] = [Math.min(...pixels.map((p) => p.y)), Math.max(...pixels.map((p) => p.y))];
-    const zoom = map.getZoom() + Math.log2(Math.min(freeW / Math.max(east - west, 1), freeH / Math.max(south - north, 1)));
-    const center = map.unproject([(west + east) / 2, (north + south) / 2]);
-    const options = { center, zoom, bearing, padding };
+    const gain = Math.min(freeW / Math.max(east - west, 1), freeH / Math.max(south - north, 1));
+    // The camera looks at the screen's middle, so it looks past the house by the gap between the middles of
+    // the screen and the free area. No padding is set: it would stay on the map for every later camera move.
+    const gap = [container.clientWidth / 2 - (padding.left + freeW / 2), container.clientHeight / 2 - (padding.top + freeH / 2)];
+    const center = map.unproject([(west + east) / 2 + gap[0] / gain, (north + south) / 2 + gap[1] / gain]);
+    const options = { center, zoom: map.getZoom() + Math.log2(gain), bearing, pitch: 0 };
     if (animate) map.easeTo(options);
     else map.jumpTo(options);
   }
@@ -1377,12 +1379,10 @@ class SpatialPanel extends LitElement {
   private _outlineBuildings(force = false) {
     const map = this._map;
     if (!map) return;
-    const layers = map.getStyle()?.layers;
-    if (!layers) return;
     const kind = this._step()?.kind;
     const on = this._darkMode && (kind === "pick" || kind === "align");
     if (!force && on === Boolean(this._buildingEdges.size)) return;
-    for (const layer of layers) {
+    for (const layer of map.getStyle()?.layers ?? []) {
       if (layer.type !== "fill" || layer["source-layer"] !== "buildings") continue;
       if (!this._buildingEdges.has(layer.id)) this._buildingEdges.set(layer.id, map.getPaintProperty(layer.id, "fill-outline-color"));
       const edge = on ? this._readPaint().mapBuildingEdge : this._buildingEdges.get(layer.id);
