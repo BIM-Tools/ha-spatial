@@ -23,6 +23,7 @@ class SpatialMapCard extends HTMLElement {
   }
 
   // Only colour_by: the form's selectors cannot say "all" or an unset show_map, so those two stay in YAML.
+  // Home Assistant's form editor keeps keys outside the schema: ha-form merges its change into the old data.
   static getConfigForm() {
     return {
       schema: [

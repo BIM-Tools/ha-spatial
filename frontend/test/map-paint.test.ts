@@ -33,11 +33,24 @@ test.each([false, true])("an unset accent falls back to Home Assistant's default
   expect(readMapPaint(document.body, dark).accent).toBe("rgba(255,152,0,1)");
 });
 
-test("rooms with a value get their own fill and a neutral edge, the others the plain ones", () => {
+test("a coloured card paints rooms by their feature state, a plain one with the fixed fill", () => {
   const paint = readMapPaint(document.body, false);
-  const colours = layerColours(paint, { a: "rgb(1,2,3)", b: undefined });
-  expect(colours["areas-2d"]["fill-color"]).toEqual(["match", ["get", "area_id"], "a", "rgb(1,2,3)", paint.roomFill]);
-  expect(colours["areas-outline"]["line-color"]).toEqual(["match", ["get", "area_id"], "a", "rgba(0,0,0,0.22)", paint.roomEdge]);
+  const plain = ["==", ["feature-state", "value"], null];
   expect(layerColours(paint)["areas-2d"]["fill-color"]).toBe(paint.roomFill);
+  expect(layerColours(paint)["areas-outline"]["line-color"]).toBe(paint.roomEdge);
+  expect(layerColours(paint, "brightness")["areas-2d"]["fill-color"]).toEqual([
+    "case", plain, paint.roomFill, ["interpolate", ["linear"], ["feature-state", "value"], 0, paint.lightLow, 100, paint.lightHigh],
+  ]);
+  expect(layerColours(paint, "temperature")["areas-2d"]["fill-color"]).toEqual([
+    "case", plain, paint.roomFill, ["interpolate", ["linear"], ["feature-state", "value"], 15, paint.cool, 21, paint.roomFill, 28, paint.heat],
+  ]);
+  expect(layerColours(paint, "temperature")["areas-outline"]["line-color"]).toEqual(["case", plain, paint.roomEdge, "rgba(0,0,0,0.22)"]);
   expect(readMapPaint(document.body, true).valueEdge).toBe("rgba(255,255,255,0.28)");
+});
+
+test("the room colours come from Home Assistant's state colours, with its defaults", () => {
+  const paint = readMapPaint(document.body, false);
+  expect(paint.lightHigh).toBe("rgba(255,193,7,0.72)");
+  expect(paint.cool).toBe("rgba(33,150,243,0.6)");
+  expect(paint.heat).toBe("rgba(255,87,34,0.6)");
 });

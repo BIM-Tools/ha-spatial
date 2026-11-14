@@ -147,7 +147,7 @@ test("a label is named with its m² for screen readers", () => {
   expect(labelOf("living")?.getAttribute("aria-label")).toBe("Living room, 12.3 m²");
 });
 
-test("a value shows under the name where the m² would, and goes before the name when the room is small", () => {
+test("a second-line text replaces the m², in the primary text colour, and goes before the name when the room is small", () => {
   const labels = new RoomLabels(new fakeMapLibre.Map({}) as never, false, () => METRIC_UNITS, () => "Building");
   labels.show(
     [pixelRoom("living", [0, 0], [200, 120]), pixelRoom("hall", [300, 0], [380, 50])],
@@ -157,4 +157,5 @@ test("a value shows under the name where the m² would, and goes before the name
   );
   expect(shown("living")).toMatchObject({ name: "Living room", size: "80 %" });
   expect(shown("hall")).toMatchObject({ name: "Hall", size: undefined });
+  expect(labelOf("living")?.querySelector(".size")?.classList.contains("live")).toBe(true);
 });

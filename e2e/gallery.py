@@ -822,14 +822,14 @@ def first_run_click_home(shot: Shot) -> None:
 
 def first_run_align(shot: Shot) -> None:
     first_run_click_home(shot)
+    # A click on the home's building picks it and turns Align on.
     shot.click(*home_building(shot))
-    shot.panel.get_by_text("Press Align, then click the front wall").wait_for()
+    shot.panel.get_by_text("Click the front wall of your home").wait_for()
     shot.settle()
 
 
 def first_run_outline(shot: Shot) -> None:
     first_run_align(shot)
-    shot.select_tool("Align")
     shot.click(*home_building(shot))
     try:
         shot.panel.get_by_role("button", name="Use outline", exact=True).wait_for(
@@ -890,7 +890,7 @@ FIRST_RUN = [
     State(
         "first-run-align",
         "first-run",
-        "The home clicked: the building dashed, Align lit",
+        "The home clicked: the building dashed, Align on, Click the front wall of your home",
         first_run_align,
     ),
     State(
@@ -1228,9 +1228,9 @@ def load_house(token: str) -> House:
     websocket.call(
         "lovelace/dashboards/create",
         url_path=DASHBOARD,
-        title="Spatial gallery",
+        title="Home",
         mode="storage",
-        show_in_sidebar=True,
+        show_in_sidebar=False,
         require_admin=False,
     )
     add_room_values(websocket, house)
@@ -1323,10 +1323,13 @@ def render_states(
                 if shot.warnings:
                     warnings[key] = sorted(shot.warnings)
                     print(f"WARN {state.id} {theme} {width}: {'; '.join(warnings[key])}")
-            except (Skip, PlaywrightTimeoutError) as reason:
-                reason = reason if isinstance(reason, Skip) else "timeout"
+            except Skip as reason:
                 results[key] = f"Skipped: {reason}"
                 print(f"SKIP {state.id} {theme} {width}: {reason}")
+            except PlaywrightTimeoutError as error:
+                first_line = str(error).partition("\n")[0]
+                results[key] = f"Skipped: timeout, {first_line}"
+                print(f"SKIP {state.id} {theme} {width}: {results[key]}")
             finally:
                 shot.release()
         for page in pages.values():

@@ -44,15 +44,11 @@ floor: ground_floor
 colour_by: brightness
 ```
 
-![Rooms coloured by brightness](docs/images/card-brightness.png)
-
 ```yaml
 type: custom:spatial-map-card
 floor: ground_floor
 colour_by: temperature
 ```
-
-![Rooms coloured by temperature](docs/images/card-temperature.png)
 
 ## Privacy
 
