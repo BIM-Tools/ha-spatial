@@ -9,6 +9,7 @@ import {
   headerButton,
   floorButtonNames,
   handlers,
+  featureStates,
   layers,
   mapCreated,
   guideText,
@@ -222,6 +223,43 @@ const framings = () => cameraMoves().filter((options) => options.center && optio
 const TWO_FLOORS = rooms(square("ground", 5, 52), square("first", 6, 53));
 
 const mountStatic = (floor: string, geojson: () => object = () => TWO_FLOORS) => mountPanel({ geojson, card: true, floor });
+
+test("a coloured card gives each room its value as feature state and clears it when the light goes out", async () => {
+  const { panel } = mountStatic("ground");
+  const coloured = panel as typeof panel & { colourBy?: string; hass: object };
+  coloured.colourBy = "brightness";
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
+  const home = (state: string) => ({
+    ...coloured.hass,
+    states: { "light.a": { state, attributes: { brightness: 255 } } },
+    entities: { "light.a": { area_id: "living" } },
+    devices: {},
+  });
+  coloured.hass = home("on");
+  await vi.waitFor(() => expect(featureStates).toEqual({ living: { value: 100 } }));
+  coloured.hass = home("off");
+  await vi.waitFor(() => expect(featureStates).toEqual({}));
+});
+
+test.each([
+  ["the admin panel", { card: false, floor: "ground" }],
+  ["a card of all floors", { card: true, floor: "all" }],
+])("%s sets no room colour even with colourBy", async (_name, mount) => {
+  const { panel } = mountPanel({ geojson: () => TWO_FLOORS, ...mount });
+  const coloured = panel as typeof panel & { colourBy?: string; hass: object };
+  coloured.colourBy = "brightness";
+  await vi.waitFor(() => expect(handlers["style.load"]).toBeDefined());
+  handlers["style.load"]();
+  coloured.hass = {
+    ...coloured.hass,
+    states: { "light.a": { state: "on", attributes: { brightness: 255 } } },
+    entities: { "light.a": { area_id: "living" } },
+    devices: {},
+  };
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(featureStates).toEqual({});
+});
 
 const buttons = (panel: HTMLElement) => buttonsIn(panel.shadowRoot!).length;
 

@@ -77,3 +77,18 @@ test("the card passes its show_map option to the panel, and refuses one that is 
   expect(panel.showMap).toBe(true);
   expect(() => card.setConfig({ show_map: "yes" })).toThrow("show_map");
 });
+
+test("the card passes its colour_by option to the panel, and refuses any other value", () => {
+  const card = mountCard();
+  const panel = card.shadowRoot?.querySelector("spatial-panel") as HTMLElement & { colourBy?: string };
+  card.setConfig({ floor: "ground_floor", colour_by: "temperature" });
+  expect(panel.colourBy).toBe("temperature");
+  card.setConfig({ floor: "ground_floor" });
+  expect(panel.colourBy).toBeUndefined();
+  expect(() => card.setConfig({ colour_by: "humidity" })).toThrow("colour_by");
+});
+
+test("the card editor offers colour_by", () => {
+  const Card = customElements.get("spatial-map-card") as unknown as { getConfigForm(): { schema: { name: string }[] } };
+  expect(Card.getConfigForm().schema.map((field) => field.name)).toEqual(["colour_by"]);
+});

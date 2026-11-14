@@ -113,6 +113,10 @@ export const roomLabelStyles = css`
     line-height: 13px;
     color: var(--secondary-text-color);
   }
+  /* A live value is read against the room's fill, so it takes the primary text colour. */
+  .room-label .size.live {
+    color: var(--primary-text-color);
+  }
   .room-label .chip {
     position: absolute;
     bottom: 100%;
@@ -149,6 +153,7 @@ export class RoomLabels {
   private _rooms: Feature<Polygon>[] = [];
   private _outline?: Polygon;
   private _areas: Record<string, AreaInfo> = {};
+  private _texts: Record<string, string> = {};
   private _pointed?: string;
   private _hidden = new Set<string>();
   private _labels = new Map<string, Label>();
@@ -170,9 +175,13 @@ export class RoomLabels {
     this.show([], undefined, {});
   }
 
-  /** The rooms of the floor on screen (none for all floors), the building outline and Home Assistant's areas. */
-  show(rooms: Feature<Polygon>[], outline: Polygon | undefined, areas: Record<string, AreaInfo>) {
+  /**
+   * The rooms of the floor on screen (none for all floors), the building outline and Home Assistant's areas.
+   * `texts` is an optional second line per area id, such as a room's live value; the panel's m² shows where there is none.
+   */
+  show(rooms: Feature<Polygon>[], outline: Polygon | undefined, areas: Record<string, AreaInfo>, texts: Record<string, string> = {}) {
     this._rooms = rooms;
+    this._texts = texts;
     this._outline = outline;
     this._areas = areas;
     this.update();
@@ -198,19 +207,20 @@ export class RoomLabels {
       if (this._hidden.has(areaId)) continue;
       const rings = room.geometry.coordinates.map((ring) => ring.map((position) => this._toScreen(position)));
       const space = labelSpace(rings);
-      const step = labelStep(rings, space.at, this._withSize);
+      const text = this._texts[areaId];
+      const step = labelStep(rings, space.at, this._withSize || text !== undefined);
       if (step === "none") continue;
       kept.add(areaId);
       const label = this._labels.get(areaId) ?? this._newLabel(areaId);
       const area = this._areas[areaId];
       const name = area?.name ?? String(room.properties?.name ?? areaId);
       const icon = area?.icon || FALLBACK_ICON;
-      const size = step === "size" ? formatArea(Number(room.properties?.area_m2), this._units()) : "";
+      const size = step !== "size" ? "" : (text ?? formatArea(Number(room.properties?.area_m2), this._units()));
       const chip = step === "icon" && areaId === this._pointed;
-      const shown = JSON.stringify([step, name, icon, size, chip, Math.floor(space.width)]);
+      const shown = JSON.stringify([step, name, icon, size, text !== undefined, chip, Math.floor(space.width)]);
       if (shown !== label.shown) {
         label.shown = shown;
-        this._fill(label.marker.getElement(), { step, name, icon, size, chip, width: space.width });
+        this._fill(label.marker.getElement(), { step, name, icon, size, live: text !== undefined, chip, width: space.width });
       }
       label.marker.setLngLat(this._map.unproject(space.at));
     }
@@ -238,7 +248,7 @@ export class RoomLabels {
 
   private _fill(
     element: HTMLElement,
-    { step, name, icon, size, chip, width }: { step: LabelStep; name: string; icon: string; size: string; chip: boolean; width: number },
+    { step, name, icon, size, live, chip, width }: { step: LabelStep; name: string; icon: string; size: string; live: boolean; chip: boolean; width: number },
   ) {
     element.dataset.step = step;
     // Named at every step, also when only the icon shows.
@@ -251,7 +261,7 @@ export class RoomLabels {
     const text = (className: string, content: string) =>
       Object.assign(document.createElement("span"), { className, textContent: content });
     if (step !== "icon") parts.push(text("name", name));
-    if (size) parts.push(text("size", size));
+    if (size) parts.push(text(live ? "size live" : "size", size));
     if (chip) parts.unshift(text("chip", name));
     element.replaceChildren(...parts);
   }

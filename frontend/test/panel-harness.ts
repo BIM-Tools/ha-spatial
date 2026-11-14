@@ -28,6 +28,8 @@ export const camera = { lands: true };
 export const styleState = { loaded: true };
 export let handlers: Record<string, (event?: object) => void> = {};
 export let sources: Record<string, { data: unknown }> = {};
+// The MapLibre feature state of the areas source, by feature id.
+export let featureStates: Record<string, { value?: number }> = {};
 export let layers: {
   id: string;
   type: string;
@@ -152,6 +154,7 @@ export const fakeMapLibre = {
       mapCreated(options);
       handlers = {};
       sources = {};
+      featureStates = {};
       layers = [];
       mapBearingNow = options.bearing ?? 0;
       mapFieldOfViewNow = 36.87;
@@ -183,6 +186,13 @@ export const fakeMapLibre = {
     }
     addSource(id: string, source: { data: unknown }) {
       sources[id] = { data: source.data };
+    }
+    setFeatureState({ id }: { id: string }, state: { value: number }) {
+      featureStates[id] = state;
+    }
+    removeFeatureState({ id }: { id?: string }) {
+      if (id === undefined) featureStates = {};
+      else delete featureStates[id];
     }
     getSource(id: string) {
       const source = sources[id];
