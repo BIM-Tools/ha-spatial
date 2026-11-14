@@ -35,7 +35,7 @@ import "./floor-selector";
 import { mapCursor } from "./map-cursor";
 import "./map-stack";
 import { type MapPaint, layerColours, readMapPaint, repaint } from "./map-paint";
-import { type ThemeState, bounds, darkModeOf, freeAreaPadding, mapBearing, styleUrl, withMapTilesToken, workerUrl } from "./map-view";
+import { type ThemeState, darkModeOf, freeAreaPadding, mapBearing, styleUrl, withMapTilesToken, workerUrl } from "./map-view";
 import { type AlignFields, type TileBuildings, alignFields, nearestBuilding, reachesUnreadTiles, wallAt } from "./outline";
 import "./panel-header";
 import type { MenuItem } from "./panel-header";
@@ -343,6 +343,7 @@ class SpatialPanel extends LitElement {
     }
     /* Spatial's own toast lifts the bottom chrome out of its way; the map stays. */
     :host([toasting]) .strip,
+    :host([toasting]) .strip-bar,
     :host([toasting]) spatial-editor-toolbar[bar] {
       transform: translateY(-${TOAST_LIFT_PX}px);
     }
@@ -350,6 +351,7 @@ class SpatialPanel extends LitElement {
       min-width: 0;
     }
     .strip-bar {
+      transition: transform 200ms ease;
       ${phoneBar}
       display: flex;
       border-top: 1px solid var(--divider-color);
@@ -1066,7 +1068,8 @@ class SpatialPanel extends LitElement {
       this._pointAt(event);
       this._showCursor();
     });
-    if (this.floor || this._state.floor === "all") this._fit();
+    // Also a panel opened mid-way (a reload) frames the house in the free area; with nothing to frame it does nothing.
+    this._fit();
   }
 
   private _showBearing(bearingDeg: number) {
@@ -1087,17 +1090,30 @@ class SpatialPanel extends LitElement {
     const shapes: Feature<Polygon>[] = this._state.roomsInView();
     if (outline.type === "Polygon") shapes.push({ type: "Feature", properties: {}, geometry: outline });
     else if (!shapes.length && this._pickedBuilding) shapes.push({ type: "Feature", properties: {}, geometry: this._pickedBuilding });
-    const box = bounds(shapes);
-    if (box) this._fitToFreeArea(box, animate);
+    this._fitToFreeArea(shapes.flatMap((shape) => shape.geometry.coordinates[0]), animate);
   }
 
-  // Custom: fits the box between the guide and the strip.
-  private _fitToFreeArea(box: [number, number, number, number], animate = false) {
+  // Custom: fits the points between the guide and the strip. MapLibre's fitBounds and cameraForBounds frame
+  // a longitude and latitude box, which on a turned map leaves the house well short of the free area; this
+  // frames the corners themselves, measured in MapLibre's own screen space.
+  private _fitToFreeArea(points: Position[], animate = false) {
     const map = this._map;
-    if (!map) return;
+    if (!map || !points.length) return;
     const padding = freeAreaPadding(this._freeSpace());
     const bearing = this._state.bearing === null ? map.getBearing() : mapBearing(this._state.axisDeg);
-    map.fitBounds(box, { bearing, padding, animate });
+    map.jumpTo({ bearing });
+    const container = map.getContainer();
+    const freeW = container.clientWidth - padding.left - padding.right;
+    const freeH = container.clientHeight - padding.top - padding.bottom;
+    if (freeW <= 0 || freeH <= 0) return;
+    const pixels = points.map((point) => map.project(point as [number, number]));
+    const [west, east] = [Math.min(...pixels.map((p) => p.x)), Math.max(...pixels.map((p) => p.x))];
+    const [north, south] = [Math.min(...pixels.map((p) => p.y)), Math.max(...pixels.map((p) => p.y))];
+    const zoom = map.getZoom() + Math.log2(Math.min(freeW / Math.max(east - west, 1), freeH / Math.max(south - north, 1)));
+    const center = map.unproject([(west + east) / 2, (north + south) / 2]);
+    const options = { center, zoom, bearing, padding };
+    if (animate) map.easeTo(options);
+    else map.jumpTo(options);
   }
 
   // All floors look at the house from its front corner; one floor keeps the picked wall horizontal.

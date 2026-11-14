@@ -7,7 +7,6 @@ import {
   buttonsIn,
   chooseFromMenu,
   headerButton,
-  fitBounds,
   floorButtonNames,
   handlers,
   layers,
@@ -29,6 +28,7 @@ import {
   zoomOut,
   easeTo,
   fakeMapLibre,
+  areaEntry,
   floorEntry,
   jumpTo,
   liveMarkers,
@@ -36,6 +36,7 @@ import {
   touchZoomRotate,
   SITE,
   sources,
+  projectLngLat,
   unprojectPixel,
 } from "./panel-harness";
 import { US_UNIT_M, siteFrameData } from "./site-frame-fixture";
@@ -214,6 +215,10 @@ const square = (floor_id: string, west: number, south: number) => ({
   properties: { floor_id, level: 0 },
 });
 
+// The camera moves that frame a flat plan in the free area; they carry the padding.
+const framings = () =>
+  [...jumpTo.mock.calls, ...easeTo.mock.calls].map(([options]) => options).filter((options) => options.padding);
+
 const TWO_FLOORS = rooms(square("ground", 5, 52), square("first", 6, 53));
 
 const mountStatic = (floor: string, geojson: () => object = () => TWO_FLOORS) => mountPanel({ geojson, card: true, floor });
@@ -225,7 +230,7 @@ test("without a floor the map is interactive, with floor buttons", async () => {
   await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
   expect(mapCreated.mock.calls[0][0]).not.toHaveProperty("interactive", false);
   expect(buttons(panel)).toBeGreaterThan(0);
-  expect(fitBounds).not.toHaveBeenCalled();
+  expect(framings()).toEqual([]);
 });
 
 const floorLabels = () =>
@@ -243,7 +248,6 @@ test("a fixed floor all shows a static stack from the front corner, each floor n
   await vi.waitFor(() => expect(jumpTo).toHaveBeenCalled());
   expect(mapCreated.mock.calls[0][0]).toMatchObject({ interactive: false });
   expect(buttons(panel)).toBe(0);
-  expect(fitBounds).not.toHaveBeenCalled();
   // Site bearing 0 puts the site's x-axis to the right at map bearing 270; the front corner is 45 degrees less.
   expect(jumpTo.mock.calls[0][0]).toMatchObject({ bearing: 225, pitch: 55 });
   expect(floorLabels()).toEqual(["Ground floor, 1 room", "First floor, 1 room"]);
@@ -281,26 +285,27 @@ test("leaving All lays the plan flat with the wall horizontal and drops the floo
 
 test("a fixed floor id shows a static flat plan framed on that floor", async () => {
   const { panel } = mountStatic("first");
-  await vi.waitFor(() => expect(fitBounds).toHaveBeenCalled());
+  await vi.waitFor(() => expect(framings()).not.toEqual([]));
   expect(mapCreated.mock.calls[0][0]).toMatchObject({ interactive: false, pitch: 0 });
   expect(buttons(panel)).toBe(0);
-  expect(fitBounds.mock.calls[0][0]).toEqual([6, 53, 7, 54]);
+  // The fake map is linear in metres, so a house a degree away only lands near its centre.
+  expect(framings()[0].center).toMatchObject({ lng: expect.closeTo(6.5, 1), lat: expect.closeTo(53.5, 1) });
 });
 
 test("a static map frames the rooms again on every update", async () => {
   let geojson: object = TWO_FLOORS;
   const { connection } = mountStatic("ground", () => geojson);
-  await vi.waitFor(() => expect(fitBounds).toHaveBeenCalled());
+  await vi.waitFor(() => expect(framings()).not.toEqual([]));
   geojson = rooms(square("ground", 4, 51));
   const [[onUpdate]] = connection.subscribeMessage.mock.calls as unknown as [[() => Promise<void>]];
   await onUpdate();
-  expect(fitBounds.mock.calls.at(-1)?.[0]).toEqual([4, 51, 5, 52]);
+  expect(framings().at(-1)?.center).toMatchObject({ lng: expect.closeTo(4.5, 1), lat: expect.closeTo(51.5, 1) });
 });
 
 test("an unknown fixed floor says there are no rooms", async () => {
   const { panel } = mountStatic("attic");
   await vi.waitFor(() => expect(panel.shadowRoot?.textContent).toContain("No rooms yet"));
-  expect(fitBounds).not.toHaveBeenCalled();
+  expect(framings()).toEqual([]);
 });
 
 test("a new floor option rebuilds the map, as interactivity is fixed at creation", async () => {
@@ -656,12 +661,44 @@ test("entering the align step frames the picked building above the strip's own p
   const strip = root.querySelector<HTMLElement>(".strip")!;
   strip.getBoundingClientRect = () => rect(648, 72);
   Object.defineProperty(strip, "offsetTop", { value: 712 });
-  fitBounds.mockClear();
+  jumpTo.mockClear();
+  easeTo.mockClear();
   // Picking the home turns Align on, which is the step that frames the building.
   click();
   await settle(panel);
-  expect(fitBounds).toHaveBeenCalledTimes(1);
-  expect(fitBounds.mock.calls[0][1]).toMatchObject({ padding: { top: 16, bottom: 112, left: 48, right: 48 } });
+  expect(framings()).toHaveLength(1);
+  expect(framings()[0].padding).toEqual({ top: 16, bottom: 112, left: 48, right: 48 });
+});
+
+test("a panel opened on a floor with an outline frames the house in the free area at once, as a reload mid-way does", async () => {
+  const { panel } = mountPanel({ site: DONE_SITE, floors: [floorEntry("ground", "Ground floor")], areas: [areaEntry("hall", "Hall", "ground")] });
+  await vi.waitFor(() => expect(mapCreated).toHaveBeenCalled());
+  await settle(panel);
+  const { padding, zoom, center } = framings()[0];
+  expect(padding).toMatchObject({ left: 48, right: 48 });
+  // The fake map is linear: the house box in pixels grows by 2 ** (zoom - 19). It fills the free area in
+  // one direction, stays inside it in the other, and sits on the centre the camera looks at.
+  const pixels = HOUSE.coordinates[0].map(([lng, lat]) => projectLngLat({ lng, lat }));
+  const xs = pixels.map((p) => p.x);
+  const ys = pixels.map((p) => p.y);
+  const scale = 2 ** (zoom - 19);
+  const [boxW, boxH] = [(Math.max(...xs) - Math.min(...xs)) * scale, (Math.max(...ys) - Math.min(...ys)) * scale];
+  const [freeW, freeH] = [390 - padding.left - padding.right, 800 - padding.top - padding.bottom];
+  expect(Math.max(boxW / freeW, boxH / freeH)).toBeCloseTo(1, 6);
+  expect(Math.max(boxW / freeW, boxH / freeH)).toBeGreaterThanOrEqual(Math.min(boxW / freeW, boxH / freeH));
+  const middle = projectLngLat(center);
+  expect(middle.x).toBeCloseTo((Math.min(...xs) + Math.max(...xs)) / 2, 6);
+  expect(middle.y).toBeCloseTo((Math.min(...ys) + Math.max(...ys)) / 2, 6);
+});
+
+test("a toast sets the attribute that lifts both phone bars", async () => {
+  const { panel } = mountPanel(UNALIGNED);
+  queryRenderedFeatures.mockReturnValue([]);
+  await showNoFloor(panel);
+  await vi.waitFor(() => expect(handlers.click).toBeDefined());
+  expect(panel.hasAttribute("toasting")).toBe(false);
+  click();
+  expect(panel.hasAttribute("toasting")).toBe(true);
 });
 
 test("the header's Help opens a sheet of symbols and keys that Escape closes, giving focus back to Help", async () => {

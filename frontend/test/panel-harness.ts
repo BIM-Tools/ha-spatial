@@ -11,6 +11,10 @@ import { METRIC_UNITS } from "./units-fixture";
 export const mapCreated = vi.fn();
 export const setBearing = vi.fn();
 export const easeTo = vi.fn();
+// A screen for the camera maths; happy-dom lays nothing out.
+Object.defineProperty(document.body, "clientWidth", { value: 390, configurable: true });
+Object.defineProperty(document.body, "clientHeight", { value: 800, configurable: true });
+
 export const fitBounds = vi.fn();
 export const flyTo = vi.fn();
 export const jumpTo = vi.fn();
@@ -74,7 +78,7 @@ export const unprojectPixel = ([x, y]: [number, number], screenUp = mapBearingNo
   return destination(east, (y + panned.y) * METRES_PER_PIXEL, screenUp + 180, { units: "meters" }).geometry
     .coordinates as [number, number];
 };
-const projectLngLat = ({ lng, lat }: { lng: number; lat: number }) => {
+export const projectLngLat = ({ lng, lat }: { lng: number; lat: number }) => {
   const pixels = distance(SITE, [lng, lat], { units: "meters" }) / METRES_PER_PIXEL;
   const turn = ((bearing(SITE, [lng, lat]) - mapBearingNow) * Math.PI) / 180;
   return { x: pixels * Math.sin(turn) - panned.x, y: -pixels * Math.cos(turn) - panned.y };
