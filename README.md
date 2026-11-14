@@ -1,8 +1,10 @@
 # Spatial
 
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
+
 Draw your rooms on Home Assistant's own map, and let Home Assistant know which room is where and which rooms touch.
 
-![The ground floor of the example house in the Spatial panel, the living room active with its side lengths](docs/images/hero.png)
+![The ground floor of the example house in the Spatial panel, the living room active with its side lengths](https://raw.githubusercontent.com/BIM-Tools/ha-spatial/main/docs/images/hero.png)
 
 It is not a 3D house model: no walls, doors, furniture or device positions.
 
@@ -12,8 +14,11 @@ Needs Home Assistant 2026.11.0 or newer and [HACS](https://hacs.xyz). HACS insta
 `spatial.zip` from a published GitHub release. The panel and card are built into that zip and
 are not in git, so copying the source folder gives no editor.
 
-1. In HACS, open the three-dot menu > Custom repositories and add
+1. In HACS open the three-dot menu > Custom repositories and add
    `https://github.com/BIM-Tools/ha-spatial` with type Integration.
+
+   [![Open your Home Assistant instance and open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=BIM-Tools&repository=ha-spatial&category=integration)
+
 2. Download Spatial, then restart Home Assistant.
 3. Create your floors and put your areas on them in Settings > Areas, labels & zones first;
    areas without a floor are drawn under No floor. Then go to Settings > Devices & services >
@@ -46,7 +51,9 @@ Download `spatial.zip` from the
 ## Your data
 
 - The plan is stored in `.storage/spatial` and is part of every Home Assistant backup.
-- Removing the integration leaves that file in place. Delete it by hand for a clean uninstall.
+- To remove Spatial: delete the integration under Settings > Devices & services, then in HACS
+  open Spatial > three-dot menu > Remove, and restart Home Assistant.
+- This leaves `.storage/spatial` in place. Delete it by hand for a clean uninstall.
 - Undo is lost after a reload; see the
   [Known limits](docs/user-guide.md#known-limits).
 - Questions and bugs: [GitHub issues](https://github.com/BIM-Tools/ha-spatial/issues).
