@@ -119,6 +119,7 @@ are in the [frontend README](../../frontend/README.md).
 | --- | --- |
 | `__init__.py` | Setup, `runtime_data`, websocket registration, admin-only `spatial` panel, in the sidebar as "Floor plan", and the card module (bundles in `frontend/`, served at `/spatial_static`) |
 | `config_flow.py` | Single-instance config flow, with a link to the editor on its success step; the options form behind Configure, with that link and the address search server |
+| `const.py` | Shared constants: storage and API versions, error codes, rule values |
 | `coordinator.py` | Data access, registry sync, queries |
 | `store.py` | Persistence and migration of data saved by older releases |
 | `geometry.py` | All geometry: the site frame and lattice, validation, net area, point in polygon, shared edges, the room's relation to the outline |

@@ -1,0 +1,24 @@
+name: Bug report
+description: Something in Spatial does not work as expected
+body:
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      placeholder: "2026.11.0"
+    validations:
+      required: true
+  - type: input
+    id: spatial_version
+    attributes:
+      label: Spatial version
+      placeholder: "0.2.0"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Steps, browser, and drag a screenshot here.
+    validations:
+      required: true
