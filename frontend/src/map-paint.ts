@@ -88,6 +88,8 @@ export interface MapPaint {
   // What a point snaps to, set apart from the primary editing lines.
   accent: string;
   roomFill: string;
+  // The middle of the temperature scale: the theme's grey, so cool reads blue and heat reads orange.
+  neutral: string;
   roomEdge: string;
   // The edge of a room coloured by its data, neutral so the fill carries the meaning.
   valueEdge: string;
@@ -137,6 +139,7 @@ export const readMapPaint = (element: Element, dark: boolean): MapPaint => {
     primary: rgba(primary),
     accent: rgba(color("--accent-color")),
     roomFill: rgba(primary, roomOpacity),
+    neutral: rgba(color("--secondary-text-color"), 0.15),
     roomEdge: rgba(primary, dark ? 0.75 : 0.7),
     valueEdge: dark ? "rgba(255,255,255,0.28)" : "rgba(0,0,0,0.22)",
     lightLow: rgba(color("--state-light-active-color"), 0.12),
@@ -172,21 +175,17 @@ const byValue = (kind: ColourBy, plain: string, stops: Record<ColourBy, (string 
 
 /** The colour paint of every layer the panel adds, by layer id; widths and dashes stay with each layer. */
 export const layerColours = (paint: MapPaint, kind?: ColourBy): LayerColours => ({
-  ...baseColours(paint),
   "areas-2d": {
     "fill-color": kind
       ? byValue(kind, paint.roomFill, {
           brightness: [0, paint.lightLow, 100, paint.lightHigh],
-          temperature: [15, paint.cool, 21, paint.roomFill, 28, paint.heat],
+          temperature: [15, paint.cool, 21, paint.neutral, 28, paint.heat],
         })
       : paint.roomFill,
   },
   "areas-outline": {
     "line-color": kind ? ["case", ["==", ["feature-state", "value"], null], paint.roomEdge, paint.valueEdge] : paint.roomEdge,
   },
-});
-
-const baseColours = (paint: MapPaint): LayerColours => ({
   "stack-outline": { "fill-extrusion-color": paint.building },
   "stack-rooms": { "fill-extrusion-color": paint.stackRoom },
   "stack-room-edges": { "fill-extrusion-color": paint.stackRoomEdge },

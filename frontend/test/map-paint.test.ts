@@ -42,7 +42,7 @@ test("a coloured card paints rooms by their feature state, a plain one with the 
     "case", plain, paint.roomFill, ["interpolate", ["linear"], ["feature-state", "value"], 0, paint.lightLow, 100, paint.lightHigh],
   ]);
   expect(layerColours(paint, "temperature")["areas-2d"]["fill-color"]).toEqual([
-    "case", plain, paint.roomFill, ["interpolate", ["linear"], ["feature-state", "value"], 15, paint.cool, 21, paint.roomFill, 28, paint.heat],
+    "case", plain, paint.roomFill, ["interpolate", ["linear"], ["feature-state", "value"], 15, paint.cool, 21, paint.neutral, 28, paint.heat],
   ]);
   expect(layerColours(paint, "temperature")["areas-outline"]["line-color"]).toEqual(["case", plain, paint.roomEdge, "rgba(0,0,0,0.22)"]);
   expect(readMapPaint(document.body, true).valueEdge).toBe("rgba(255,255,255,0.28)");

@@ -1156,7 +1156,7 @@ STATES = [
     State(
         "card-temperature",
         "card",
-        "Dashboard card colouring the ground floor by temperature, 18.5 to 23.0 degrees",
+        "Dashboard card colouring the ground floor by temperature, 17.5 to 25.5 degrees",
         card("temperature"),
     ),
 ]
@@ -1166,8 +1166,8 @@ ALL_STATES = FIRST_RUN + STATES
 # Fixed states for the room colours: area, light brightness 0..255 (0 is off), temperature in °C.
 ROOM_VALUES = [
     ("Living room", 204, 21.5),
-    ("Kitchen", 77, 23.0),
-    ("Toilet", 0, 18.5),
+    ("Kitchen", 77, 25.5),
+    ("Toilet", 0, 17.5),
     ("Hall", 0, 19.5),
     ("Utility", 0, None),
 ]
