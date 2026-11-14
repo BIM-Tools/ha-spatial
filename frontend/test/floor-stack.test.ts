@@ -275,12 +275,15 @@ test.each([
 });
 
 test.each([
-  [119, "left"],
-  [120, "right"],
-  [121, "right"],
-])("labels go %i px free on the right: %s", (free, side) => {
+  { right: 119, left: 500, side: "left" },
+  { right: 119, left: 20, side: "right" },
+  { right: 115, left: 20, side: "right" },
+  { right: 119, left: 119, side: "right" },
+  { right: 120, left: 500, side: "right" },
+  { right: 121, left: 500, side: "right" },
+])("labels go with $right px free right and $left left: $side", ({ right, left, side }) => {
   expect(LABEL_SIDE_FREE_PX).toBe(120);
-  expect(labelSide(free)).toBe(side);
+  expect(labelSide(right, left)).toBe(side);
 });
 
 test("an undrawn floor joins the stack at its level and is labelled at the outline", () => {

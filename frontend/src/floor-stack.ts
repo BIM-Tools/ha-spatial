@@ -293,10 +293,11 @@ export const labelAnchor = (
 
 export type LabelSide = "left" | "right";
 
-/** Labels go left of the stack when less than this many pixels are free on its right: about the width of a floor's name and room count. */
+/** Labels go left of the stack when less than this many pixels are free on its right and the left has more room: about the width of a floor's name and room count. */
 export const LABEL_SIDE_FREE_PX = 120;
 
-export const labelSide = (freeRightPx: number): LabelSide => (freeRightPx < LABEL_SIDE_FREE_PX ? "left" : "right");
+export const labelSide = (freeRightPx: number, freeLeftPx: number): LabelSide =>
+  freeRightPx < LABEL_SIDE_FREE_PX && freeLeftPx > freeRightPx ? "left" : "right";
 
 /** The lines of a floor's label: an undrawn floor has no rooms to count, and is dashed. */
 export const floorLabel = (name: string, rooms: number): { name: string; count?: string; dashed: boolean } =>
@@ -393,7 +394,10 @@ export class FloorLabels {
     const { camera, screen } = cameraOf(this._map, frame);
     const anchors = this._floors.map(({ floor }) => labelAnchor(floor.corners, camera, screen));
     const stackRight = Math.max(0, ...anchors.map((anchor) => anchor?.[0] ?? 0));
-    const side = labelSide(screen.width - stackRight);
+    const stackLeft = Math.min(
+      ...this._floors.map(({ floor }) => labelAnchor(floor.corners, camera, screen, "left")?.[0] ?? Infinity),
+    );
+    const side = labelSide(screen.width - stackRight, stackLeft);
     this._floors.forEach((entry, index) => {
       const anchor = side === "right" ? anchors[index] : labelAnchor(entry.floor.corners, camera, screen, side);
       entry.element.hidden = !anchor;
