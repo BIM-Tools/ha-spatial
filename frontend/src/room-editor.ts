@@ -456,6 +456,9 @@ export class RoomEditor {
     this._host.requestUpdate();
   }
 
+  /** Leaves no area selected, as a finished floor does. */
+  deselect = () => this._select("");
+
   // A space without a shape can only be drawn, so choosing one picks Draw.
   private _choose(areaId: string) {
     this._interaction?.cancel();

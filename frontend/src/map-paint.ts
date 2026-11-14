@@ -101,6 +101,8 @@ export interface MapPaint {
   // Drawn over the room's own fill, so together they make the active fill.
   activeRoomFill: string;
   building: string;
+  // The map tiles' buildings while the guide asks for the home or a wall; the layer is the panel's.
+  mapBuildingEdge: string;
   activeBuildingFill: string;
   // Under a building the pointer is on while the home is to be picked.
   pickHoverFill: string;
@@ -130,8 +132,8 @@ export const readMapPaint = (element: Element, dark: boolean): MapPaint => {
     parseColor(DEFAULTS[token][dark ? 1 : 0])!;
   const primary = color("--primary-color");
   const warning = color("--warning-color");
-  const roomOpacity = dark ? 0.12 : 0.1;
-  const activeOpacity = dark ? 0.3 : 0.24;
+  const roomOpacity = dark ? 0.25 : 0.1;
+  const activeOpacity = dark ? 0.4 : 0.24;
   const tintOpacity = dark ? 0.22 : 0.18;
   // What a see-through room fill would show through: the card, a little lighter in the dark theme.
   const ground = mix(color("--card-background-color"), color("--secondary-text-color"), dark ? 0.88 : 1);
@@ -140,7 +142,7 @@ export const readMapPaint = (element: Element, dark: boolean): MapPaint => {
     accent: rgba(color("--accent-color")),
     roomFill: rgba(primary, roomOpacity),
     neutral: rgba(color("--secondary-text-color"), 0.15),
-    roomEdge: rgba(primary, dark ? 0.75 : 0.7),
+    roomEdge: rgba(primary, dark ? 1 : 0.7),
     valueEdge: rgba(color("--primary-text-color"), dark ? 0.28 : 0.22),
     lightLow: rgba(color("--state-light-active-color"), 0.12),
     lightHigh: rgba(color("--state-light-active-color"), 0.72),
@@ -149,6 +151,7 @@ export const readMapPaint = (element: Element, dark: boolean): MapPaint => {
     activeRoomFill: rgba(primary, 1 - (1 - activeOpacity) / (1 - roomOpacity)),
     // A neutral grey between the two text colours: #5a5a5a on the light default, #bebebe on the dark one.
     building: rgba(mix(color("--primary-text-color"), color("--secondary-text-color"), dark ? 0.5 : 0.3)),
+    mapBuildingEdge: rgba(color("--secondary-text-color")),
     activeBuildingFill: rgba(primary, tintOpacity),
     pickHoverFill: rgba(primary, 0.12),
     draftFill: rgba(primary, tintOpacity),

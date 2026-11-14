@@ -87,7 +87,7 @@ test("typing 5 on a side saves the room with that side 5 m long, in one batch", 
   await vi.waitFor(() => expect(buttonNamed(panel, "Undo")!.disabled).toBe(false));
 });
 
-test("a typed 3.47 m reads back as the saved lattice length, 3.475 m, on the side and in its field", async () => {
+test("a typed 3.47 m reads back as the saved lattice length, shown as 3.48 m, on the side and in its field", async () => {
   const { panel, connection, setFeed } = mountEditor();
   await startSelecting(panel);
   setFeed([feature("kitchen", pixelShape([0, 0], [40, 0], [40, 30], [0, 30]))]);
@@ -95,9 +95,9 @@ test("a typed 3.47 m reads back as the saved lattice length, 3.475 m, on the sid
   await tapRoom(panel, "kitchen");
   typeSide(0, "3.47");
   await vi.waitFor(() => expect(saves(connection)).toHaveLength(1));
-  await vi.waitFor(() => expect(sideButtons()[2]?.textContent).toBe("3.475 m"));
+  await vi.waitFor(() => expect(sideButtons()[2]?.textContent).toBe("3.48 m"));
   sideButtons()[0].click();
-  expect(sideField()!.value).toBe("3.475 m");
+  expect(sideField()!.value).toBe("3.48 m");
 });
 
 test("a refused side length saves nothing, keeps its field and says why", async () => {

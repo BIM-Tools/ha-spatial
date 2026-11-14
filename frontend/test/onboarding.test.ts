@@ -1,7 +1,7 @@
 // Checks the guide's one step for every state of a plan, with the steps a plan's data skips.
 import { expect, test } from "vitest";
 import { BUILDING } from "../src/area-strip";
-import { type Plan, type PlanFloor, nextStep } from "../src/onboarding";
+import { type Plan, type PlanFloor, clearsSelection, fitsAfter, nextStep } from "../src/onboarding";
 
 const area = (area_id: string, shaped = false) => ({ area_id, name: area_id[0].toUpperCase() + area_id.slice(1), shaped });
 const GROUND: PlanFloor = { floor: "ground", name: "Ground floor", areas: [area("kitchen", true), area("hall"), area("bath")] };
@@ -51,18 +51,18 @@ test.each<[string, Partial<Plan>, object]>([
     { aligned: false, tool: "align" },
     { kind: "align", text: "Click the front wall of your home", buttons: [{ control: "pick-again", label: "Pick another building" }], lit: undefined, floor: "ground" },
   ],
-  ["the home picked, back in Select: pick again with Align lit", { aligned: false }, { kind: "pick", text: "Click your home", lit: "align" }],
+  ["the home picked, back in Select: the pick step stays, nothing lit", { aligned: false, picked: true }, { kind: "pick", text: "Click your home", lit: undefined }],
   ["Change alignment says what to click, with nothing to pick again", { tool: "align" }, { kind: "align", buttons: undefined }],
   ["All with work left opens the first floor with an area to draw", { floor: "all" }, { kind: "choose-floor", text: "Choose a floor to edit its rooms", floor: "ground" }],
   ["All on a done plan opens nothing", { floor: "all", floors: DONE }, { kind: "done", text: "Choose a floor to edit its rooms", floor: undefined }],
   ["All without areas opens No floor", { floor: "all", floors: [NONE], outlineStored: false }, { kind: "choose-floor", floor: null }],
   [
     "the map's outline question",
-    { outlineStored: false, active: BUILDING, outlineOffer: "9.70 × 7.70 m" },
+    { outlineStored: false, active: BUILDING, outlineOffer: "9.7 × 7.7 m" },
     {
       kind: "outline-question",
       text: "Use the map's outline?",
-      detail: "9.70 × 7.70 m. Or click another building.",
+      detail: "9.7 × 7.7 m. Or click another building.",
       buttons: [
         { control: "draw-myself", label: "Draw it myself" },
         { control: "use-outline", label: "Use outline" },
@@ -104,4 +104,52 @@ test.each<[string, Partial<Plan>, object]>([
 ])("%s", (_name, change, expected) => {
   // A step leaves out what it has not, which `undefined` in `expected` then matches.
   expect({ text: undefined, lit: undefined, floor: undefined, ...nextStep({ ...PLAN, ...change }) }).toMatchObject(expected);
+});
+
+test.each([
+  [true, "Tap your home", "Tap its building on the map", "Tap the front wall of your home", "Or tap another building.", "Tap each corner; tap the first corner to finish. Or tap another building."],
+  [false, "Click your home", "Point at a building to light it up, then click it.", "Click the front wall of your home", "Or click another building.", "Click each corner; click the first corner to finish. Or click another building."],
+])("with coarse %s the guide says tap or click", (coarse, pick, pickDetail, align, offerEnd, drawDetail) => {
+  expect(nextStep({ ...PLAN, aligned: false, coarse })).toMatchObject({ kind: "pick", text: pick, detail: pickDetail });
+  expect(nextStep({ ...PLAN, aligned: false, tool: "align", coarse }).text).toBe(align);
+  const offer = nextStep({ ...PLAN, outlineStored: false, active: BUILDING, outlineOffer: "9.8 × 7.6 m", coarse });
+  expect(offer.detail).toBe(`9.8 × 7.6 m. ${offerEnd}`);
+  expect(nextStep({ ...PLAN, outlineStored: false, active: BUILDING, coarse }).detail).toBe(drawDetail);
+  expect(nextStep({ ...PLAN, outlineStored: false, active: BUILDING, outlineOffer: "9.80 x 7.60 m" }).detail).toBe("9.80 x 7.60 m. Or click another building.");
+});
+
+// Picking a room in Select can move the guide to floor-done too; that must not undo the pick.
+test("drawing the last room clears the selection, picking a room in Select does not", () => {
+  expect(clearsSelection("room", "floor-done")).toBe(true);
+  expect(clearsSelection(undefined, "floor-done")).toBe(false);
+  expect(clearsSelection("draw-outline", "floor-done")).toBe(false);
+  expect(clearsSelection("editing", "floor-done")).toBe(false);
+  expect(clearsSelection("room", "room")).toBe(false);
+});
+
+// Only the plan's moments frame the house; moving between rooms must not ease the map under the pointer.
+test.each([
+  ["pick", "align", true],
+  ["align", "outline-question", true],
+  ["align", "check-length", true],
+  ["align", "draw-outline", true],
+  ["align", "room", true],
+  ["outline-question", "check-length", true],
+  ["outline-question", "draw-outline", true],
+  ["check-length", "room", true],
+  ["check-length", "draw-outline", true],
+  ["room", "floor-done", true],
+  ["choose-floor", "room", true],
+  ["choose-floor", "floor-done", true],
+  ["editing", "room", false],
+  ["room", "editing", false],
+  ["floor-done", "room", false],
+  ["editing", "floor-done", false],
+  ["draw-outline", "room", false],
+  ["find", "pick", false],
+  ["align", "pick", false],
+  [undefined, "room", false],
+  ["room", "room", false],
+] as const)("fitsAfter(%s, %s) is %s", (last, kind, fits) => {
+  expect(fitsAfter(last, kind)).toBe(fits);
 });

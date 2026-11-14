@@ -2,7 +2,7 @@
 
 import type { FeatureCollection } from "geojson";
 import { expect, test } from "vitest";
-import { darkModeOf, floorsByLevel, mapBearing, styleUrl, withMapTilesToken, workerUrl } from "../src/map-view";
+import { darkModeOf, floorsByLevel, freeAreaPadding, mapBearing, styleUrl, withMapTilesToken, workerUrl } from "../src/map-view";
 
 test("the worker is loaded from next to the panel bundle, with the same version", () => {
   // The bundle version covers the worker, so a cached old worker is never reused.
@@ -76,4 +76,15 @@ test("floorsByLevel lists distinct floors by level, no level after, no floor las
     })),
   };
   expect(floorsByLevel(collection)).toEqual(["ground", "annex", "up", "attic", null]);
+});
+
+test("the free area starts 16 px under the guide and ends 24 px over the strip, with 48 px at the sides", () => {
+  // A desktop stage 800 px tall whose strip starts 72 px above its bottom edge.
+  expect(freeAreaPadding({ top: 80, bottom: 72 })).toEqual({ top: 96, bottom: 96, left: 48, right: 48 });
+  // A phone: the strip sits over the tool bar, 126 px from the bottom.
+  expect(freeAreaPadding({ top: 40, bottom: 126 })).toEqual({ top: 56, bottom: 150, left: 48, right: 48 });
+});
+
+test("without a guide or a strip the padding is 16 px at the top and bottom", () => {
+  expect(freeAreaPadding({ top: 0, bottom: 0 })).toEqual({ top: 16, bottom: 16, left: 48, right: 48 });
 });
