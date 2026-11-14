@@ -46,11 +46,12 @@ import type { PlanFrame } from "./site-frame";
 import { BUILDING } from "./area-strip";
 import { RoomEditor, type Toast, type Tool } from "./room-editor";
 import { type AreaInfo, RoomLabels, roomLabelStyles } from "./room-labels";
+import { type ColourBy, type RoomHass, type RoomValue, roomValues } from "./room-values";
 import { floatingSurface, litControl, phoneBar } from "./styles";
 import { type HassUnits, formatDistance, saveFailure } from "./units";
 
 // The parts of Home Assistant's `hass` object this panel uses.
-interface Hass extends HassUnits {
+interface Hass extends HassUnits, Partial<Pick<RoomHass, "states" | "entities" | "devices">> {
   // The location name is the building's name; without a home location the panel starts at the address search.
   config: HassUnits["config"] & { location_name: string; latitude?: number; longitude?: number };
   user?: { is_admin: boolean };
@@ -163,6 +164,8 @@ class SpatialPanel extends LitElement {
     floor: { attribute: false },
     // Set by the card's `show_map` option.
     showMap: { attribute: false },
+    // Set by the card's `colour_by` option.
+    colourBy: { attribute: false },
     panel: { attribute: false },
     _failed: { state: true },
     _hovered: { state: true },
@@ -361,6 +364,7 @@ class SpatialPanel extends LitElement {
   declare card: boolean;
   declare floor: string | undefined;
   declare showMap: boolean | undefined;
+  declare colourBy: ColourBy | undefined;
   declare panel: object | undefined;
   declare _failed: boolean;
   declare _hovered: string | undefined;
@@ -392,6 +396,8 @@ class SpatialPanel extends LitElement {
   private _tokenTimer?: ReturnType<typeof setInterval>;
   private _unsubscribe?: () => void;
   private _labels?: RoomLabels;
+  // The live value of each room, when a card of one floor colours by data.
+  private _roomValues: Record<string, RoomValue> = {};
   private _floorLabels?: FloorLabels;
   // All floors as a stack of their rooms, built again with every load of the rooms.
   private _stack?: FloorStack;
@@ -783,12 +789,20 @@ class SpatialPanel extends LitElement {
   updated(changed: PropertyValues<this>) {
     // MapLibre fixes interactivity at creation, so a new option rebuilds the map.
     if (changed.has("floor") && this._started) this._stop();
+    if (changed.has("colourBy") && this._map) {
+      if (this._map.getLayer("areas-2d")) repaint(this._map, this._readPaint(), this._kind);
+      this._colourRooms();
+    }
     const previous = changed.get("hass") as Hass | undefined;
     if (previous && this.hass) {
       // Home Assistant hands over a new themes object only when the theme changes.
       if (previous.themes !== this.hass.themes) this._repaint();
       const unitsChanged = previous.config !== this.hass.config || previous.locale !== this.hass.locale;
       if (previous.areas !== this.hass.areas || unitsChanged) this._showLabels();
+      // A new chosen temperature sensor lives in the areas.
+      if (previous.states !== this.hass.states || previous.entities !== this.hass.entities || previous.devices !== this.hass.devices || previous.areas !== this.hass.areas) {
+        this._colourRooms();
+      }
       if (previous.floors !== this.hass.floors) this._showFloorLabels();
     }
     // A render queued by _stop must not start a map for a panel that has left.
@@ -968,6 +982,7 @@ class SpatialPanel extends LitElement {
     this._map = map;
     this._labels = new RoomLabels(map, !this.card, () => this.hass!, () => this._buildingName());
     this._floorLabels = new FloorLabels(map);
+    this._colourRooms();
     this._showLabels();
     this._showFloorLabels();
     map.on("style.load", () => this._addAreas());
@@ -1092,7 +1107,7 @@ class SpatialPanel extends LitElement {
   // "All" stacks the floors' rooms; one floor is a flat plan with room outlines.
   private _addAreas() {
     const map = this._map!;
-    const colours = layerColours(this._readPaint());
+    const colours = layerColours(this._readPaint(), this._kind);
     map.addSource("stack", { type: "geojson", data: this._stack?.features ?? EMPTY });
     for (const [id, kind] of STACK_LAYERS) {
       map.addLayer({
@@ -1107,7 +1122,9 @@ class SpatialPanel extends LitElement {
         },
       });
     }
-    map.addSource("areas", { type: "geojson", data: this._state.areas });
+    // promoteId makes the area id the feature id, so a room's value is feature state and no paint is rebuilt for it.
+    map.addSource("areas", { type: "geojson", data: this._state.areas, promoteId: "area_id" });
+    this._applyValues();
     map.addLayer({ id: "areas-2d", type: "fill", source: "areas", paint: colours["areas-2d"] });
     map.addLayer({
       id: "areas-outline",
@@ -1201,7 +1218,7 @@ class SpatialPanel extends LitElement {
   private _repaint() {
     requestAnimationFrame(() => {
       if (!this._map?.getLayer("areas-2d") || !this.hass) return;
-      repaint(this._map, this._readPaint());
+      repaint(this._map, this._readPaint(), this._kind);
       // Without the map the ground is the page colour, which a theme in the same mode changes too.
       if (this._map.getLayer("ground")) this._map.setPaintProperty("ground", "background-color", this._groundColour());
     });
@@ -1217,7 +1234,33 @@ class SpatialPanel extends LitElement {
     const onFloor = this._state.floor !== "all";
     const rooms = onFloor ? this._state.roomsInView() : [];
     const outline = onFloor && this._state.outline.type === "Polygon" ? this._state.outline : undefined;
-    this._labels.show(rooms, outline, this.hass?.areas ?? {});
+    const texts = Object.fromEntries(Object.entries(this._roomValues).map(([id, value]) => [id, value.text]));
+    this._labels.show(rooms, outline, this.hass?.areas ?? {}, texts);
+  }
+
+  // Only a card fixed to one floor colours its rooms.
+  private get _kind(): ColourBy | undefined {
+    return this.card && this.floor && this.floor !== "all" ? this.colourBy : undefined;
+  }
+
+  // Sets the value of each room as feature state, after clearing the rooms that lost theirs.
+  private _applyValues() {
+    const map = this._map;
+    if (!map?.getSource("areas")) return;
+    map.removeFeatureState({ source: "areas" });
+    for (const [id, { value }] of Object.entries(this._roomValues)) {
+      if (value !== undefined) map.setFeatureState({ source: "areas", id }, { value });
+    }
+  }
+
+  // hass changes on every state, so nothing is applied unless a room's value did.
+  private _colourRooms() {
+    const kind = this._kind;
+    const values = kind && this.hass?.states && this.hass.entities && this.hass.devices ? roomValues(kind, this.hass as RoomHass) : {};
+    if (JSON.stringify(values) === JSON.stringify(this._roomValues)) return;
+    this._roomValues = values;
+    this._applyValues();
+    this._showLabels();
   }
 
   private _pointAt(event: MapMouseEvent) {
