@@ -25,7 +25,7 @@ Development tools. Not part of the integration.
 | `import_geojson.py` | Imports a GeoJSON file over the websocket API |
 | `example_house.geojson` | A fictional 10 x 8.5 m house on a public square: ground floor, first floor and attic, nine rooms on wall axes on the 2.5 cm lattice, inside an outline on the exterior wall axis, and five areas still to draw (one per floor, two without a floor) |
 | `sync_frontend_versions.py` | Sets the `home-assistant-frontend` pin in `requirements_test.txt` and the versions in `frontend/package.json` and `frontend/.nvmrc` to what Home Assistant's frontend ships; `--check` lists differences and exits 1 |
-| `brand/icon.svg` | Source of `custom_components/spatial/brand/icon.png` and `icon@2x.png`: a zoning plan on Home Assistant map colours, rendered with headless Chromium at 256 and 512 px |
+| `brand/make_icons.py` | Writes every brand variant from one plan geometry: `custom_components/spatial/brand/{icon,dark_icon}.png` (256) and `@2x.png` (512), `brand/{tile,dark_tile}.svg` and `.png`, `brand/icon_mono.svg`. Needs `rsvg-convert`; regenerate with `docker run --rm -v "$PWD":/w -w /w alpine sh -c "apk add -q rsvg-convert python3 && python3 tools/brand/make_icons.py"` |
 
 ### Import format
 
