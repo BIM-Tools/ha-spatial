@@ -112,6 +112,8 @@ licence of every bundled package (listed in that workflow) and creates the relea
   the building on its left. On an empty plan (no footprint and no outline) it also sends `origin`,
   that edge's left end in the aligned view. Once the site has a bearing, Align leaves the toolbar
   and the header menu's Change alignment starts the same tool.
+  Change alignment is the one move of stored geometry: confirmed, undoable, the rotation reduced to
+  a right angle and then snapped to the grid, in one write.
 - The picked building: one polygon held in the panel, never stored. A click picks it before Align,
   and again until an outline is stored (in Draw only inside another building, before the first
   corner); the Align click picks the clicked wall's
@@ -121,8 +123,9 @@ licence of every bundled package (listed in that workflow) and creates the relea
   a click zooms in to 18.
 - The map's outline: the panel offers the picked building, or after a reload finds the building a
   grid step inside the site origin once the map is idle, and `mapOutline` in `plan.ts` turns its outer ring into the
-  outline: walls within 3 degrees of a site axis, or at most one map tile unit (zoom 14, 4096 units
-  a tile) across it, straightened onto it, an inset of 150 mm as a
+  outline: first steps under 0.5 m between near-parallel walls are merged into the longer wall;
+  then walls within 3 degrees of a site axis, or at most one map tile unit (zoom 14, 4096 units
+  a tile) across it, are straightened onto it (diagonal walls stay), an inset of 150 mm as a
   negative buffer (the shape minus a band along every edge and a square on every corner, with
   `@turf/difference`; the largest part stays, parts narrower than 300 mm disappear), corners
   rounded to the lattice, and no offer when nothing is left, an edge falls under one grid step
