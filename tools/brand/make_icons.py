@@ -10,14 +10,34 @@ TOOLS = pathlib.Path(__file__).resolve().parent
 LIGHT = {"stroke": "#1d1d1d", "rest": "#cdeefd", "active": "#03a9f4", "aop": "1"}
 DARK = {"stroke": "#eeeeee", "rest": "#1f3a48", "active": "#03a9f4", "aop": "1"}
 MONO = {"stroke": "currentColor", "rest": "none", "active": "currentColor", "aop": "0.35"}
-TILE_LIGHT = {**LIGHT, "ground": "#f3efe6", "road": "#ffffff", "edge": "#e4ddcf"}
-TILE_DARK = {**DARK, "ground": "#1e2024", "road": "#34383e", "edge": "#2d3036"}
+TILE_LIGHT = {
+    **LIGHT, "ground": "#f2eee5", "road": "#faf8f4", "building": "#e2dacb", "edge": "#e4ddcf",
+}  # fmt: skip
+TILE_DARK = {
+    **DARK, "ground": "#1d1f23", "road": "#26292e", "building": "#2c2f36", "edge": "#2d3036",
+}  # fmt: skip
 
-LINES = [
-    (46, 72, 466, 67), (226, 213, 466, 217), (46, 273, 274, 269),
-    (294, 378, 466, 382), (46, 441, 342, 445), (72, 46, 67, 466),
-    (248, 46, 252, 294), (321, 191, 317, 466), (441, 46, 445, 404),
+# Straight base lines with a small hand-drawn offset per end: x1, y1, x2, y2, wobble1, wobble2.
+WALLS = [
+    (46, 70, 466, 70, (0, 2), (0, -3)),
+    (226, 215, 466, 215, (0, -2), (0, 2)),
+    (46, 270, 274, 270, (0, 3), (0, -1)),
+    (294, 380, 466, 380, (0, -2), (0, 2)),
+    (46, 442, 342, 442, (0, -1), (0, 3)),
+    (70, 46, 70, 466, (2, 0), (-3, 0)),
+    (250, 46, 250, 294, (-2, 0), (2, 0)),
+    (318, 191, 318, 466, (3, 0), (-1, 0)),
+    (442, 46, 442, 404, (-1, 0), (3, 0)),
 ]  # fmt: skip
+
+# Muted neighbour blocks and two roads: the tile reads as a map, the plan keeps the focus.
+MAP_GROUND = (
+    '<rect x="-20" y="150" width="104" height="190" fill="{building}"/>'
+    '<rect x="470" y="70" width="80" height="190" fill="{building}"/>'
+    '<rect x="70" y="472" width="200" height="80" fill="{building}"/>'
+    '<rect x="-6" y="424" width="524" height="30" fill="{road}"/>'
+    '<rect x="424" y="-6" width="30" height="524" fill="{road}"/>'
+)
 
 
 def plan(c: dict[str, str]) -> str:
@@ -31,22 +51,34 @@ def plan(c: dict[str, str]) -> str:
         f'fill="{c["active"]}" fill-opacity="{c["aop"]}"/>'
     )
     out.append(f'<g stroke="{c["stroke"]}" stroke-width="20" stroke-linecap="round" fill="none">')
-    out += [f'<line x1="{a}" y1="{b}" x2="{x}" y2="{y}"/>' for a, b, x, y in LINES]
+    out += [
+        f'<line x1="{x1 + a[0]}" y1="{y1 + a[1]}" x2="{x2 + b[0]}" y2="{y2 + b[1]}"/>'
+        for x1, y1, x2, y2, a, b in WALLS
+    ]
     out.append("</g>")
     return "\n".join(out)
 
 
 def svg(body: str) -> str:
-    head = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">'
-    return f"{head}\n{body}\n</svg>\n"
+    head = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" '
+        'role="img" aria-label="Spatial">'
+    )
+    return f"{head}\n<title>Spatial</title>\n{body}\n</svg>\n"
 
 
 def tile(c: dict[str, str]) -> str:
+    # Unique clip id per theme so two tiles inlined in one page cannot clash.
+    clip = f"tile-{c['ground'][1:]}"
     return svg(
-        f'<rect width="512" height="512" rx="96" fill="{c["ground"]}" '
-        f'stroke="{c["edge"]}" stroke-width="4"/>\n'
-        f'<rect x="34" y="452" width="444" height="34" fill="{c["road"]}"/>\n'
-        f'<g transform="translate(61 50) scale(0.76)">\n{plan(c)}\n</g>'
+        f'<defs><clipPath id="{clip}"><rect width="512" height="512" rx="96"/></clipPath></defs>\n'
+        f'<g clip-path="url(#{clip})">\n'
+        f'<rect width="512" height="512" fill="{c["ground"]}"/>\n'
+        f"{MAP_GROUND.format(**c)}\n"
+        "</g>\n"
+        f'<rect width="512" height="512" rx="96" fill="none" stroke="{c["edge"]}" '
+        'stroke-width="4"/>\n'
+        f'<g transform="translate(87 87) scale(0.66)">\n{plan(c)}\n</g>'
     )
 
 

@@ -1,4 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Spatial">
+<title>Spatial</title>
 <rect x="70" y="70" width="180" height="200" fill="none"/>
 <rect x="250" y="70" width="192" height="145" fill="none"/>
 <rect x="318" y="215" width="124" height="165" fill="none"/>

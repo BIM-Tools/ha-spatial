@@ -1,7 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-<rect width="512" height="512" rx="96" fill="#1e2024" stroke="#2d3036" stroke-width="4"/>
-<rect x="34" y="452" width="444" height="34" fill="#34383e"/>
-<g transform="translate(61 50) scale(0.76)">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Spatial">
+<title>Spatial</title>
+<defs><clipPath id="tile-1d1f23"><rect width="512" height="512" rx="96"/></clipPath></defs>
+<g clip-path="url(#tile-1d1f23)">
+<rect width="512" height="512" fill="#1d1f23"/>
+<rect x="-20" y="150" width="104" height="190" fill="#2c2f36"/><rect x="470" y="70" width="80" height="190" fill="#2c2f36"/><rect x="70" y="472" width="200" height="80" fill="#2c2f36"/><rect x="-6" y="424" width="524" height="30" fill="#26292e"/><rect x="424" y="-6" width="30" height="524" fill="#26292e"/>
+</g>
+<rect width="512" height="512" rx="96" fill="none" stroke="#2d3036" stroke-width="4"/>
+<g transform="translate(87 87) scale(0.66)">
 <rect x="70" y="70" width="180" height="200" fill="#1f3a48"/>
 <rect x="250" y="70" width="192" height="145" fill="#1f3a48"/>
 <rect x="318" y="215" width="124" height="165" fill="#1f3a48"/>
