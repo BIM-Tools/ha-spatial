@@ -43,7 +43,7 @@ prefix `docker` commands with `MSYS_NO_PATHCONV=1` and use `$(pwd -W)` for bind 
 
 Change these only through an issue that names the reason.
 
-| Area | `area_m2` is net: the axial polygon inset by half walls |
+| Area | Decision |
 | --- | --- |
 | Coordinates | WGS84 GeoJSON, the same world as Home Assistant zones |
 | Measurement | In the integration, in one fixed site frame (local tangent plane, exact WGS84 radii); never UTM, national grids, Mercator or screen space |
@@ -53,7 +53,7 @@ Change these only through an issue that names the reason.
 | Address search | The backend may call OpenStreetMap Nominatim only on an explicit search; country geocoders and authoritative outlines stay outside the integration; the server is the one option, default OpenStreetMap's public server |
 | Home location | The panel may offer the picked building's middle as Home Assistant's home; nothing is remembered; a move changes latitude and longitude only, through core config, and can be undone |
 | Units | Display follows Home Assistant's unit system; storage stays metric WGS84 |
-| Area | `area_m2` is net: the axial polygon inset by half walls, half a grid step (5 cm, 2 in) interior and 15 cm (3 in) along the outline |
+| Area | `area_m2` is net: the axial polygon inset by half walls |
 | Outdoor, facade | The outline is the exterior wall axis and a hard limit: an indoor room never extends beyond it; `is_external` means a room outside it (IFC `IsExternal`); `on_facade` is derived, with an optional override |
 | Building, sub-spaces | Home Assistant labels; no code |
 | Building name | Home Assistant's location name (`location_name` in core config); renaming the building in the panel renames the location; no own building name |
