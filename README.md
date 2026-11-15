@@ -127,7 +127,8 @@ uses to find your home during setup, and Spatial keeps nothing. To use your own 
 
 ## Help and feedback
 
-Spatial is young: the storage format can still change. Undo does not survive a reload.
+Spatial is young: the storage format can still change. Undo does not survive a reload; see
+[Known limits](https://github.com/BIM-Tools/ha-spatial/blob/main/docs/user-guide.md#known-limits).
 
 Ideas, questions and bugs are very welcome in
 [GitHub issues](https://github.com/BIM-Tools/ha-spatial/issues).

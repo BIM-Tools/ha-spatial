@@ -236,6 +236,6 @@ The panel does not edit these; tools and scripts set them through the
 - The map's buildings are about 0.4 m accurate, so check one length. The map outline is
   straightened and small steps under 0.5 m are merged; draw them back if they matter.
 - Undo covers this browser session only, and overwrites changes made elsewhere in the meantime.
-- After a reload, Clear floor and Start over can no longer be undone either. Restore a backup
-  instead, see [Remove](../README.md#remove).
+- After a reload, Clear floor and Start over can no longer be undone either. Restore a Home
+  Assistant backup instead: `.storage/spatial` is in every backup.
 - The floors in All lie evenly apart in floor order, whatever elevation a floor has.
