@@ -16,14 +16,15 @@ Using the panel and the card: [user guide](../docs/user-guide.md).
 | --- | --- |
 | Install, test, typecheck, build | `MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/frontend":/app -v "$(pwd -W)/custom_components":/custom_components -w /app node:24-alpine sh -c "npm ci && npm run typecheck && npm test && npm run build"` |
 | Build on every change | `docker compose up -d frontend` (runs `npm run watch`) |
-| Draw one room in a real browser (after a build) | `docker compose run --rm e2e; docker compose rm -sf homeassistant-e2e`, see `e2e/draw_room.py` |
+| Draw and resize rooms in a real browser (after a build) | `docker compose run --rm e2e; docker compose rm -sf homeassistant-e2e`, see `e2e/draw_room.py` |
 
 Package versions follow Home Assistant's frontend; to update them, see
 [tools](../tools/README.md).
 
 The build output is not in git. Run a build or the `frontend` service before opening the panel
 locally. On a pushed `v*` tag, `.github/workflows/release.yml` builds it, adds the
-licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and splaytree-ts), polylabel (with tinyqueue) and @mdi/js code and creates the release with `spatial.zip`, which HACS installs.
+licence of every bundled package (listed in that workflow) and creates the release with
+`spatial.zip`, which HACS installs.
 
 ## Architecture
 
@@ -50,18 +51,19 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
 | `src/room-editor.ts` | The space editor controller: the area strip, what the guide reads of the plan, the map's outline offered to the Building, undo and redo, saving each action, area creation and rename |
 | `src/side-controls.ts` | A handle on each side of the active axis rectangle, a length chip on one side per axis (`sideHandles` in `plan.ts` picks it) and a grip on the other: dragged, it stretches the side through the edge drag; tapped, it opens the length field. On an outline of another shape a length chip on every side that only drags |
 | `src/box-interaction.ts` | Pointer and keyboard drafting input on the map, snapped corners, moves, edge and corner drags, Alt to place freely, Space pan, draft preview |
-| `src/snap.ts` | The snap engine, pure and in lattice units: room corners, then room axis edges, then the outline, else the grid |
+| `src/snap.ts` | The snap engine, pure and in lattice units, per axis in tiers: room walls and corners, then the outline, then the axis lines through corners, then the map's building while there is no outline, else the grid |
 | `src/wall-stop.ts` | Where the outline and the rooms beside it stop a moved room or a stretched side, pure and on lattice integers: a walk over the lattice offsets of the path up to the first one where the outline reaches inside the shape or the shape overlaps a neighbour |
-| `src/snap-highlight.ts` | The map layer that lights up what a point snaps to: a dot on a corner, a line on an edge; and `distinctSources`, which lights each up once |
+| `src/snap-highlight.ts` | The map layer that lights up what a point snaps to, in the theme's accent colour: a dot on a corner, a line on an edge, a line from a far corner it lines up with; and `distinctSources`, which lights each up once |
+| `src/draft-labels.ts` | Where a draft's labels go on screen: each side's length outside its side, the area inside only when it fits |
 | `src/edge-drag.ts` | Edge and corner drag of an axis rectangle, or of the outline in any shape, pure and in lattice units: where the dragged edge or corner lands (a rectangle stopped at the outline and the neighbours, an outline corner free and snapped, an outline edge along its normal), which one a pointer grabs, and its cursor |
 | `src/area-strip.ts` | The strip of pills, Building first: order, next area, new area names, rename field, long press, arrow keys |
-| `src/history.ts` | Session undo and redo of footprint changes, and `clearChange`, the change that removes a floor's room shapes |
+| `src/history.ts` | Session undo and redo of footprint and site changes; `clearChange` removes a floor's room shapes, `startOverChange` every shape, the outline, bearing and origin |
 | `src/spatial-card.ts` | The card: wraps the panel element, without the header and tools; validates `colour_by`, and its editor (`getConfigForm`) offers `colour_by` only; loads the panel bundle when created |
 | `src/map-view.ts` | Pure helpers: map bearing, style URL, map tiles token, floor order, room framing |
 | `src/outline.ts` | The OSM building under or nearest a click, the bearing of its nearest wall, with turf, and the fields an Align pick writes |
 | `src/site-frame.ts` | Applies the site frame from `spatial/site`: lon/lat to lattice units and back |
 | `src/plan.ts` | Boxes, side lengths, resizing and moving on the site lattice, and the outline copied from a map building; joining with turf |
-| `src/units.ts` | Lengths, map distances and areas shown in Home Assistant's unit system and number format (metric to two decimals, one for the outline size the guide offers, US feet and inches with primes), and typed lengths read back in metres |
+| `src/units.ts` | Lengths, map distances and areas shown in Home Assistant's unit system and number format (metric to two decimals, one for the outline size the guide offers, US feet and inches with primes), typed lengths read back in metres, and the toast text of a refused gesture (`refusalMessage`) or save (`saveFailure`) |
 | `test/` | Unit tests (vitest) |
 
 ### Serving
@@ -98,10 +100,12 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
   draft's ring may start at another corner, the chips counting the lengths and the held edge's handle primary. The
   room labels under the draft hide, as the draft shows the area, and undo, redo and Delete are
   ignored, as the save is made against the room as grabbed.
-- Every box, move, resize, removal, floor clear, undo and redo is one save, one at a time:
-  `spatial/site/update` with `outline` for the building, else one `spatial/area/update_geometries`
-  batch; boxes, moves, resizes, removals and floor clears are recorded in the session history. A
-  floor clear's toast offers Undo, which is the editor's own undo. A refused save reloads the rooms and
+- Every box, move, resize, removal, floor clear, start over, undo and redo is one save, one at a
+  time: `spatial/site/update` with `outline` for the building, a change with site fields (start
+  over) as one `spatial/area/update_geometries` with `site`, else one
+  `spatial/area/update_geometries` batch; all are recorded in the session history. No expected revs
+  are sent, so the last writer wins. The toasts of a floor clear and a start over offer Undo, which
+  is the editor's own undo. A refused save reloads the rooms and
   keeps the history position; its toast is a `hass-notification` with `duration: -1`, closed by
   the next save that succeeds. Side lengths are MapLibre Markers holding a native text field.
 - Align sends `bearing_deg`: the direction of the OSM building's outer edge nearest the click, with
@@ -109,7 +113,8 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
   that edge's left end in the aligned view. Once the site has a bearing, Align leaves the toolbar
   and the header menu's Change alignment starts the same tool.
 - The picked building: one polygon held in the panel, never stored. A click picks it before Align,
-  and again in Select while the map's outline is offered; the Align click picks the clicked wall's
+  and again until an outline is stored (in Draw only inside another building, before the first
+  corner); the Align click picks the clicked wall's
   building. `nearestBuilding` in `outline.ts` takes the building under the click, else the one whose
   edge is nearest within 8 px (mouse) or 22 px (touch). While a building can be picked, the one
   under the pointer is lit, read at most once per animation frame; below zoom 16 nothing is lit and
@@ -121,11 +126,13 @@ licences of the bundled MapLibre, Lit, turf, polyclip-ts (with bignumber.js and 
   negative buffer (the shape minus a band along every edge and a square on every corner, with
   `@turf/difference`; the largest part stays, parts narrower than 300 mm disappear), corners
   rounded to the lattice, and no offer when nothing is left, an edge falls under one grid step
-  or the ring touches itself. In the length check after Use outline, as always in Select, a shape that
-  is no axis rectangle gets a length chip on every side (`showSideControls` in `side-controls.ts`). While the Building pill
-  is active without an outline, the editor shows it dashed with the guide line's question and adds
-  it as the outline to the snap candidates of a Building gesture only. Use outline saves it like a
-  drawn box, in one write and one undo step; nothing about the map building is stored.
+  or the ring touches itself. In the length check after Use outline or a closed ring, as always in
+  Select, a shape that is no axis rectangle gets a length chip on every side (`showSideControls` in
+  `side-controls.ts`). While the Building pill is active without an outline, the editor shows it
+  dashed with the guide line's question; otherwise, until an outline is stored, it shows dotted.
+  Either way every gesture snaps to it in the tier after the axis lines, and it never stops a move.
+  Use outline saves it like a drawn box, in one write and one undo step; nothing about the map
+  building is stored.
 - Without a home location in Home Assistant (unset or 0, 0) and with nothing drawn, the panel
   starts on MapLibre's globe with the search card open. A picked result fits the map to its box,
   else flies to its point at building zoom, and closes the card. The query lives only in the

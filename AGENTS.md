@@ -17,7 +17,7 @@ someone and understood by the people who install it.
 ## Commands
 
 Home Assistant runs on Linux only, so everything runs in Docker. In Git Bash on Windows,
-prefix `docker` commands with `MSYS_NO_PATHCONV=1`.
+prefix `docker` commands with `MSYS_NO_PATHCONV=1` and use `$(pwd -W)` instead of `$PWD`.
 
 | Task | Command |
 | --- | --- |
@@ -29,11 +29,11 @@ prefix `docker` commands with `MSYS_NO_PATHCONV=1`.
 | Coverage (fails under 99%) | `docker compose run --rm test pytest --cov=custom_components.spatial` |
 | Type check (mypy strict) | `docker compose run --rm test mypy` |
 | Lint and format | `docker compose run --rm test sh -c "ruff format . && ruff check ."` |
-| hassfest | `docker run --rm -v "$(pwd -W)":/github/workspace:ro ghcr.io/home-assistant/hassfest` |
+| hassfest | `docker run --rm --platform linux/amd64 -v "$PWD":/github/workspace:ro ghcr.io/home-assistant/hassfest` |
 | Panel build, rebuilt on change | `docker compose up -d frontend` |
 | Real Home Assistant | `docker compose up homeassistant` |
 | Debug in VS Code | `debugpy:` in `.ha-config/configuration.yaml`, then launch config "Attach to Home Assistant" (starts the test server first) or "Restart and attach to Home Assistant"; the `frontend` service adds panel source maps. Tasks "Start test server" and "Restart test server" do the same without the debugger |
-| Frontend (typecheck, test, build) | `MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/frontend":/app -v "$(pwd -W)/custom_components":/custom_components -w /app node:24-alpine sh -c "npm ci && npm run typecheck && npm test && npm run build"` |
+| Frontend (typecheck, test, build) | `docker run --rm -v "$PWD/frontend":/app -v "$PWD/custom_components":/custom_components -w /app node:24-alpine sh -c "npm ci && npm run typecheck && npm test && npm run build"` |
 | E2E smoke test (build the panel first) | `docker compose run --rm e2e; docker compose rm -sf homeassistant-e2e` |
 | Release | `git tag -a vX.Y.Z -m "<release notes>" && git push origin vX.Y.Z`; the workflow builds `spatial.zip` and publishes the full release with it |
 | Sync frontend versions | `python tools/sync_frontend_versions.py` (`--check` only compares) |
@@ -215,8 +215,9 @@ What is and is not checked automatically:
 - On every push and pull request to `main`: `CI Tests` (tests, line coverage with a 99% floor,
   mypy strict), `Validate` (hassfest, HACS, ruff, no-`CLAUDE.md` check) and `Frontend` (tsc,
   vitest, a build, `sync_frontend_versions.py --check`).
-- `E2E` runs on the same triggers but is not a required check yet: it covers one room drawn with
-  the mouse in the panel of a fresh Home Assistant, and nothing else of the panel.
+- `E2E` runs on the same triggers but is not a required check yet: it covers two rooms drawn
+  with the mouse in the panel of a fresh Home Assistant, the second snapped to the first, and one
+  edge and one corner drag, and nothing else of the panel.
 - On a pushed `v*` tag: `Release` builds the panel and `spatial.zip` (the integration with the
   bundle and licences, version taken from the tag), then creates the release with the zip and
   the tag message as notes. The release-event version ran for v0.1.0 and its zip was checked;
@@ -248,6 +249,10 @@ What is and is not checked automatically:
 - The frontend's `dev` branch is ahead of what Home Assistant ships; read the release tag.
 - The `buildings` layer in Home Assistant's map tiles is one MultiPolygon without attributes
   per tile; each part is one building.
+- Home Assistant's map tiles cut buildings at the tile edge plus a buffer of 8 of 4096 units, so
+  the parts of one building overlap across a seam.
+- MapLibre's rendered building features carry the zoom of the tiles it renders at the view's
+  zoom (z18 at the panel's start), not the source's maximum zoom 14.
 - Home Assistant's shipped map style uses root-relative sprite and glyph URLs; MapLibre
   needs them absolute.
 - hassfest needs the repository root mounted, not the integration folder.
