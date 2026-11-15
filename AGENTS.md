@@ -17,7 +17,8 @@ someone and understood by the people who install it.
 ## Commands
 
 Home Assistant runs on Linux only, so everything runs in Docker. In Git Bash on Windows,
-prefix `docker` commands with `MSYS_NO_PATHCONV=1` and use `$(pwd -W)` instead of `$PWD`.
+prefix `docker` commands with `MSYS_NO_PATHCONV=1` and replace `$(pwd)` with `$(pwd -W)`, because
+Git Bash rewrites Unix paths in their arguments.
 
 | Task | Command |
 | --- | --- |
@@ -29,11 +30,11 @@ prefix `docker` commands with `MSYS_NO_PATHCONV=1` and use `$(pwd -W)` instead o
 | Coverage (fails under 99%) | `docker compose run --rm test pytest --cov=custom_components.spatial` |
 | Type check (mypy strict) | `docker compose run --rm test mypy` |
 | Lint and format | `docker compose run --rm test sh -c "ruff format . && ruff check ."` |
-| hassfest | `docker run --rm --platform linux/amd64 -v "$PWD":/github/workspace:ro ghcr.io/home-assistant/hassfest` |
+| hassfest | `docker run --rm --platform linux/amd64 -v "$(pwd)":/github/workspace:ro ghcr.io/home-assistant/hassfest` |
 | Panel build, rebuilt on change | `docker compose up -d frontend` |
 | Real Home Assistant | `docker compose up homeassistant` |
 | Debug in VS Code | `debugpy:` in `.ha-config/configuration.yaml`, then launch config "Attach to Home Assistant" (starts the test server first) or "Restart and attach to Home Assistant"; the `frontend` service adds panel source maps. Tasks "Start test server" and "Restart test server" do the same without the debugger |
-| Frontend (typecheck, test, build) | `docker run --rm -v "$PWD/frontend":/app -v "$PWD/custom_components":/custom_components -w /app node:24-alpine sh -c "npm ci && npm run typecheck && npm test && npm run build"` |
+| Frontend (typecheck, test, build) | `docker run --rm -v "$(pwd)/frontend":/app -v "$(pwd)/custom_components":/custom_components -w /app node:24-alpine sh -c "npm ci && npm run typecheck && npm test && npm run build"` |
 | E2E smoke test (build the panel first) | `docker compose run --rm e2e; docker compose rm -sf homeassistant-e2e` |
 | Release | `git tag -a vX.Y.Z -m "<release notes>" && git push origin vX.Y.Z`; the workflow builds `spatial.zip` and publishes the full release with it |
 | Sync frontend versions | `python tools/sync_frontend_versions.py` (`--check` only compares) |
@@ -46,21 +47,21 @@ Change these only through an issue that names the reason.
 | Area | Decision |
 | --- | --- |
 | Coordinates | WGS84 GeoJSON, the same world as Home Assistant zones |
-| Measurement | In the integration, in one fixed site frame: the local tangent plane at the origin, along the bearing, with exact WGS84 radii; never UTM, national grids, Mercator or screen space |
+| Measurement | In the integration, in one fixed site frame (local tangent plane, exact WGS84 radii); never UTM, national grids, Mercator or screen space |
 | Footprint | One area has at most one `Polygon`, inner rings (holes) allowed; no MultiPolygon, its parts cannot carry identity |
 | Rooms across floors | `floors_up` per area: the Home Assistant floor is the main and lowest floor; the room occupies the floors above it, contiguous |
 | Adjacency | Derived from shared edges, outer and inner rings, on every floor a room occupies; room edges are wall axes, compared exactly on the lattice; never stored |
-| Address search | The backend may call OpenStreetMap Nominatim, only on an explicit search, with an identifying user agent and its rate limit; country geocoders and authoritative outlines stay outside the integration; the server is the one setting in the options form (Configure), default OpenStreetMap's public server |
-| Home location | After Align, and after picking another building before the outline is stored, the panel offers the picked building's middle as Home Assistant's home when there is none or it lies more than 25 m away; nothing is remembered; a move changes latitude and longitude only, through core config, and can be undone |
+| Address search | The backend may call OpenStreetMap Nominatim only on an explicit search; country geocoders and authoritative outlines stay outside the integration; the server is the one option, default OpenStreetMap's public server |
+| Home location | The panel may offer the picked building's middle as Home Assistant's home; nothing is remembered; a move changes latitude and longitude only, through core config, and can be undone |
 | Units | Display follows Home Assistant's unit system; storage stays metric WGS84 |
-| Area | `area_m2` is net: the axial polygon inset by half walls, half a grid step (5 cm, 2 in) interior and 15 cm (3 in) along the outline |
-| Outdoor, facade | The outline is the exterior wall axis and a hard limit: an indoor room never extends beyond it; `is_external` means a room outside it (IFC `IsExternal`); `on_facade` is derived from sharing the outline, with an optional override |
+| Area | `area_m2` is net: the axial polygon inset by half walls |
+| Outdoor, facade | The outline is the exterior wall axis and a hard limit: an indoor room never extends beyond it; `is_external` means a room outside it (IFC `IsExternal`); `on_facade` is derived, with an optional override |
 | Building, sub-spaces | Home Assistant labels; no code |
 | Building name | Home Assistant's location name (`location_name` in core config); renaming the building in the panel renames the location; no own building name |
-| Site anchor | One direction per installation; the centre follows all footprints, else the outline; aligns views only, so stored geometry never moves with it, except through the explicit, confirmed and undoable "Change alignment" (rotation reduced to a right angle, then snapped to the grid, in one write) |
-| Site grid | Stored as written in WGS84, read on a lattice of a quarter drawing grid step (2.5 cm or 1 in, from Home Assistant's unit system) in the frame of the site origin and bearing; drawing snaps to 10 cm (4 in); the integration publishes the frame in `spatial/site` and the panel draws in it; the first Align on an empty plan sets the origin to the left end of the picked wall |
+| Site anchor | One direction per installation; it aligns views only, so stored geometry never moves with it, except through the explicit, confirmed and undoable "Change alignment" |
+| Site grid | Stored as written in WGS84, read on a lattice in the frame of the site origin and bearing; the integration publishes the frame in `spatial/site` and the panel draws in it |
 | Dependencies | Pure Python in the integration; no shapely or other compiled packages |
-| Finding the building | OSM buildings in Home Assistant's map tiles set the axis, act as an unstored snap guide while the outline is drawn, and can be copied once as the outline on an explicit choice (its own shape: walls within 3 degrees of a site axis, or at most one map tile unit across it, straightened onto it, 150 mm inward, on the lattice; diagonal walls stay; steps under 0.5 m between near-parallel walls are merged into the longer wall first); nothing about the map building is stored |
+| Finding the building | OSM buildings in Home Assistant's map tiles set the axis, act as an unstored snap guide, and can be copied once as the outline on an explicit choice; nothing about the map building is stored |
 | Frontend packages | Packages shared with Home Assistant's frontend use the exact version that frontend ships |
 | Domain | `spatial` |
 
@@ -82,12 +83,9 @@ way".
 
 ## Single implementations
 
-- All measurement geometry is in `custom_components/spatial/geometry.py`; the panel applies the frame
-  the integration publishes (`frontend/src/site-frame.ts`) and does its drawing geometry on lattice
-  integers in `frontend/src/plan.ts`, with turf only to join boxes, snapping in `snap.ts` (lit by
-  `snap-highlight.ts`), the stop at the outline and the neighbours in `wall-stop.ts` and edge and corner drags in `edge-drag.ts`;
-  the Align pick is in `frontend/src/outline.ts`; the placement of length chips and names on screen is in
-  `frontend/src/draft-labels.ts`.
+- All measurement geometry is in `custom_components/spatial/geometry.py`; the panel applies the
+  frame the integration publishes and does its drawing geometry on lattice integers; one module
+  per rule. The files are listed in the [frontend README](frontend/README.md#files).
 - Tools, bridges and frontends use only the websocket API; nothing else reads
   `.storage/spatial` or imports the integration.
 - Home Assistant owns areas and floors. Data is keyed by `area_id` and `floor_id`; names,
@@ -192,19 +190,15 @@ The panel and the card should look as if they were always part of Home Assistant
 Run on every pull request before merge, item by item:
 
 1. One change; no unrelated edits, screenshots or polish.
-2. Tests follow "Tests": a bug fix has a test that failed before it; no rule tested twice or
-   through internals; tests of replaced code are gone.
+2. "Tests" holds; tests of replaced code are gone.
 3. Every changed export, callback interface, command schema or result shape has a reason in the
    body; callers, READMEs and `tools/` are updated.
 4. New logic is a pure function or sits in one; no new class state where a parameter would do.
-5. "Reuse before writing" and "Single implementations" hold; no second implementation of a rule.
-6. Every write command validates its input and requires admin; unknown references return
-   `not_found`, bad input `invalid_format`.
+5. "Reuse before writing" and "Single implementations" hold.
+6. "Non-negotiables" and "Home Assistant conventions" hold for every write command.
 7. No real location, address, footprint, token or search in code, fixtures, images or text.
-8. Each code file has its why header; names carry the meaning; comments only for a why; no em or
-   en dashes.
-9. UI changes use Home Assistant's theme and always-loaded components, are checked in light and
-   dark, and update `docs/user-guide.md`.
+8. "Writing" holds.
+9. "UI design" holds, and `docs/user-guide.md` is updated.
 10. Title is a conventional commit of at most 72 characters; body is plain text with only the
     why; no AI attribution; required checks green; threads resolved.
 
@@ -220,8 +214,7 @@ What is and is not checked automatically:
   edge and one corner drag, and nothing else of the panel.
 - On a pushed `v*` tag: `Release` builds the panel and `spatial.zip` (the integration with the
   bundle and licences, version taken from the tag), then creates the release with the zip and
-  the tag message as notes. The release-event version ran for v0.1.0 and its zip was checked;
-  the tag-push version is untested until the next release, check that release then.
+  the tag message as notes. The tag-push path has not run yet; check the next release.
 - `main` is protected by a ruleset: pull request required, review threads resolved, squash
   merge only, checks `test`, `hassfest`, `ruff`, `agents-file` and `hacs` required and up to
   date with `main`, no force pushes or deletion.
@@ -231,13 +224,11 @@ What is and is not checked automatically:
   by covered lines.
 - `tools/sync_frontend_versions.py` has unit tests; `tools/import_geojson.py` has none, verify
   changes to it against a real Home Assistant.
-- Ruff reports `EXE002` on every file through the Windows bind mount; it is an artefact of the
-  mount and does not occur on Linux.
 
 ## Gotchas
 
-- Git Bash rewrites Unix paths in `docker` arguments. Use `MSYS_NO_PATHCONV=1` and
-  `$(pwd -W)` for bind mounts.
+- Ruff reports `EXE002` on every file through the Windows bind mount; an artefact of the mount,
+  not on Linux.
 - Home Assistant does not run on Windows (`os.fchmod` in storage writes).
 - Onboarding creates default areas (Living Room, Kitchen, Bedroom). Registries compare names
   after `normalize_name` (casefold, spaces removed); match names the same way.
