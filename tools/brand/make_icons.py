@@ -1,4 +1,4 @@
-"""Writes all brand icon variants from one plan geometry so they never drift."""
+"""Keeps every brand icon variant from drifting by writing them all from one plan geometry."""
 
 import pathlib
 import subprocess
@@ -9,7 +9,6 @@ TOOLS = pathlib.Path(__file__).resolve().parent
 
 LIGHT = {"stroke": "#1d1d1d", "rest": "#cdeefd", "active": "#03a9f4", "aop": "1"}
 DARK = {"stroke": "#eeeeee", "rest": "#1f3a48", "active": "#03a9f4", "aop": "1"}
-MONO = {"stroke": "currentColor", "rest": "none", "active": "currentColor", "aop": "0.35"}
 TILE_LIGHT = {
     **LIGHT, "ground": "#f2eee5", "road": "#faf8f4", "building": "#e2dacb", "edge": "#e4ddcf",
 }  # fmt: skip
@@ -17,7 +16,6 @@ TILE_DARK = {
     **DARK, "ground": "#1d1f23", "road": "#26292e", "building": "#2c2f36", "edge": "#2d3036",
 }  # fmt: skip
 
-# Straight base lines with a small hand-drawn offset per end: x1, y1, x2, y2, wobble1, wobble2.
 WALLS = [
     (46, 70, 466, 70, (0, 2), (0, -3)),
     (226, 215, 466, 215, (0, -2), (0, 2)),
@@ -30,7 +28,6 @@ WALLS = [
     (442, 46, 442, 404, (-1, 0), (3, 0)),
 ]  # fmt: skip
 
-# Muted neighbour blocks and two roads: the tile reads as a map, the plan keeps the focus.
 MAP_GROUND = (
     '<rect x="-20" y="150" width="104" height="190" fill="{building}"/>'
     '<rect x="470" y="70" width="80" height="190" fill="{building}"/>'
@@ -95,5 +92,3 @@ for prefix, colours in (("", LIGHT), ("dark_", DARK)):
         png(svg(plan(colours)), BRAND / f"{prefix}icon{suffix}.png", size)
 for prefix, colours in (("", TILE_LIGHT), ("dark_", TILE_DARK)):
     (TOOLS / f"{prefix}tile.svg").write_text(tile(colours))
-    png(tile(colours), TOOLS / f"{prefix}tile.png", 512)
-(TOOLS / "icon_mono.svg").write_text(svg(plan(MONO)))
