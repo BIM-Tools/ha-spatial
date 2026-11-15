@@ -17,7 +17,8 @@ someone and understood by the people who install it.
 ## Commands
 
 Home Assistant runs on Linux only, so everything runs in Docker. In Git Bash on Windows,
-prefix `docker` commands with `MSYS_NO_PATHCONV=1` and use `$(pwd -W)` for bind mounts.
+prefix `docker` commands with `MSYS_NO_PATHCONV=1` and replace `$(pwd)` with `$(pwd -W)`, because
+Git Bash rewrites Unix paths in their arguments.
 
 | Task | Command |
 | --- | --- |
@@ -194,7 +195,7 @@ Run on every pull request before merge, item by item:
    body; callers, READMEs and `tools/` are updated.
 4. New logic is a pure function or sits in one; no new class state where a parameter would do.
 5. "Reuse before writing" and "Single implementations" hold.
-6. "Home Assistant conventions" hold for every write command.
+6. "Non-negotiables" and "Home Assistant conventions" hold for every write command.
 7. No real location, address, footprint, token or search in code, fixtures, images or text.
 8. "Writing" holds.
 9. "UI design" holds, and `docs/user-guide.md` is updated.
@@ -213,7 +214,7 @@ What is and is not checked automatically:
   edge and one corner drag, and nothing else of the panel.
 - On a pushed `v*` tag: `Release` builds the panel and `spatial.zip` (the integration with the
   bundle and licences, version taken from the tag), then creates the release with the zip and
-  the tag message as notes.
+  the tag message as notes. The tag-push path has not run yet; check the next release.
 - `main` is protected by a ruleset: pull request required, review threads resolved, squash
   merge only, checks `test`, `hassfest`, `ruff`, `agents-file` and `hacs` required and up to
   date with `main`, no force pushes or deletion.
