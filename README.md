@@ -25,8 +25,7 @@ the house: 3D in its simplest form.
 
 ![All floors stacked above Home Assistant's map, seen from the front corner of the house](https://raw.githubusercontent.com/BIM-Tools/ha-spatial/main/docs/images/all.png)
 
-- **Derived.** Room sizes and neighbours are computed from the shapes. Areas and floors stay
-  Home Assistant's: rename one and the plan follows.
+- **Derived.** Sizes and neighbours are computed; areas and floors stay Home Assistant's.
 - **A floor plan card.** One floor or all floors stacked. On one floor, rooms can be coloured
   by light or temperature.
 - **Local.** Stored in `.storage/spatial`, included in every backup.
@@ -128,9 +127,8 @@ uses to find your home during setup, and Spatial keeps nothing. To use your own 
 
 ## Help and feedback
 
-Spatial is young: the storage format can still change, and the websocket API is versioned
-([compatibility](https://github.com/BIM-Tools/ha-spatial/blob/main/custom_components/spatial/README.md#compatibility)). Undo does not survive a
-reload; see [Known limits](https://github.com/BIM-Tools/ha-spatial/blob/main/docs/user-guide.md#known-limits).
+Spatial is young: the storage format can still change. Undo does not survive a reload; see
+[Known limits](https://github.com/BIM-Tools/ha-spatial/blob/main/docs/user-guide.md#known-limits).
 
 Ideas, questions and bugs are very welcome in
 [GitHub issues](https://github.com/BIM-Tools/ha-spatial/issues).
