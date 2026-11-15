@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Spatial">
+<title>Spatial</title>
+<defs><clipPath id="tile-1d1f23"><rect width="512" height="512" rx="96"/></clipPath></defs>
+<g clip-path="url(#tile-1d1f23)">
+<rect width="512" height="512" fill="#1d1f23"/>
+<rect x="-20" y="150" width="104" height="190" fill="#2c2f36"/><rect x="470" y="70" width="80" height="190" fill="#2c2f36"/><rect x="70" y="472" width="200" height="80" fill="#2c2f36"/><rect x="-6" y="424" width="524" height="30" fill="#26292e"/><rect x="424" y="-6" width="30" height="524" fill="#26292e"/>
+</g>
+<rect width="512" height="512" rx="96" fill="none" stroke="#2d3036" stroke-width="4"/>
+<g transform="translate(87 87) scale(0.66)">
+<rect x="70" y="70" width="180" height="200" fill="#1f3a48"/>
+<rect x="250" y="70" width="192" height="145" fill="#1f3a48"/>
+<rect x="318" y="215" width="124" height="165" fill="#1f3a48"/>
+<polygon points="250,215 318,215 318,442 70,442 70,270 250,270" fill="#03a9f4" fill-opacity="1"/>
+<g stroke="#eeeeee" stroke-width="20" stroke-linecap="round" fill="none">
+<line x1="46" y1="72" x2="466" y2="67"/>
+<line x1="226" y1="213" x2="466" y2="217"/>
+<line x1="46" y1="273" x2="274" y2="269"/>
+<line x1="294" y1="378" x2="466" y2="382"/>
+<line x1="46" y1="441" x2="342" y2="445"/>
+<line x1="72" y1="46" x2="67" y2="466"/>
+<line x1="248" y1="46" x2="252" y2="294"/>
+<line x1="321" y1="191" x2="317" y2="466"/>
+<line x1="441" y1="46" x2="445" y2="404"/>
+</g>
+</g>
+</svg>
